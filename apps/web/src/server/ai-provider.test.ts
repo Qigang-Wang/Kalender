@@ -15,7 +15,7 @@ async function main() {
   const validation = await import("./ai-provider-validation");
   const adapter = await import("./openai-compatible-ai");
   const backupService = await import("./backup-service");
-  const { closeDatabaseForRestore, getDatabase } = await import("./database");
+  const { closeDatabaseForRestore, getDatabase, LATEST_DATABASE_SCHEMA_VERSION } = await import("./database");
   const requests: Array<{ readonly url: string; readonly authorization?: string }> = [];
   const server = createServer((request, response) => {
     requests.push({ url: request.url ?? "", authorization: request.headers.authorization });
@@ -110,6 +110,7 @@ async function main() {
     assert((await repository.listAiFeatureBindings()).length === validation.aiFeatureKeys.length, "all stable feature keys are returned");
 
     const backup = await backupService.exportWorkspaceBackup();
+    assert(backup.manifest.schemaVersion === LATEST_DATABASE_SCHEMA_VERSION, "backup records the current database schema version");
     assert(backup.manifest.counts.ai_providers === 1, "backup manifest includes AI providers");
     assert(backup.manifest.counts.ai_provider_credentials === 1, "backup manifest includes encrypted AI credentials");
     assert(backup.manifest.counts.ai_models === 1, "backup manifest includes AI models");

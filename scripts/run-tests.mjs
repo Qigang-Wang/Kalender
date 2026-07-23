@@ -4,6 +4,7 @@ import os from "node:os";
 const testScripts = [
   "test:core",
   "test:storage",
+  "test:database-migrations",
   "test:imap-sync-state",
   "test:ai-provider",
   "test:ai-chat",

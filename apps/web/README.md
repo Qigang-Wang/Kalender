@@ -34,6 +34,7 @@ npm run dev
 ## 本地数据与密钥
 
 - 开发版使用 PGlite 将 PostgreSQL 数据写入项目根目录的 `.data/postgres`；
+- Schema 使用事务化版本迁移；升级旧数据库前自动创建 PGlite 恢复快照，可用 `npm run db:migrations:status` 检查状态；
 - 邮箱密码使用 AES-256-GCM 加密，首次保存账户时会生成 `.data/master.key`；
 - `.data` 已加入 `.gitignore`，不得提交到版本库；
 - 备份邮箱账户时必须同时安全备份数据库和 `master.key`，丢失密钥后无法解密已保存凭据；
