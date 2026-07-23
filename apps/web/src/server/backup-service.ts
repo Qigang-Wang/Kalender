@@ -6,12 +6,16 @@ import { PGlite } from "@electric-sql/pglite";
 import JSZip from "jszip";
 
 import { resetCredentialKeyCache } from "./credential-crypto";
-import { closeDatabaseForRestore, dataRoot, getDatabase } from "./database";
+import {
+  closeDatabaseForRestore,
+  dataRoot,
+  getDatabase,
+  LATEST_DATABASE_SCHEMA_VERSION,
+} from "./database";
 import { ensureMailSyncScheduler, stopMailSyncScheduler } from "./mail-sync-scheduler";
 
 const BACKUP_FORMAT = "kalender-workspace-backup";
 const BACKUP_VERSION = 1;
-const SCHEMA_VERSION = 1;
 export const MAX_BACKUP_BYTES = 512 * 1024 * 1024;
 
 const COUNTED_TABLES = [
@@ -51,7 +55,7 @@ type BackupKeySource = "file" | "environment" | "none";
 export interface BackupManifest {
   readonly format: typeof BACKUP_FORMAT;
   readonly backupVersion: typeof BACKUP_VERSION;
-  readonly schemaVersion: typeof SCHEMA_VERSION;
+  readonly schemaVersion: number;
   readonly appVersion: string;
   readonly createdAt: string;
   readonly databaseEngine: "pglite";
@@ -170,7 +174,7 @@ async function createWorkspaceBackup(database: PGlite, root: string): Promise<Wo
   const manifest: BackupManifest = {
     format: BACKUP_FORMAT,
     backupVersion: BACKUP_VERSION,
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: LATEST_DATABASE_SCHEMA_VERSION,
     appVersion: "0.1.0",
     createdAt,
     databaseEngine: "pglite",
@@ -436,6 +440,12 @@ function parseManifest(value: string): BackupManifest {
   }
   if (manifest.databaseArchive !== "database.tgz" || manifest.databaseEngine !== "pglite") {
     throw new BackupError("备份数据库格式无效");
+  }
+  if (!Number.isInteger(manifest.schemaVersion) || (manifest.schemaVersion ?? 0) < 1) {
+    throw new BackupError("备份数据库版本无效");
+  }
+  if (manifest.schemaVersion! > LATEST_DATABASE_SCHEMA_VERSION) {
+    throw new BackupError("该备份来自更新版本的 Kalender，请先升级应用");
   }
   if (!manifest.counts || typeof manifest.counts !== "object" || typeof manifest.createdAt !== "string") {
     throw new BackupError("备份清单不完整");

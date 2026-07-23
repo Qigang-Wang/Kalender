@@ -1,7 +1,15 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { PGlite } from "@electric-sql/pglite";
+
+import {
+  getDatabaseMigrationStatus as inspectDatabaseMigrationStatus,
+  runDatabaseMigrations,
+  type DatabaseMigration,
+  type DatabaseMigrationContext,
+  type DatabaseMigrationStatus,
+} from "./database-migrations";
 
 declare global {
   var kalenderDatabase: Promise<PGlite> | undefined;
@@ -37,8 +45,7 @@ export async function closeDatabaseForRestore(): Promise<void> {
   globalThis.kalenderDatabaseMigrations = undefined;
 }
 
-async function ensureLatestSchema(database: PGlite): Promise<void> {
-  await database.exec(`
+const FEATURE_SCHEMA_SQL = String.raw`
     CREATE TABLE IF NOT EXISTS exchange_connections (
       id text PRIMARY KEY,
       display_name text NOT NULL,
@@ -285,14 +292,9 @@ async function ensureLatestSchema(database: PGlite): Promise<void> {
              'task', task_id, 'calendar', calendar_event_id, 'scheduled'
         FROM task_time_blocks
       ON CONFLICT (source_kind, source_id, target_kind, target_id, relation) DO NOTHING;
-  `);
-}
+`;
 
-async function initializeDatabase(): Promise<PGlite> {
-  const root = dataRoot();
-  await mkdir(root, { recursive: true });
-  const database = await PGlite.create(path.join(root, "postgres"));
-  await database.exec(`
+const INITIAL_SCHEMA_SQL = String.raw`
     CREATE TABLE IF NOT EXISTS accounts (
       id text PRIMARY KEY,
       provider_id text NOT NULL,
@@ -421,8 +423,6 @@ async function initializeDatabase(): Promise<PGlite> {
       last_uid integer NOT NULL DEFAULT 0,
       backfill_before_uid integer,
       initial_complete boolean NOT NULL DEFAULT false,
-      reconcile_before_uid integer,
-      last_deep_reconcile_at timestamptz,
       updated_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (account_id, provider_folder_id)
     );
@@ -617,10 +617,6 @@ async function initializeDatabase(): Promise<PGlite> {
       ADD COLUMN IF NOT EXISTS backfill_before_uid integer;
     ALTER TABLE sync_cursors
       ADD COLUMN IF NOT EXISTS initial_complete boolean NOT NULL DEFAULT false;
-    ALTER TABLE sync_cursors
-      ADD COLUMN IF NOT EXISTS reconcile_before_uid integer;
-    ALTER TABLE sync_cursors
-      ADD COLUMN IF NOT EXISTS last_deep_reconcile_at timestamptz;
     ALTER TABLE mail_messages
       ADD COLUMN IF NOT EXISTS body_loaded_at timestamptz;
     ALTER TABLE mail_messages
@@ -629,6 +625,72 @@ async function initializeDatabase(): Promise<PGlite> {
       ADD COLUMN IF NOT EXISTS sort_order integer NOT NULL DEFAULT 0;
     ALTER TABLE mail_folders
       ADD COLUMN IF NOT EXISTS manual_sort_order integer;
-  `);
-  return database;
+`;
+
+const SYNC_STABILITY_SCHEMA_SQL = String.raw`
+  ALTER TABLE sync_cursors
+    ADD COLUMN IF NOT EXISTS reconcile_before_uid integer;
+  ALTER TABLE sync_cursors
+    ADD COLUMN IF NOT EXISTS last_deep_reconcile_at timestamptz;
+`;
+
+export const DATABASE_MIGRATIONS = [
+  { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
+  { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
+  { version: 3, name: "mail-sync-deep-reconciliation", sql: SYNC_STABILITY_SCHEMA_SQL },
+] as const satisfies readonly DatabaseMigration[];
+
+export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;
+
+export async function getSchemaMigrationStatus(): Promise<DatabaseMigrationStatus> {
+  return inspectDatabaseMigrationStatus(await getDatabase(), DATABASE_MIGRATIONS);
+}
+
+async function ensureLatestSchema(database: PGlite): Promise<void> {
+  await runDatabaseMigrations(database, DATABASE_MIGRATIONS, {
+    beforeMigrate: async (context) => createMigrationRecoveryPoint(database, context),
+  });
+}
+
+async function createMigrationRecoveryPoint(
+  database: PGlite,
+  context: DatabaseMigrationContext,
+): Promise<void> {
+  if (!context.hadExistingSchema) return;
+  const createdAt = new Date().toISOString();
+  const stamp = createdAt.replace(/[:.]/g, "-");
+  const directory = path.join(dataRoot(), "automatic-backups");
+  const basename = `pre-migration-v${context.currentVersion}-to-v${context.latestVersion}-${stamp}`;
+  const archivePath = path.join(directory, `${basename}.tgz`);
+  const manifestPath = path.join(directory, `${basename}.json`);
+  await mkdir(directory, { recursive: true });
+  try {
+    const dump = await database.dumpDataDir("gzip");
+    const bytes = Buffer.from(await dump.arrayBuffer());
+    await writeFile(archivePath, bytes, { flag: "wx", mode: 0o600 });
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify({
+        format: "kalender-database-migration-recovery",
+        createdAt,
+        fromVersion: context.currentVersion,
+        toVersion: context.latestVersion,
+        pendingVersions: context.pending.map((migration) => migration.version),
+        databaseArchive: `${basename}.tgz`,
+      }, null, 2)}\n`,
+      { flag: "wx", mode: 0o600 },
+    );
+  } catch (error) {
+    await Promise.all([
+      rm(archivePath, { force: true }),
+      rm(manifestPath, { force: true }),
+    ]);
+    throw error;
+  }
+}
+
+async function initializeDatabase(): Promise<PGlite> {
+  const root = dataRoot();
+  await mkdir(root, { recursive: true });
+  return PGlite.create(path.join(root, "postgres"));
 }

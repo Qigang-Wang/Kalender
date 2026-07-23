@@ -77,6 +77,7 @@ npm run dev
 |---|---|
 | `npm run dev` | 启动 Next.js 开发服务器 |
 | `npm run typecheck` | 检查核心包和 Web 应用类型 |
+| `npm run db:migrations:status` | 查看数据库当前版本、迁移历史和待执行版本 |
 | `npm test` | 最多并行 4 组运行完整测试；可用 `KALENDER_TEST_CONCURRENCY` 调整并发 |
 | `npm run test:serial` | 串行运行完整测试，便于定位相互影响 |
 | `npm run build` | 构建核心包和 Web 应用 |
@@ -85,6 +86,7 @@ npm run dev
 ## 数据与安全
 
 - 本地数据库、凭据和缓存保存在 `.data`，不会进入 Git。
+- 数据库升级使用带校验值的版本化迁移；旧库升级前会在 `.data/automatic-backups` 创建恢复点。
 - 邮件、日历和 AI API 凭据使用 AES-256-GCM 加密保存。
 - `.backups`、`.logs`、`.next`、`.env`、健康检查输出和构建缓存均被版本控制排除。
 - 邮件 HTML 会经过服务端清洗，远程图片默认按需显示。
