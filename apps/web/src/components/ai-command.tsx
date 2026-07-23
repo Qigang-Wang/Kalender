@@ -1,0 +1,251 @@
+"use client";
+
+import { useChat } from "@ai-sdk/react";
+import { Bot, CircleAlert, Clock3, LoaderCircle, MessageSquarePlus, RotateCcw, Send, Settings, ShieldCheck, Square, Trash2, User, WandSparkles } from "lucide-react";
+import Link from "next/link";
+import { DefaultChatTransport, type UIMessage } from "ai";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+
+interface CommandDataParts {
+  [key: string]: unknown;
+  conversation: { readonly id: string; readonly title: string };
+  model: { readonly runId: string; readonly providerName: string; readonly modelId: string; readonly modelName: string; readonly usedFallback: boolean };
+  fallback: { readonly fromModelName: string; readonly toModelName: string };
+  run: { readonly runId: string; readonly status: "succeeded" | "failed" | "cancelled"; readonly latencyMs: number };
+}
+
+type CommandMessage = UIMessage<unknown, CommandDataParts>;
+
+interface ConversationView {
+  readonly id: string;
+  readonly title: string;
+  readonly updatedAt: string;
+  readonly messageCount: number;
+  readonly preview?: string;
+}
+
+interface StoredMessageView {
+  readonly id: string;
+  readonly role: "user" | "assistant";
+  readonly text: string;
+  readonly status: "complete" | "partial";
+}
+
+interface AvailableModel {
+  readonly id: string;
+  readonly providerId: string;
+  readonly displayName: string;
+  readonly apiModelId: string;
+  readonly modelKind: "chat" | "embedding";
+  readonly enabled: boolean;
+  readonly lastTestStatus: "untested" | "passed" | "failed";
+}
+
+interface ProviderView { readonly id: string; readonly displayName: string; readonly enabled: boolean }
+
+export function AiCommand() {
+  const [input, setInput] = useState("");
+  const [conversationId, setConversationId] = useState<string>();
+  const [conversations, setConversations] = useState<readonly ConversationView[]>([]);
+  const [availableModels, setAvailableModels] = useState<readonly (AvailableModel & { readonly providerName: string })[]>([]);
+  const [requestedModelId, setRequestedModelId] = useState("");
+  const [activeModel, setActiveModel] = useState<CommandDataParts["model"]>();
+  const [fallbackNotice, setFallbackNotice] = useState<CommandDataParts["fallback"]>();
+  const [runSummary, setRunSummary] = useState<CommandDataParts["run"]>();
+  const [feedback, setFeedback] = useState<string>();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const conversationIdRef = useRef<string | undefined>(undefined);
+  const requestedModelIdRef = useRef("");
+  const messageEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
+  useEffect(() => { requestedModelIdRef.current = requestedModelId; }, [requestedModelId]);
+
+  const loadConversations = useCallback(async () => {
+    try {
+      const payload = await requestJson<{ conversations: readonly ConversationView[] }>("/api/ai/conversations");
+      setConversations(payload.conversations);
+    } catch (error) { setFeedback(errorMessage(error)); }
+  }, []);
+
+  useEffect(() => {
+    void loadConversations();
+    void requestJson<{ providers: readonly ProviderView[]; models: readonly AvailableModel[] }>("/api/ai/providers")
+      .then((payload) => {
+        const providerMap = new Map(payload.providers.filter((provider) => provider.enabled).map((provider) => [provider.id, provider.displayName]));
+        setAvailableModels(payload.models
+          .filter((model) => model.enabled && model.modelKind === "chat" && providerMap.has(model.providerId))
+          .map((model) => ({ ...model, providerName: providerMap.get(model.providerId)! })));
+      })
+      .catch((error) => setFeedback(errorMessage(error)));
+  }, [loadConversations]);
+
+  const transport = useMemo(() => new DefaultChatTransport<CommandMessage>({
+    api: "/api/ai/chat",
+    prepareSendMessagesRequest: ({ messages }) => ({
+      body: {
+        messages,
+        conversationId: conversationIdRef.current,
+        requestedModelId: requestedModelIdRef.current || undefined,
+      },
+    }),
+  }), []);
+
+  const {
+    messages,
+    sendMessage,
+    regenerate,
+    stop,
+    status,
+    error,
+    setMessages,
+    clearError,
+  } = useChat<CommandMessage>({
+    id: "kalender-ai-command",
+    transport,
+    throttle: 30,
+    onData: (part) => {
+      if (part.type === "data-conversation") {
+        const data = part.data as CommandDataParts["conversation"];
+        conversationIdRef.current = data.id;
+        setConversationId(data.id);
+      } else if (part.type === "data-model") {
+        setActiveModel(part.data as CommandDataParts["model"]);
+      } else if (part.type === "data-fallback") {
+        setFallbackNotice(part.data as CommandDataParts["fallback"]);
+      } else if (part.type === "data-run") {
+        setRunSummary(part.data as CommandDataParts["run"]);
+      }
+    },
+    onError: (nextError) => setFeedback(nextError.message),
+    onFinish: () => { void loadConversations(); },
+  });
+
+  const busy = status === "submitted" || status === "streaming";
+  useEffect(() => { messageEndRef.current?.scrollIntoView({ block: "end", behavior: busy ? "auto" : "smooth" }); }, [busy, messages]);
+
+  const submit = async (event?: FormEvent) => {
+    event?.preventDefault();
+    const prompt = input.trim();
+    if (!prompt || busy) return;
+    setInput("");
+    setFeedback(undefined);
+    setFallbackNotice(undefined);
+    setRunSummary(undefined);
+    clearError();
+    await sendMessage({ text: prompt });
+  };
+
+  const newConversation = async () => {
+    if (busy) await stop();
+    conversationIdRef.current = undefined;
+    setConversationId(undefined);
+    setMessages([]);
+    setInput("");
+    setActiveModel(undefined);
+    setFallbackNotice(undefined);
+    setRunSummary(undefined);
+    setFeedback(undefined);
+    setSidebarOpen(false);
+  };
+
+  const openConversation = async (id: string) => {
+    if (busy) await stop();
+    try {
+      const payload = await requestJson<{ conversation: ConversationView; messages: readonly StoredMessageView[] }>(`/api/ai/conversations/${id}`);
+      conversationIdRef.current = id;
+      setConversationId(id);
+      setMessages(payload.messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        parts: [{ type: "text", text: message.text }],
+        metadata: message.status === "partial" ? { partial: true } : undefined,
+      })) as CommandMessage[]);
+      setActiveModel(undefined);
+      setFallbackNotice(undefined);
+      setRunSummary(undefined);
+      setFeedback(undefined);
+      setSidebarOpen(false);
+    } catch (nextError) { setFeedback(errorMessage(nextError)); }
+  };
+
+  const deleteConversation = async (conversation: ConversationView) => {
+    if (!window.confirm(`删除对话“${conversation.title}”？`)) return;
+    try {
+      await requestJson(`/api/ai/conversations/${conversation.id}`, { method: "DELETE" });
+      if (conversationId === conversation.id) await newConversation();
+      await loadConversations();
+    } catch (nextError) { setFeedback(errorMessage(nextError)); }
+  };
+
+  const retry = async () => {
+    setFeedback(undefined);
+    setFallbackNotice(undefined);
+    setRunSummary(undefined);
+    clearError();
+    await regenerate();
+  };
+
+  return (
+    <section className="ai-command-shell panel">
+      <aside className={`ai-command-history ${sidebarOpen ? "open" : ""}`}>
+        <header><strong>对话</strong><button title="新对话" onClick={() => void newConversation()}><MessageSquarePlus size={15} /></button></header>
+        <div className="ai-conversation-list">
+          {conversations.length === 0 ? <p>发送第一条消息后，对话会保存在本地。</p> : conversations.map((conversation) => <div className={`ai-conversation-item ${conversation.id === conversationId ? "active" : ""}`} key={conversation.id}>
+            <button onClick={() => void openConversation(conversation.id)}><strong>{conversation.title}</strong><small>{formatConversationTime(conversation.updatedAt)} · {conversation.messageCount} 条</small></button>
+            <button className="danger" title="删除对话" onClick={() => void deleteConversation(conversation)}><Trash2 size={12} /></button>
+          </div>)}
+        </div>
+      </aside>
+
+      <div className="ai-command-main">
+        <header className="ai-command-toolbar">
+          <button className="ai-history-toggle" onClick={() => setSidebarOpen((value) => !value)}>对话</button>
+          <div><span><WandSparkles size={14} />AI Command</span><small>当前只进行纯对话，不会读取或修改工作区数据</small></div>
+          <label><span className="sr-only">模型</span><select value={requestedModelId} onChange={(event) => setRequestedModelId(event.target.value)} disabled={busy}>
+            <option value="">自动选择模型</option>
+            {availableModels.map((model) => <option key={model.id} value={model.id}>{model.displayName} · {model.providerName}</option>)}
+          </select></label>
+        </header>
+
+        <div className="ai-command-messages" aria-live="polite">
+          {messages.length === 0 ? <div className="ai-command-empty"><div><Bot size={25} /></div><h2>有什么想一起思考的？</h2><p>现在可以进行真实流式对话。邮件、日历、任务和笔记尚未发送给模型。</p><div><button onClick={() => setInput("帮我规划今天最重要的三件事，并说明排序理由。")}>规划优先事项</button><button onClick={() => setInput("把下面的想法整理成一个清晰的执行计划：")}>整理执行计划</button></div>{availableModels.length === 0 && <Link href="/settings"><Settings size={14} />先配置 AI 模型</Link>}</div> : messages.map((message) => {
+            const text = message.parts.filter((part): part is Extract<typeof part, { type: "text" }> => part.type === "text").map((part) => part.text).join("");
+            return <article className={`ai-chat-message ${message.role}`} key={message.id}>
+              <div className="ai-chat-avatar">{message.role === "user" ? <User size={15} /> : <Bot size={15} />}</div>
+              <div><header><strong>{message.role === "user" ? "你" : "Kalender AI"}</strong>{message.role === "assistant" && activeModel && message === messages[messages.length - 1] && <span>{activeModel.modelName}{activeModel.usedFallback ? " · 备用" : ""}</span>}</header><p>{text}{message.role === "assistant" && busy && message === messages[messages.length - 1] && <i className="ai-stream-caret" />}</p></div>
+            </article>;
+          })}
+          {status === "submitted" && <div className="ai-command-thinking"><LoaderCircle className="spin" size={15} />正在连接模型…</div>}
+          <div ref={messageEndRef} />
+        </div>
+
+        {(fallbackNotice || feedback || error) && <div className={`ai-command-notice ${feedback || error ? "error" : ""}`}>
+          {feedback || error ? <CircleAlert size={14} /> : <RotateCcw size={14} />}
+          <span>{feedback || error?.message || `主模型 ${fallbackNotice?.fromModelName} 不可用，已切换到 ${fallbackNotice?.toModelName}`}</span>
+          {(feedback || error) && messages.some((message) => message.role === "user") && !busy && <button onClick={() => void retry()}><RotateCcw size={12} />重试</button>}
+        </div>}
+
+        <form className="ai-command-composer" onSubmit={(event) => void submit(event)}>
+          <textarea value={input} maxLength={20_000} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} placeholder="输入消息；Enter 发送，Shift + Enter 换行" disabled={busy} />
+          <footer><div>{activeModel ? <span><Bot size={12} />{activeModel.providerName} / {activeModel.modelName}</span> : <span><ShieldCheck size={12} />不发送工作区数据</span>}{runSummary?.status === "succeeded" && <span><Clock3 size={12} />{runSummary.latencyMs} ms</span>}</div>{busy ? <button type="button" className="ai-stop-button" onClick={() => void stop()}><Square size={12} />停止</button> : <button className="primary-button" disabled={!input.trim() || availableModels.length === 0}><Send size={14} />发送</button>}</footer>
+        </form>
+      </div>
+    </section>
+  );
+}
+
+async function requestJson<T = Record<string, unknown>>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, { cache: "no-store", ...init });
+  const payload = await response.json().catch(() => null) as ({ readonly ok?: boolean; readonly message?: string } & T) | null;
+  if (!response.ok || !payload?.ok) throw new Error(payload?.message || "操作失败，请稍后重试");
+  return payload;
+}
+
+function errorMessage(error: unknown): string { return error instanceof Error ? error.message : "操作失败，请稍后重试"; }
+
+function formatConversationTime(value: string): string {
+  const date = new Date(value);
+  const sameDay = date.toDateString() === new Date().toDateString();
+  return new Intl.DateTimeFormat("zh-CN", sameDay ? { hour: "2-digit", minute: "2-digit", hour12: false } : { month: "short", day: "numeric" }).format(date);
+}

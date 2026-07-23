@@ -1,0 +1,40 @@
+import { NextResponse } from "next/server";
+
+import { calendarErrorResponse } from "@/server/calendar-api";
+import { parseCalendarEventInput, type CalendarEventRequestBody } from "@/server/calendar-validation";
+import { deleteCalendarEvent, upsertCalendarEvent } from "@/server/calendar-event-service";
+import { listStoredCalendarEventConflicts } from "@/server/calendar-repository";
+
+export const runtime = "nodejs";
+
+interface CalendarEventRouteContext {
+  readonly params: Promise<{ readonly eventId: string }>;
+}
+
+export async function PATCH(request: Request, context: CalendarEventRouteContext) {
+  const { eventId } = await context.params;
+  try {
+    const body = await request.json().catch(() => null) as CalendarEventRequestBody | null;
+    const input = parseCalendarEventInput({ ...body, id: eventId });
+    const conflicts = await listStoredCalendarEventConflicts({ calendarId: input.calendarId, start: input.start, end: input.end, excludeEventId: eventId });
+    if (conflicts.length && body?.allowConflicts !== true) {
+      return NextResponse.json({ ok: false, message: "所选时间与现有日程冲突", conflicts }, { status: 409 });
+    }
+    const event = await upsertCalendarEvent(input);
+    return NextResponse.json({ ok: true, event });
+  } catch (error) {
+    return calendarErrorResponse(error);
+  }
+}
+
+export async function DELETE(request: Request, context: CalendarEventRouteContext) {
+  const { eventId } = await context.params;
+  const calendarId = new URL(request.url).searchParams.get("calendarId");
+  if (!calendarId) return NextResponse.json({ ok: false, message: "缺少日历标识" }, { status: 400 });
+  try {
+    await deleteCalendarEvent(calendarId, eventId);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return calendarErrorResponse(error);
+  }
+}
