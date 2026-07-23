@@ -10,14 +10,17 @@ import {
 import {
   finishSyncRun,
   getAccount,
+  getFolderUidBounds,
   getSyncCursor,
   loadImapSmtpCredential,
   removeMissingFolderMessages,
   resetFolderSyncState,
+  saveDeepReconcileCursor,
   saveSyncCursor,
   setSyncStatus,
   startSyncRun,
   updateMessageFlags,
+  updateSyncRunProgress,
   upsertFolder,
   upsertMessage,
   type MessageRecord,
@@ -34,8 +37,19 @@ export interface SyncSummary {
   readonly messagesProcessed: number;
   readonly messagesReconciled: number;
   readonly messagesRemoved: number;
+  readonly deepAuditRanges: number;
   readonly hasMoreHistory: boolean;
 }
+
+export interface DeepReconcileRange {
+  readonly minimumUid: number;
+  readonly maximumUid: number;
+  readonly nextBeforeUid: number;
+}
+
+const RECENT_RECONCILE_WINDOW = 200;
+const DEEP_RECONCILE_WINDOW = 500;
+const DEEP_RECONCILE_INTERVAL_MS = 30 * 60 * 1000;
 
 export class MailSyncAlreadyRunningError extends Error {
   constructor() {
@@ -81,6 +95,7 @@ async function executeImapSync(accountId: string, maximumMessages: number): Prom
   let messagesProcessed = 0;
   let messagesReconciled = 0;
   let messagesRemoved = 0;
+  let deepAuditRanges = 0;
   let hasMoreHistory = false;
   const client = new ImapFlow({
     host: credential.imap.host,
@@ -112,7 +127,6 @@ async function executeImapSync(accountId: string, maximumMessages: number): Prom
         totalCount: folder.status?.messages,
         sortOrder,
       });
-      foldersProcessed += 1;
     }
 
     const cutoff = syncCutoff(account.syncMode);
@@ -153,6 +167,19 @@ async function executeImapSync(accountId: string, maximumMessages: number): Prom
         );
         messagesReconciled += reconciliation.reconciled;
         messagesRemoved += reconciliation.removed;
+        if (!deepAuditRanges && !folderHasMore) {
+          const deepReconciliation = await reconcileDeepFolderState(
+            client,
+            accountId,
+            folder.path,
+            Math.max(0, mailbox.uidNext - 1),
+          );
+          messagesReconciled += deepReconciliation.reconciled;
+          messagesRemoved += deepReconciliation.removed;
+          deepAuditRanges += deepReconciliation.audited ? 1 : 0;
+        }
+        foldersProcessed += 1;
+        await updateSyncRunProgress(runId, foldersProcessed, messagesProcessed);
         continue;
       }
 
@@ -204,6 +231,20 @@ async function executeImapSync(accountId: string, maximumMessages: number): Prom
       );
       messagesReconciled += reconciliation.reconciled;
       messagesRemoved += reconciliation.removed;
+      if (!deepAuditRanges && initialComplete && shouldRunDeepReconcile(cursor.lastDeepReconcileAt)) {
+        const deepReconciliation = await reconcileDeepFolderState(
+          client,
+          accountId,
+          folder.path,
+          Math.max(0, mailbox.uidNext - 1),
+          cursor.reconcileBeforeUid,
+        );
+        messagesReconciled += deepReconciliation.reconciled;
+        messagesRemoved += deepReconciliation.removed;
+        deepAuditRanges += deepReconciliation.audited ? 1 : 0;
+      }
+      foldersProcessed += 1;
+      await updateSyncRunProgress(runId, foldersProcessed, messagesProcessed);
     }
 
     await setSyncStatus(accountId, "ready");
@@ -214,6 +255,7 @@ async function executeImapSync(accountId: string, maximumMessages: number): Prom
       messagesProcessed,
       messagesReconciled,
       messagesRemoved,
+      deepAuditRanges,
       hasMoreHistory,
     };
   } catch (error) {
@@ -238,8 +280,41 @@ async function reconcileRecentFolderState(
   latestUid: number,
 ): Promise<{ readonly reconciled: number; readonly removed: number }> {
   if (latestUid <= 0) return { reconciled: 0, removed: 0 };
-  const minimumUid = Math.max(1, latestUid - 199);
-  const remoteUids = await searchUids(client, { uid: `${minimumUid}:${latestUid}` });
+  const minimumUid = Math.max(1, latestUid - RECENT_RECONCILE_WINDOW + 1);
+  return reconcileFolderRange(client, accountId, folderPath, minimumUid, latestUid);
+}
+
+async function reconcileDeepFolderState(
+  client: ImapFlow,
+  accountId: string,
+  folderPath: string,
+  latestUid: number,
+  reconcileBeforeUid?: number,
+): Promise<{ readonly reconciled: number; readonly removed: number; readonly audited: boolean }> {
+  const indexed = await getFolderUidBounds(accountId, folderPath);
+  const range = indexed
+    ? nextDeepReconcileRange(latestUid, reconcileBeforeUid, indexed.minimumUid)
+    : undefined;
+  if (!range) return { reconciled: 0, removed: 0, audited: false };
+  const result = await reconcileFolderRange(
+    client,
+    accountId,
+    folderPath,
+    range.minimumUid,
+    range.maximumUid,
+  );
+  await saveDeepReconcileCursor(accountId, folderPath, range.nextBeforeUid);
+  return { ...result, audited: true };
+}
+
+async function reconcileFolderRange(
+  client: ImapFlow,
+  accountId: string,
+  folderPath: string,
+  minimumUid: number,
+  maximumUid: number,
+): Promise<{ readonly reconciled: number; readonly removed: number }> {
+  const remoteUids = await searchUids(client, { uid: `${minimumUid}:${maximumUid}` });
   const remoteUidSet = new Set(remoteUids);
   let reconciled = 0;
   if (remoteUids.length > 0) {
@@ -258,10 +333,42 @@ async function reconcileRecentFolderState(
     accountId,
     folderPath,
     minimumUid,
-    latestUid,
+    maximumUid,
     remoteUidSet,
   );
   return { reconciled, removed };
+}
+
+export function nextDeepReconcileRange(
+  latestUid: number,
+  reconcileBeforeUid?: number,
+  minimumIndexedUid = 1,
+): DeepReconcileRange | undefined {
+  const oldestRecentUid = Math.max(1, latestUid - RECENT_RECONCILE_WINDOW + 1);
+  const oldestAuditableMaximum = oldestRecentUid - 1;
+  const oldestAuditableMinimum = Math.max(1, minimumIndexedUid);
+  if (oldestAuditableMaximum < oldestAuditableMinimum) return undefined;
+  const maximumUid = reconcileBeforeUid &&
+    reconcileBeforeUid >= oldestAuditableMinimum &&
+    reconcileBeforeUid <= oldestAuditableMaximum
+    ? reconcileBeforeUid
+    : oldestAuditableMaximum;
+  const minimumUid = Math.max(oldestAuditableMinimum, maximumUid - DEEP_RECONCILE_WINDOW + 1);
+  return {
+    minimumUid,
+    maximumUid,
+    nextBeforeUid: minimumUid > oldestAuditableMinimum ? minimumUid - 1 : oldestAuditableMaximum,
+  };
+}
+
+export function shouldRunDeepReconcile(
+  lastDeepReconcileAt: string | undefined,
+  now = Date.now(),
+  intervalMs = DEEP_RECONCILE_INTERVAL_MS,
+): boolean {
+  if (!lastDeepReconcileAt) return true;
+  const lastRun = Date.parse(lastDeepReconcileAt);
+  return !Number.isFinite(lastRun) || now - lastRun >= intervalMs;
 }
 
 async function searchUids(client: ImapFlow, query: SearchObject): Promise<number[]> {

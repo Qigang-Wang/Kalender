@@ -49,6 +49,7 @@ import {
   Trash2,
   Upload,
   WandSparkles,
+  WifiOff,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
@@ -1234,6 +1235,15 @@ interface SavedMailAccount {
   readonly syncStatus: AccountSyncStatus;
   readonly syncError?: string;
   readonly lastSyncAt?: string;
+  readonly latestSyncRun?: {
+    readonly id: string;
+    readonly status: "running" | "succeeded" | "failed";
+    readonly foldersProcessed: number;
+    readonly messagesProcessed: number;
+    readonly errorMessage?: string;
+    readonly startedAt: string;
+    readonly finishedAt?: string;
+  };
 }
 
 type AccountAction = "sync" | "pause" | "resume" | "edit" | "delete";
@@ -1241,6 +1251,7 @@ type AccountAction = "sync" | "pause" | "resume" | "edit" | "delete";
 function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: () => void }) {
   const [accounts, setAccounts] = useState<readonly SavedMailAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
+  const [online, setOnline] = useState(true);
   const [syncIntervalMs, setSyncIntervalMs] = useState(3 * 60 * 1000);
   const [accountAction, setAccountAction] = useState<{ readonly id: string; readonly kind: AccountAction }>();
   const [accountFeedback, setAccountFeedback] = useState("");
@@ -1261,6 +1272,10 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
   const [saving, setSaving] = useState(false);
 
   async function loadAccounts() {
+    if (!window.navigator.onLine) {
+      setAccountsLoading(false);
+      return;
+    }
     try {
       const response = await fetch("/api/mail-accounts", { cache: "no-store" });
       const result = await response.json() as {
@@ -1278,9 +1293,22 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
   }
 
   useEffect(() => {
+    const updateOnlineState = () => {
+      setOnline(window.navigator.onLine);
+      if (window.navigator.onLine) void loadAccounts();
+    };
+    setOnline(window.navigator.onLine);
     void loadAccounts();
-    const pollingTimer = window.setInterval(() => void loadAccounts(), 10_000);
-    return () => window.clearInterval(pollingTimer);
+    const pollingTimer = window.setInterval(() => {
+      if (window.navigator.onLine) void loadAccounts();
+    }, 10_000);
+    window.addEventListener("online", updateOnlineState);
+    window.addEventListener("offline", updateOnlineState);
+    return () => {
+      window.clearInterval(pollingTimer);
+      window.removeEventListener("online", updateOnlineState);
+      window.removeEventListener("offline", updateOnlineState);
+    };
   }, []);
 
   async function performAccountAction(account: SavedMailAccount, kind: Exclude<AccountAction, "edit">) {
@@ -1308,6 +1336,7 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
           readonly messagesProcessed?: number;
           readonly messagesReconciled?: number;
           readonly messagesRemoved?: number;
+          readonly deepAuditRanges?: number;
         };
       };
       if (!response.ok || !result.ok) throw new Error(result.message ?? "账户操作失败");
@@ -1316,7 +1345,7 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
         kind === "delete" ? `已删除 ${account.displayName}`
           : kind === "pause" ? `已暂停 ${account.displayName}`
             : kind === "resume" ? `已启用 ${account.displayName}`
-              : `${account.displayName} 同步完成：新增/回填 ${result.sync?.messagesProcessed ?? 0} 封，校正状态 ${result.sync?.messagesReconciled ?? 0} 封，移除失效索引 ${result.sync?.messagesRemoved ?? 0} 封`,
+              : `${account.displayName} 同步完成：新增/回填 ${result.sync?.messagesProcessed ?? 0} 封，校正状态 ${result.sync?.messagesReconciled ?? 0} 封，移除失效索引 ${result.sync?.messagesRemoved ?? 0} 封${(result.sync?.deepAuditRanges ?? 0) > 0 ? `，深度核对 ${result.sync?.deepAuditRanges} 个旧邮件区间` : ""}`,
       );
     } catch (error) {
       await loadAccounts();
@@ -1452,6 +1481,12 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
         <div><h2 id="saved-accounts-title">已添加的邮箱</h2><p>查看连接健康状态、同步范围和最近一次成功同步。</p></div>
         <span className="step-badge">{accounts.length} 个账户</span>
       </div>
+      {!online && (
+        <div className="account-network-status" role="status">
+          <WifiOff size={16} />
+          <div><strong>当前处于离线状态</strong><span>已缓存的邮件仍可阅读；连接恢复后会自动刷新状态并继续后台同步。</span></div>
+        </div>
+      )}
       {accountsLoading ? (
         <div className="accounts-empty"><LoaderCircle className="spin" size={18} />正在读取账户…</div>
       ) : accounts.length === 0 ? (
@@ -1460,6 +1495,7 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
         <div className="account-card-list">
           {accounts.map((account) => {
             const busy = accountAction?.id === account.id;
+            const syncing = account.syncStatus === "syncing";
             return (
               <article className="saved-account-card" key={account.id}>
                 <div className="saved-account-color" style={{ background: account.color }} />
@@ -1479,16 +1515,21 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
                     </span>
                     <span>自动同步：每 {formatSyncInterval(syncIntervalMs)}</span>
                   </div>
+                  {account.syncStatus === "syncing" && account.latestSyncRun?.status === "running" && (
+                    <p className="account-sync-progress" aria-live="polite">
+                      后台同步中 · 已完成 {account.latestSyncRun.foldersProcessed} 个文件夹 · 已索引 {account.latestSyncRun.messagesProcessed} 封邮件
+                    </p>
+                  )}
                   {account.syncError && <p className="account-sync-error">{account.syncError}</p>}
                   <div className="saved-account-actions">
-                    <button className="secondary-button" disabled={busy || account.syncStatus === "paused"} onClick={() => void performAccountAction(account, "sync")}>
+                    <button className="secondary-button" disabled={!online || busy || account.syncStatus === "paused" || syncing} onClick={() => void performAccountAction(account, "sync")}>
                       {busy && accountAction?.kind === "sync" ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}立即同步
                     </button>
-                    <button className="ghost-button" disabled={busy} onClick={() => void editAccount(account)}><Pencil size={14} />{account.providerId === "exchange-ews" ? "管理 Exchange" : "重新配置"}</button>
-                    <button className="ghost-button" disabled={busy} onClick={() => void performAccountAction(account, account.syncStatus === "paused" ? "resume" : "pause")}>
+                    <button className="ghost-button" disabled={busy || syncing} onClick={() => void editAccount(account)}><Pencil size={14} />{account.providerId === "exchange-ews" ? "管理 Exchange" : "重新配置"}</button>
+                    <button className="ghost-button" disabled={busy || syncing} onClick={() => void performAccountAction(account, account.syncStatus === "paused" ? "resume" : "pause")}>
                       {account.syncStatus === "paused" ? <Play size={14} /> : <Pause size={14} />}{account.syncStatus === "paused" ? "启用" : "暂停"}
                     </button>
-                    <button className="ghost-button danger-button" disabled={busy} onClick={() => void performAccountAction(account, "delete")}><Trash2 size={14} />删除</button>
+                    <button className="ghost-button danger-button" disabled={busy || syncing} onClick={() => void performAccountAction(account, "delete")}><Trash2 size={14} />删除</button>
                   </div>
                 </div>
               </article>
@@ -1561,10 +1602,10 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
         {state.kind === "error" && <><X size={17} /><span>{state.message}</span></>}
       </div>
       <footer className="settings-actions">
-        <button className="secondary-button test-button" disabled={!canTest || state.kind === "testing"} onClick={testConnection}>
+        <button className="secondary-button test-button" disabled={!online || !canTest || state.kind === "testing"} onClick={testConnection}>
           {state.kind === "testing" ? <LoaderCircle className="spin" size={16} /> : <CheckCircle2 size={16} />}测试连接
         </button>
-        <button className="primary-button" disabled={state.kind !== "success" || providerId !== "imap" || saving} onClick={saveAccount}>
+        <button className="primary-button" disabled={!online || state.kind !== "success" || providerId !== "imap" || saving} onClick={saveAccount}>
           {saving && <LoaderCircle className="spin" size={16} />}{saving ? "正在保存和同步…" : "保存并开始同步"}
         </button>
       </footer>

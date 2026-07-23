@@ -173,14 +173,43 @@ async function main() {
   assert(Boolean(cachedBody?.loadedAt), "body cache records its load time");
   assert(cachedBody?.cacheVersion === repository.MAIL_BODY_CACHE_VERSION, "body cache records the current sanitizer version");
   assert((await repository.listInbox())[0]?.snippet === "Safe text body", "body preview updates the inbox");
+  const capacityCleanup = await repository.cleanupMailBodyCache({
+    maxAgeMs: 24 * 60 * 60 * 1000,
+    maxBytes: 1,
+    targetBytes: 0,
+  });
+  assert(capacityCleanup.evictedEntries === 1 && capacityCleanup.bytesAfter === 0, "body cache evicts oldest entries above its size limit");
+  await repository.saveMessageBody(
+    `${account.id}:message:1`,
+    "Safe text body",
+    "<p>Safe HTML body</p>",
+    "Safe text body",
+  );
+  const expiryCleanup = await repository.cleanupMailBodyCache({
+    now: new Date(Date.now() + 1_000),
+    maxAgeMs: 0,
+  });
+  assert(expiryCleanup.expiredEntries === 1, "body cache removes expired entries");
+  assert(!(await repository.getStoredMessageBody(`${account.id}:message:1`))?.loadedAt, "body cache cleanup preserves metadata but clears cached content");
   assert(
     await repository.removeMissingFolderMessages(account.id, "INBOX", 1, 1, new Set([1])) === 0,
     "present remote message is preserved",
   );
   await repository.saveSyncCursor(account.id, "INBOX", "42", 100, 80, false);
+  await repository.saveDeepReconcileCursor(account.id, "INBOX", 70);
   const cursor = await repository.getSyncCursor(account.id, "INBOX");
   assert(cursor?.uidValidity === "42", "sync cursor preserves UIDVALIDITY");
   assert(cursor?.lastUid === 100 && cursor.backfillBeforeUid === 80, "sync cursor preserves incremental positions");
+  assert(cursor?.reconcileBeforeUid === 70 && Boolean(cursor.lastDeepReconcileAt), "sync cursor preserves deep audit progress");
+  const syncRunId = await repository.startSyncRun(account.id, "recommended");
+  await repository.updateSyncRunProgress(syncRunId, 2, 25);
+  const runningSync = await repository.getLatestSyncRun(account.id);
+  assert(
+    runningSync?.status === "running" && runningSync.foldersProcessed === 2 && runningSync.messagesProcessed === 25,
+    "latest sync run exposes live progress",
+  );
+  await repository.finishSyncRun(syncRunId, "succeeded", 3, 30);
+  assert((await repository.getLatestSyncRun(account.id))?.status === "succeeded", "latest sync run exposes completion");
   await repository.saveSyncCursor(account.id, "Archive", "43", 120, 60, true);
   await repository.reopenAccountHistoryBackfill(account.id);
   const reopenedCursor = await repository.getSyncCursor(account.id, "Archive");
@@ -189,6 +218,11 @@ async function main() {
   assert(
     await repository.removeMissingFolderMessages(account.id, "INBOX", 1, 1, new Set()) === 1,
     "missing remote message is removed from local index",
+  );
+  const survivingThread = await repository.listMailThread(`${account.id}:message:2`);
+  assert(
+    survivingThread.length === 1 && survivingThread[0]?.folderRole === "sent",
+    "removing a missing folder message preserves the rest of its conversation",
   );
   await repository.resetFolderSyncState(account.id, "INBOX");
   assert(!(await repository.getSyncCursor(account.id, "INBOX")), "folder reset removes invalid cursor");

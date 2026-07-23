@@ -421,6 +421,8 @@ async function initializeDatabase(): Promise<PGlite> {
       last_uid integer NOT NULL DEFAULT 0,
       backfill_before_uid integer,
       initial_complete boolean NOT NULL DEFAULT false,
+      reconcile_before_uid integer,
+      last_deep_reconcile_at timestamptz,
       updated_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (account_id, provider_folder_id)
     );
@@ -615,6 +617,10 @@ async function initializeDatabase(): Promise<PGlite> {
       ADD COLUMN IF NOT EXISTS backfill_before_uid integer;
     ALTER TABLE sync_cursors
       ADD COLUMN IF NOT EXISTS initial_complete boolean NOT NULL DEFAULT false;
+    ALTER TABLE sync_cursors
+      ADD COLUMN IF NOT EXISTS reconcile_before_uid integer;
+    ALTER TABLE sync_cursors
+      ADD COLUMN IF NOT EXISTS last_deep_reconcile_at timestamptz;
     ALTER TABLE mail_messages
       ADD COLUMN IF NOT EXISTS body_loaded_at timestamptz;
     ALTER TABLE mail_messages

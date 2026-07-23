@@ -1,12 +1,13 @@
-import { MailSyncAlreadyRunningError } from "./imap-sync";
+import { isMailAccountSyncing, MailSyncAlreadyRunningError } from "./imap-sync";
 import { runMailSync } from "./mail-sync";
-import { listAccounts } from "./mail-repository";
+import { cleanupMailBodyCache, listAccounts } from "./mail-repository";
 
 declare global {
   var kalenderMailSyncTimer: ReturnType<typeof setInterval> | undefined;
   var kalenderMailSyncInitialTimer: ReturnType<typeof setTimeout> | undefined;
   var kalenderMailSyncTickRunning: boolean | undefined;
   var kalenderMailSyncBackoff: Map<string, { failures: number; nextAttemptAt: number }> | undefined;
+  var kalenderMailBodyMaintenanceAt: number | undefined;
 }
 
 export interface MailSyncSchedulerState {
@@ -17,6 +18,7 @@ export interface MailSyncSchedulerState {
 const DEFAULT_INTERVAL_MS = 3 * 60 * 1000;
 const MINIMUM_INTERVAL_MS = 30 * 1000;
 const MAXIMUM_BACKOFF_MS = 60 * 60 * 1000;
+const BODY_CACHE_MAINTENANCE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 export function ensureMailSyncScheduler(): MailSyncSchedulerState {
   const intervalMs = schedulerInterval();
@@ -44,6 +46,7 @@ export async function stopMailSyncScheduler(): Promise<void> {
   }
   if (globalThis.kalenderMailSyncTickRunning) throw new Error("邮件同步仍在运行，请稍后再恢复备份");
   globalThis.kalenderMailSyncBackoff?.clear();
+  globalThis.kalenderMailBodyMaintenanceAt = undefined;
 }
 
 export async function runScheduledMailSync(): Promise<void> {
@@ -54,7 +57,7 @@ export async function runScheduledMailSync(): Promise<void> {
     const now = Date.now();
     const accounts = await listAccounts();
     for (const account of accounts) {
-      if (account.syncStatus === "paused" || account.syncStatus === "syncing") continue;
+      if (account.syncStatus === "paused" || isMailAccountSyncing(account.id)) continue;
       const retry = backoff.get(account.id);
       if (retry && retry.nextAttemptAt > now) continue;
       try {
@@ -65,6 +68,15 @@ export async function runScheduledMailSync(): Promise<void> {
         const failures = (retry?.failures ?? 0) + 1;
         const delay = Math.min(schedulerInterval() * 2 ** Math.min(failures - 1, 5), MAXIMUM_BACKOFF_MS);
         backoff.set(account.id, { failures, nextAttemptAt: Date.now() + delay });
+      }
+    }
+    if (!globalThis.kalenderMailBodyMaintenanceAt || globalThis.kalenderMailBodyMaintenanceAt <= now) {
+      try {
+        await cleanupMailBodyCache();
+      } catch {
+        // Cache maintenance must never block account synchronization.
+      } finally {
+        globalThis.kalenderMailBodyMaintenanceAt = Date.now() + BODY_CACHE_MAINTENANCE_INTERVAL_MS;
       }
     }
   } finally {

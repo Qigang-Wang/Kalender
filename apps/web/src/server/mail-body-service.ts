@@ -3,6 +3,7 @@ import PostalMime, { type Attachment } from "postal-mime";
 import sanitizeHtml from "sanitize-html";
 
 import {
+  configuredMailBodyCacheMaxAgeMs,
   getAccount,
   getStoredMessageRemote,
   getStoredMessageBody,
@@ -54,8 +55,12 @@ export function shouldUseMailBodyCache(
   loadedAt: string | undefined,
   cacheVersion: number,
   forceRefresh = false,
+  now = Date.now(),
+  maxAgeMs = configuredMailBodyCacheMaxAgeMs(),
 ): boolean {
-  return !forceRefresh && Boolean(loadedAt) && cacheVersion >= MAIL_BODY_CACHE_VERSION;
+  if (forceRefresh || !loadedAt || cacheVersion < MAIL_BODY_CACHE_VERSION) return false;
+  const loadedAtMs = Date.parse(loadedAt);
+  return Number.isFinite(loadedAtMs) && now - loadedAtMs <= Math.max(0, maxAgeMs);
 }
 
 export async function getMailBody(
