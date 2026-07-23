@@ -23,6 +23,7 @@ import {
   upsertFolder,
   upsertMessage,
   updateExchangeMessageReadFlag,
+  updateSyncRunProgress,
 } from "./mail-repository";
 
 export async function runExchangeMailSync(accountId: string, maximumMessages = 100): Promise<SyncSummary> {
@@ -62,7 +63,6 @@ async function executeExchangeMailSync(accountId: string, maximumMessages: numbe
         totalCount: folder.totalCount,
         sortOrder: folder.sortOrder,
       });
-      foldersProcessed += 1;
     }
     const ordered = [...folders].sort((left, right) => folderPriority(left.role) - folderPriority(right.role));
     for (const folder of ordered) {
@@ -79,7 +79,11 @@ async function executeExchangeMailSync(accountId: string, maximumMessages: numbe
         state = { syncState: state?.syncState, latestSeeded: true, initialComplete: state?.initialComplete ?? false };
         await saveExchangeMailSyncState(accountId, folder.folderId, state);
         hasMoreHistory ||= (folder.totalCount ?? 0) > seeded.length;
-        if (messagesProcessed >= maximumMessages) continue;
+        if (messagesProcessed >= maximumMessages) {
+          foldersProcessed += 1;
+          await updateSyncRunProgress(runId, foldersProcessed, messagesProcessed);
+          continue;
+        }
       } else if (!state.initialComplete) {
         // Keep the newest window fresh while the EWS initial SyncFolderItems cursor
         // is still walking older history, otherwise newly delivered mail would wait
@@ -94,6 +98,8 @@ async function executeExchangeMailSync(accountId: string, maximumMessages: numbe
         messagesProcessed += recent.length;
         if (messagesProcessed >= maximumMessages) {
           hasMoreHistory = true;
+          foldersProcessed += 1;
+          await updateSyncRunProgress(runId, foldersProcessed, messagesProcessed);
           continue;
         }
       }
@@ -116,6 +122,8 @@ async function executeExchangeMailSync(accountId: string, maximumMessages: numbe
         initialComplete: changes.includesLastItem,
       });
       hasMoreHistory ||= !changes.includesLastItem;
+      foldersProcessed += 1;
+      await updateSyncRunProgress(runId, foldersProcessed, messagesProcessed);
     }
     await setSyncStatus(accountId, "ready");
     await finishSyncRun(runId, "succeeded", foldersProcessed, messagesProcessed);
@@ -125,6 +133,7 @@ async function executeExchangeMailSync(accountId: string, maximumMessages: numbe
       messagesProcessed,
       messagesReconciled,
       messagesRemoved,
+      deepAuditRanges: 0,
       hasMoreHistory,
     };
   } catch (error) {

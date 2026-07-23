@@ -71,9 +71,24 @@ assert(
   !sanitizeEmailHtml('<img src="/api/messages/../../secrets/attachments/0">').includes("src="),
   "untrusted local image paths are removed",
 );
-assert(shouldUseMailBodyCache("2026-07-23T08:00:00.000Z", MAIL_BODY_CACHE_VERSION), "current body cache is reused");
-assert(!shouldUseMailBodyCache("2026-07-23T08:00:00.000Z", MAIL_BODY_CACHE_VERSION, true), "manual refresh bypasses current body cache");
-assert(!shouldUseMailBodyCache(undefined, MAIL_BODY_CACHE_VERSION), "missing body cache is fetched");
-assert(!shouldUseMailBodyCache("2026-07-23T08:00:00.000Z", MAIL_BODY_CACHE_VERSION - 1), "outdated sanitizer cache is fetched again");
+const cacheNow = Date.parse("2026-07-23T12:00:00.000Z");
+const cacheMaxAge = 24 * 60 * 60 * 1000;
+assert(
+  shouldUseMailBodyCache("2026-07-23T08:00:00.000Z", MAIL_BODY_CACHE_VERSION, false, cacheNow, cacheMaxAge),
+  "current body cache is reused",
+);
+assert(
+  !shouldUseMailBodyCache("2026-07-23T08:00:00.000Z", MAIL_BODY_CACHE_VERSION, true, cacheNow, cacheMaxAge),
+  "manual refresh bypasses current body cache",
+);
+assert(!shouldUseMailBodyCache(undefined, MAIL_BODY_CACHE_VERSION, false, cacheNow, cacheMaxAge), "missing body cache is fetched");
+assert(
+  !shouldUseMailBodyCache("2026-07-23T08:00:00.000Z", MAIL_BODY_CACHE_VERSION - 1, false, cacheNow, cacheMaxAge),
+  "outdated sanitizer cache is fetched again",
+);
+assert(
+  !shouldUseMailBodyCache("2026-07-22T11:59:59.999Z", MAIL_BODY_CACHE_VERSION, false, cacheNow, cacheMaxAge),
+  "expired body cache is fetched again",
+);
 
 console.log("Mail body sanitizer tests passed");

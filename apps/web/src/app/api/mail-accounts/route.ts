@@ -12,6 +12,7 @@ import {
 } from "@/server/mail-account-validation";
 import {
   getAccount,
+  getLatestSyncRun,
   listAccountSelfAddresses,
   listAccounts,
   loadImapSmtpCredential,
@@ -41,6 +42,7 @@ export async function GET() {
     accounts: await Promise.all(accounts.map(async (account) => ({
       ...account,
       aliases: await listAccountSelfAddresses(account.id),
+      latestSyncRun: await getLatestSyncRun(account.id),
     }))),
     scheduler,
   });

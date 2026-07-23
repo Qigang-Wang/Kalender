@@ -1169,6 +1169,11 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 10px; white-space:
 .accounts-empty strong { color: #d8dbd9; }
 .accounts-empty span { margin-top: 4px; font-size: 11px; }
 .account-card-list { display: grid; gap: 10px; }
+.account-network-status { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 10px; padding: 10px 12px; color: #e4c98e; background: #30291b; border: 1px solid #554522; border-radius: 10px; }
+.account-network-status svg { flex: 0 0 auto; margin-top: 1px; }
+.account-network-status strong, .account-network-status span { display: block; }
+.account-network-status strong { font-size: 11px; }
+.account-network-status span { margin-top: 3px; color: #c3b891; font-size: 10px; }
 .saved-account-card { position: relative; display: flex; min-width: 0; overflow: hidden; background: #191c1a; border: 1px solid #343835; border-radius: 12px; }
 .saved-account-color { width: 4px; flex: 0 0 auto; }
 .saved-account-main { min-width: 0; width: 100%; padding: 13px 14px; }
@@ -1182,6 +1187,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 10px; white-space:
 .sync-status-error { color: #efaaa3; background: #331f1d; }
 .sync-status-paused { color: #c3b891; background: #332e1f; }
 .saved-account-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 11px; color: var(--muted); font-size: 10px; }
+.account-sync-progress { margin: 10px 0 0; color: var(--blue); font-size: 11px; }
 .account-sync-error { margin: 10px 0 0; color: #efaaa3; font-size: 11px; }
 .calendar-account-editor { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(240px, 1.35fr); gap: 12px; margin-top: 12px; padding: 12px; background: #222624; border: 1px solid #3c413d; border-radius: 9px; }
 .calendar-account-editor > label > span, .calendar-account-editor legend { display: block; margin-bottom: 6px; color: #c8cbc9; font-size: 10px; }

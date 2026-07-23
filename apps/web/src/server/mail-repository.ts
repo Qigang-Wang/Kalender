@@ -33,6 +33,17 @@ export interface StoredAccount {
   readonly lastSyncAt?: string;
 }
 
+export interface StoredSyncRun {
+  readonly id: string;
+  readonly status: "running" | "succeeded" | "failed";
+  readonly mode: SyncMode;
+  readonly foldersProcessed: number;
+  readonly messagesProcessed: number;
+  readonly errorMessage?: string;
+  readonly startedAt: string;
+  readonly finishedAt?: string;
+}
+
 export interface PublicImapSmtpSettings {
   readonly imap: Omit<MailServerConnection, "password">;
   readonly smtp: Omit<MailServerConnection, "password">;
@@ -64,6 +75,8 @@ interface SyncCursorRow {
   last_uid: number;
   backfill_before_uid: number | null;
   initial_complete: boolean;
+  reconcile_before_uid: number | null;
+  last_deep_reconcile_at: string | null;
 }
 
 export interface StoredSyncCursor {
@@ -71,6 +84,13 @@ export interface StoredSyncCursor {
   readonly lastUid: number;
   readonly backfillBeforeUid?: number;
   readonly initialComplete: boolean;
+  readonly reconcileBeforeUid?: number;
+  readonly lastDeepReconcileAt?: string;
+}
+
+export interface FolderUidBounds {
+  readonly minimumUid: number;
+  readonly maximumUid: number;
 }
 
 export interface StoredExchangeMailSyncState {
@@ -200,6 +220,22 @@ export interface StoredMessageRemote {
 }
 
 export const MAIL_BODY_CACHE_VERSION = 3;
+export const DEFAULT_MAIL_BODY_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+export const DEFAULT_MAIL_BODY_CACHE_MAX_BYTES = 128 * 1024 * 1024;
+
+export interface MailBodyCacheCleanupOptions {
+  readonly now?: Date;
+  readonly maxAgeMs?: number;
+  readonly maxBytes?: number;
+  readonly targetBytes?: number;
+}
+
+export interface MailBodyCacheCleanupResult {
+  readonly expiredEntries: number;
+  readonly evictedEntries: number;
+  readonly bytesBefore: number;
+  readonly bytesAfter: number;
+}
 
 export interface MailAiContext {
   readonly id: string;
@@ -407,10 +443,20 @@ export async function setSyncStatus(
 export async function startSyncRun(accountId: string, mode: SyncMode): Promise<string> {
   const database = await getDatabase();
   const id = randomUUID();
-  await database.query(
-    "INSERT INTO sync_runs (id, account_id, status, mode) VALUES ($1, $2, 'running', $3)",
-    [id, accountId, mode],
-  );
+  await database.transaction(async (transaction) => {
+    await transaction.query(
+      `UPDATE sync_runs
+          SET status = 'failed',
+              error_message = '同步进程已中断',
+              finished_at = now()
+        WHERE account_id = $1 AND status = 'running'`,
+      [accountId],
+    );
+    await transaction.query(
+      "INSERT INTO sync_runs (id, account_id, status, mode) VALUES ($1, $2, 'running', $3)",
+      [id, accountId, mode],
+    );
+  });
   return id;
 }
 
@@ -428,6 +474,53 @@ export async function finishSyncRun(
        WHERE id = $1`,
     [runId, status, folders, messages, error ?? null],
   );
+}
+
+export async function updateSyncRunProgress(
+  runId: string,
+  folders: number,
+  messages: number,
+): Promise<void> {
+  const database = await getDatabase();
+  await database.query(
+    `UPDATE sync_runs
+        SET folders_processed = $2, messages_processed = $3
+      WHERE id = $1 AND status = 'running'`,
+    [runId, folders, messages],
+  );
+}
+
+export async function getLatestSyncRun(accountId: string): Promise<StoredSyncRun | undefined> {
+  const database = await getDatabase();
+  const result = await database.query<{
+    id: string;
+    status: StoredSyncRun["status"];
+    mode: SyncMode;
+    folders_processed: number;
+    messages_processed: number;
+    error_message: string | null;
+    started_at: string;
+    finished_at: string | null;
+  }>(
+    `SELECT id, status, mode, folders_processed, messages_processed,
+            error_message, started_at, finished_at
+       FROM sync_runs
+      WHERE account_id = $1
+      ORDER BY started_at DESC
+      LIMIT 1`,
+    [accountId],
+  );
+  const row = result.rows[0];
+  return row ? {
+    id: row.id,
+    status: row.status,
+    mode: row.mode,
+    foldersProcessed: row.folders_processed,
+    messagesProcessed: row.messages_processed,
+    errorMessage: row.error_message ?? undefined,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at ?? undefined,
+  } : undefined;
 }
 
 export async function upsertFolder(accountId: string, folder: FolderRecord): Promise<void> {
@@ -669,8 +762,10 @@ export async function updateMessageFlags(
     if (!threadId) return;
     updated = true;
     await transaction.query(
-      "UPDATE mail_threads SET unread_count = $2, updated_at = now() WHERE id = $1",
-      [threadId, isRead ? 0 : 1],
+      `UPDATE mail_threads SET unread_count = (
+         SELECT count(*)::int FROM mail_messages WHERE thread_id = $1 AND is_read = false
+       ), updated_at = now() WHERE id = $1`,
+      [threadId],
     );
   });
   return updated;
@@ -684,8 +779,8 @@ export async function removeMissingFolderMessages(
   remoteUids: ReadonlySet<number>,
 ): Promise<number> {
   const database = await getDatabase();
-  const result = await database.query<{ thread_id: string; provider_uid: number }>(
-    `SELECT thread_id, provider_uid
+  const result = await database.query<{ id: string; thread_id: string; provider_uid: number }>(
+    `SELECT id, thread_id, provider_uid
        FROM mail_messages
       WHERE account_id = $1 AND provider_folder_id = $2
         AND provider_uid BETWEEN $3 AND $4`,
@@ -694,12 +789,35 @@ export async function removeMissingFolderMessages(
   const missing = result.rows.filter((row) => !remoteUids.has(row.provider_uid));
   if (missing.length === 0) return 0;
   await database.transaction(async (transaction) => {
-    for (const row of missing) {
+    const messageIds = missing.map((row) => row.id);
+    const threadIds = [...new Set(missing.map((row) => row.thread_id))];
+    await transaction.query("DELETE FROM mail_messages WHERE id = ANY($1::text[])", [messageIds]);
+    for (const threadId of threadIds) {
       await transaction.query(
-        "DELETE FROM mail_threads WHERE id = $1 AND account_id = $2",
-        [row.thread_id, accountId],
+        `UPDATE mail_threads t SET
+           subject = latest.subject,
+           snippet = latest.snippet,
+           last_message_at = latest.received_at,
+           unread_count = stats.unread_count,
+           updated_at = now()
+         FROM (
+           SELECT subject, snippet, received_at FROM mail_messages
+            WHERE thread_id = $1 ORDER BY received_at DESC, id DESC LIMIT 1
+         ) latest,
+         (
+           SELECT count(*) FILTER (WHERE is_read = false)::integer AS unread_count
+             FROM mail_messages WHERE thread_id = $1
+         ) stats
+         WHERE t.id = $1`,
+        [threadId],
       );
     }
+    await transaction.query(
+      `DELETE FROM mail_threads
+        WHERE account_id = $1 AND id = ANY($2::text[])
+          AND NOT EXISTS (SELECT 1 FROM mail_messages WHERE thread_id = mail_threads.id)`,
+      [accountId, threadIds],
+    );
   });
   return missing.length;
 }
@@ -733,7 +851,8 @@ export async function getSyncCursor(
 ): Promise<StoredSyncCursor | undefined> {
   const database = await getDatabase();
   const result = await database.query<SyncCursorRow>(
-    `SELECT uid_validity, last_uid, backfill_before_uid, initial_complete
+    `SELECT uid_validity, last_uid, backfill_before_uid, initial_complete,
+            reconcile_before_uid, last_deep_reconcile_at
        FROM sync_cursors
       WHERE account_id = $1 AND provider_folder_id = $2
       LIMIT 1`,
@@ -745,7 +864,43 @@ export async function getSyncCursor(
     lastUid: row.last_uid,
     backfillBeforeUid: row.backfill_before_uid ?? undefined,
     initialComplete: row.initial_complete,
+    reconcileBeforeUid: row.reconcile_before_uid ?? undefined,
+    lastDeepReconcileAt: row.last_deep_reconcile_at ?? undefined,
   } : undefined;
+}
+
+export async function saveDeepReconcileCursor(
+  accountId: string,
+  providerFolderId: string,
+  reconcileBeforeUid: number,
+): Promise<void> {
+  const database = await getDatabase();
+  await database.query(
+    `UPDATE sync_cursors
+        SET reconcile_before_uid = $3,
+            last_deep_reconcile_at = now(),
+            updated_at = now()
+      WHERE account_id = $1 AND provider_folder_id = $2`,
+    [accountId, providerFolderId, Math.max(0, reconcileBeforeUid)],
+  );
+}
+
+export async function getFolderUidBounds(
+  accountId: string,
+  providerFolderId: string,
+): Promise<FolderUidBounds | undefined> {
+  const database = await getDatabase();
+  const result = await database.query<{ minimum_uid: number | null; maximum_uid: number | null }>(
+    `SELECT min(provider_uid)::integer AS minimum_uid,
+            max(provider_uid)::integer AS maximum_uid
+       FROM mail_messages
+      WHERE account_id = $1 AND provider_folder_id = $2`,
+    [accountId, providerFolderId],
+  );
+  const row = result.rows[0];
+  return row?.minimum_uid !== null && row?.minimum_uid !== undefined && row.maximum_uid !== null
+    ? { minimumUid: row.minimum_uid, maximumUid: row.maximum_uid! }
+    : undefined;
 }
 
 export async function reopenAccountHistoryBackfill(accountId: string): Promise<void> {
@@ -1217,6 +1372,82 @@ export async function saveMessageBody(
     }
   });
   return getStoredMessageBody(messageId);
+}
+
+export async function cleanupMailBodyCache(
+  options: MailBodyCacheCleanupOptions = {},
+): Promise<MailBodyCacheCleanupResult> {
+  const database = await getDatabase();
+  const now = options.now ?? new Date();
+  const maxAgeMs = Math.max(0, options.maxAgeMs ?? configuredMailBodyCacheMaxAgeMs());
+  const maxBytes = Math.max(0, options.maxBytes ?? configuredMailBodyCacheMaxBytes());
+  const targetBytes = Math.min(
+    maxBytes,
+    Math.max(0, options.targetBytes ?? Math.floor(maxBytes * 0.85)),
+  );
+  const cached = await database.query<{
+    id: string;
+    body_loaded_at: string;
+    size_bytes: number;
+  }>(
+    `SELECT id, body_loaded_at,
+            (COALESCE(octet_length(text_body), 0) + COALESCE(octet_length(html_body), 0))::integer AS size_bytes
+       FROM mail_messages
+      WHERE body_loaded_at IS NOT NULL
+      ORDER BY body_loaded_at, id`,
+  );
+  const bytesBefore = cached.rows.reduce((total, row) => total + Number(row.size_bytes), 0);
+  const expiryBoundary = now.getTime() - maxAgeMs;
+  const expiredIds = cached.rows
+    .filter((row) => {
+      const loadedAt = Date.parse(row.body_loaded_at);
+      return !Number.isFinite(loadedAt) || loadedAt <= expiryBoundary;
+    })
+    .map((row) => row.id);
+  const expiredSet = new Set(expiredIds);
+  const retained = cached.rows.filter((row) => !expiredSet.has(row.id));
+  let retainedBytes = retained.reduce((total, row) => total + Number(row.size_bytes), 0);
+  const evictedIds: string[] = [];
+  if (retainedBytes > maxBytes) {
+    for (const row of retained) {
+      if (retainedBytes <= targetBytes) break;
+      evictedIds.push(row.id);
+      retainedBytes -= Number(row.size_bytes);
+    }
+  }
+  const clearedIds = [...expiredIds, ...evictedIds];
+  if (clearedIds.length > 0) {
+    await database.query(
+      `UPDATE mail_messages
+          SET text_body = NULL,
+              html_body = NULL,
+              body_loaded_at = NULL,
+              body_cache_version = 0,
+              updated_at = now()
+        WHERE id = ANY($1::text[])`,
+      [clearedIds],
+    );
+  }
+  return {
+    expiredEntries: expiredIds.length,
+    evictedEntries: evictedIds.length,
+    bytesBefore,
+    bytesAfter: retainedBytes,
+  };
+}
+
+export function configuredMailBodyCacheMaxAgeMs(): number {
+  const configuredDays = Number(process.env.KALENDER_MAIL_BODY_CACHE_MAX_AGE_DAYS);
+  return Number.isFinite(configuredDays) && configuredDays >= 0
+    ? configuredDays * 24 * 60 * 60 * 1000
+    : DEFAULT_MAIL_BODY_CACHE_MAX_AGE_MS;
+}
+
+export function configuredMailBodyCacheMaxBytes(): number {
+  const configuredMegabytes = Number(process.env.KALENDER_MAIL_BODY_CACHE_MAX_MB);
+  return Number.isFinite(configuredMegabytes) && configuredMegabytes >= 0
+    ? configuredMegabytes * 1024 * 1024
+    : DEFAULT_MAIL_BODY_CACHE_MAX_BYTES;
 }
 
 function mapAccount(row: AccountRow): StoredAccount {

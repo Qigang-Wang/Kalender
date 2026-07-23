@@ -65,6 +65,8 @@ npm run dev
 | `KALENDER_MASTER_KEY` | 可选的 32 字节 Base64 主密钥，用于加密保存的凭据 |
 | `KALENDER_DATA_DIR` | 覆盖本地数据目录，默认是项目根目录的 `.data` |
 | `KALENDER_SYNC_INTERVAL_MS` | 邮箱后台同步间隔，最小 30 秒，默认 3 分钟 |
+| `KALENDER_MAIL_BODY_CACHE_MAX_AGE_DAYS` | 邮件正文缓存有效期，默认 30 天 |
+| `KALENDER_MAIL_BODY_CACHE_MAX_MB` | 邮件正文缓存容量上限，默认 128 MB |
 | `KALENDER_ALLOWED_DEV_ORIGINS` | 允许访问开发服务器的局域网主机名或 IP |
 
 未设置 `KALENDER_MASTER_KEY` 时，本地开发会生成 `.data/master.key`。数据库和主密钥必须一起备份，否则已保存的凭据无法解密。
@@ -75,7 +77,8 @@ npm run dev
 |---|---|
 | `npm run dev` | 启动 Next.js 开发服务器 |
 | `npm run typecheck` | 检查核心包和 Web 应用类型 |
-| `npm test` | 运行 Provider、存储、AI、邮件、日历、任务、笔记和关联测试 |
+| `npm test` | 最多并行 4 组运行完整测试；可用 `KALENDER_TEST_CONCURRENCY` 调整并发 |
+| `npm run test:serial` | 串行运行完整测试，便于定位相互影响 |
 | `npm run build` | 构建核心包和 Web 应用 |
 | `npm run build:web` | 只构建 Web 应用 |
 
