@@ -17,12 +17,12 @@ import {
   loadExchangeMailCredential,
   removeExchangeMessages,
   saveExchangeMailSyncState,
-  saveMessageBody,
+  saveMessageBodies,
   setSyncStatus,
   startSyncRun,
   upsertFolder,
-  upsertMessage,
-  updateExchangeMessageReadFlag,
+  upsertMessages,
+  updateExchangeMessageReadFlags,
   updateSyncRunProgress,
 } from "./mail-repository";
 
@@ -113,9 +113,13 @@ async function executeExchangeMailSync(accountId: string, maximumMessages: numbe
       await storeMessages(accountId, folder.folderId, changes.messages);
       messagesProcessed += changes.messages.length;
       messagesRemoved += await removeExchangeMessages(accountId, changes.deletedItemIds);
-      for (const change of changes.readFlagChanges) {
-        messagesReconciled += await updateExchangeMessageReadFlag(accountId, change.itemId, change.isRead);
-      }
+      messagesReconciled += await updateExchangeMessageReadFlags(
+        accountId,
+        changes.readFlagChanges.map((change) => ({
+          providerMessageId: change.itemId,
+          isRead: change.isRead,
+        })),
+      );
       await saveExchangeMailSyncState(accountId, folder.folderId, {
         syncState: changes.syncState,
         latestSeeded: true,
@@ -145,9 +149,9 @@ async function executeExchangeMailSync(accountId: string, maximumMessages: numbe
 }
 
 async function storeMessages(accountId: string, folderId: string, messages: readonly ExchangeMailMessage[]): Promise<void> {
-  for (const message of messages) {
+  const records = messages.map((message) => {
     const id = exchangeMessageLocalId(accountId, message.itemId);
-    await upsertMessage(accountId, {
+    return {
       id,
       threadId: exchangeThreadLocalId(accountId, message.conversationId, message.itemId),
       providerMessageId: message.itemId,
@@ -164,12 +168,19 @@ async function storeMessages(accountId: string, folderId: string, messages: read
       isStarred: message.isStarred,
       attachments: message.attachments,
       sizeBytes: message.sizeBytes,
-    });
+    };
+  });
+  await upsertMessages(accountId, records);
+  const bodies = messages.flatMap((message, index) => {
+    const id = records[index]!.id;
     const html = message.htmlBody
       ? sanitizeEmailHtml(resolveExchangeInlineImages(message.htmlBody, message.attachments, id))
       : undefined;
-    if (message.textBody || html) await saveMessageBody(id, message.textBody, html, message.snippet);
-  }
+    return message.textBody || html
+      ? [{ id, textBody: message.textBody, htmlBody: html, snippet: message.snippet }]
+      : [];
+  });
+  await saveMessageBodies(bodies);
 }
 
 function folderPriority(role: string): number {

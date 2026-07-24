@@ -8,8 +8,10 @@ export type ContextCommandIcon =
   | "edit"
   | "eye"
   | "eye-off"
+  | "folder"
   | "mail"
   | "note"
+  | "restore"
   | "sparkles"
   | "star"
   | "star-filled"
@@ -20,6 +22,7 @@ export type MailMessageCommandId =
   | "mail.toggle-read"
   | "mail.toggle-star"
   | "mail.create-task"
+  | "mail.assign-project"
   | "mail.ai-summary"
   | "mail.archive"
   | "mail.delete";
@@ -62,7 +65,31 @@ export type NoteCommandId =
   | "note.duplicate"
   | "note.delete";
 
-export type ContextCommandId = MailMessageCommandId | MailFolderCommandId | CalendarEventCommandId | CalendarSlotCommandId | TaskCommandId | NoteCommandId;
+export type ProjectCommandId =
+  | "project.open"
+  | "project.create-task"
+  | "project.create-note"
+  | "project.move-area"
+  | "project.edit"
+  | "project.copy-link"
+  | "project.archive"
+  | "project.restore";
+
+export type ProjectAreaCommandId =
+  | "project-area.create-project"
+  | "project-area.toggle"
+  | "project-area.collapse-others";
+
+export type ProjectGanttCommandId =
+  | "gantt.add-task"
+  | "gantt.add-phase"
+  | "gantt.edit-task"
+  | "gantt.delete-task"
+  | "gantt.edit-phase"
+  | "gantt.delete-phase"
+  | "gantt.remove-phase";
+
+export type ContextCommandId = MailMessageCommandId | MailFolderCommandId | CalendarEventCommandId | CalendarSlotCommandId | TaskCommandId | NoteCommandId | ProjectCommandId | ProjectAreaCommandId | ProjectGanttCommandId;
 
 export interface MailMessageContextTarget {
   readonly kind: "mail-message";
@@ -111,7 +138,15 @@ export interface NoteContextTarget {
   readonly pinned: boolean;
 }
 
-export type ContextTarget = MailMessageContextTarget | CalendarEventContextTarget | CalendarSlotContextTarget | TaskContextTarget | NoteContextTarget;
+export interface ProjectContextTarget {
+  readonly kind: "project";
+  readonly id: string;
+  readonly title: string;
+  readonly busy: boolean;
+  readonly archived: boolean;
+}
+
+export type ContextTarget = MailMessageContextTarget | CalendarEventContextTarget | CalendarSlotContextTarget | TaskContextTarget | NoteContextTarget | ProjectContextTarget;
 
 export interface ResolvedContextCommand {
   readonly id: ContextCommandId;
@@ -155,6 +190,12 @@ const mailMessageCommandRegistry: readonly ContextCommandDefinition<MailMessageC
     group: "organize",
     risk: "local-write",
     resolve: (target) => ({ label: "创建关联任务", icon: "task", disabledReason: target.busy ? "操作进行中" : undefined }),
+  },
+  {
+    id: "mail.assign-project",
+    group: "organize",
+    risk: "local-write",
+    resolve: (target) => ({ label: "关联到项目", icon: "folder", disabledReason: target.busy ? "操作进行中" : undefined }),
   },
   {
     id: "mail.ai-summary",
@@ -334,11 +375,69 @@ const noteCommandRegistry: readonly ContextCommandDefinition<NoteContextTarget>[
   },
 ];
 
+const projectCommandRegistry: readonly ContextCommandDefinition<ProjectContextTarget>[] = [
+  {
+    id: "project.open",
+    group: "primary",
+    risk: "read",
+    resolve: () => ({ label: "打开项目", icon: "eye" }),
+  },
+  {
+    id: "project.create-task",
+    group: "primary",
+    risk: "local-write",
+    resolve: (target) => ({ label: "添加任务", icon: "task", disabledReason: target.archived ? "已归档项目不能添加任务" : target.busy ? "操作进行中" : undefined }),
+  },
+  {
+    id: "project.create-note",
+    group: "primary",
+    risk: "local-write",
+    resolve: (target) => ({ label: "添加笔记", icon: "note", disabledReason: target.archived ? "已归档项目不能添加笔记" : target.busy ? "操作进行中" : undefined }),
+  },
+  {
+    id: "project.move-area",
+    group: "organize",
+    risk: "local-write",
+    resolve: (target) => ({ label: "移动到领域", icon: "folder", disabledReason: target.busy ? "操作进行中" : undefined }),
+  },
+  {
+    id: "project.edit",
+    group: "organize",
+    risk: "local-write",
+    resolve: (target) => ({ label: "编辑项目", icon: "edit", disabledReason: target.busy ? "操作进行中" : undefined }),
+  },
+  {
+    id: "project.copy-link",
+    group: "organize",
+    risk: "read",
+    resolve: () => ({ label: "复制项目链接", icon: "copy" }),
+  },
+  {
+    id: "project.archive",
+    group: "state",
+    risk: "local-write",
+    resolve: (target) => ({ label: "归档项目", icon: "archive", disabledReason: target.archived ? "项目已经归档" : target.busy ? "操作进行中" : undefined }),
+  },
+  {
+    id: "project.restore",
+    group: "state",
+    risk: "local-write",
+    resolve: (target) => ({ label: "恢复项目", icon: "restore", disabledReason: target.archived ? target.busy ? "操作进行中" : undefined : "项目尚未归档" }),
+  },
+];
+
 export function resolveContextCommands(target: ContextTarget): readonly ResolvedContextCommand[] {
   if (target.kind === "mail-message") return resolveRegistry(target, mailMessageCommandRegistry);
   if (target.kind === "calendar-event") return resolveRegistry(target, calendarEventCommandRegistry);
   if (target.kind === "calendar-slot") return resolveRegistry(target, calendarSlotCommandRegistry);
   if (target.kind === "note") return resolveRegistry(target, noteCommandRegistry);
+  if (target.kind === "project") {
+    return resolveRegistry(target, projectCommandRegistry).filter((command) => (
+      target.archived
+        ? command.id !== "project.archive" && command.id !== "project.create-task" && command.id !== "project.create-note"
+        : command.id !== "project.restore"
+    ));
+  }
   return resolveRegistry(target, taskCommandRegistry);
 }
 

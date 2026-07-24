@@ -14,6 +14,7 @@ export interface TaskRequestBody {
   readonly urgencyMode?: unknown;
   readonly dueAt?: unknown;
   readonly estimatedMinutes?: unknown;
+  readonly projectId?: unknown;
   readonly projectName?: unknown;
   readonly areaName?: unknown;
   readonly sourceReferences?: unknown;
@@ -53,6 +54,7 @@ export function parseTaskInput(body: TaskRequestBody | null, id?: string): SaveT
     urgencyMode,
     dueAt,
     estimatedMinutes,
+    projectId: optionalText(body.projectId, 100, "项目标识"),
     projectName: optionalText(body.projectName, 100, "项目名称"),
     areaName: optionalText(body.areaName, 100, "领域名称"),
     sourceReferences: parseSources(body.sourceReferences),

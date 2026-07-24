@@ -1,6 +1,6 @@
 import { listStoredCalendarEvents, listStoredCalendars } from "./calendar-repository";
-import { listInbox } from "./mail-repository";
-import { listStoredTasks, type TaskSourceReference } from "./task-repository";
+import { listUnreadInboxSummary } from "./mail-repository";
+import { listStoredTodayTasks, type TaskSourceReference } from "./task-repository";
 
 export interface TodayEventItem {
   readonly id: string;
@@ -55,26 +55,17 @@ export interface TodaySnapshot {
 }
 
 export async function getTodaySnapshot(from: string, to: string): Promise<TodaySnapshot> {
-  const [events, calendars, tasks, inbox] = await Promise.all([
+  const referenceTime = new Date();
+  const [events, calendars, tasks, unreadInbox] = await Promise.all([
     listStoredCalendarEvents({ from, to, limit: 500 }),
     listStoredCalendars(),
-    listStoredTasks(false),
-    listInbox(100),
+    listStoredTodayTasks(to, referenceTime),
+    listUnreadInboxSummary(6),
   ]);
   const fromTime = new Date(from).getTime();
   const toTime = new Date(to).getTime();
   const calendarById = new Map(calendars.map((calendar) => [calendar.id, calendar]));
-  const allTodayTasks = tasks
-    .filter((task) => {
-      const dueTime = task.dueAt ? new Date(task.dueAt).getTime() : undefined;
-      return (dueTime !== undefined && dueTime < toTime) || (task.status === "next" && task.isUrgent);
-    })
-    .sort((left, right) => {
-      const leftDue = left.dueAt ? new Date(left.dueAt).getTime() : Number.POSITIVE_INFINITY;
-      const rightDue = right.dueAt ? new Date(right.dueAt).getTime() : Number.POSITIVE_INFINITY;
-      return leftDue - rightDue || Number(right.important) - Number(left.important);
-    });
-  const todayTasks = allTodayTasks
+  const todayTasks = tasks
     .slice(0, 8)
     .map((task): TodayTaskItem => {
       const dueTime = task.dueAt ? new Date(task.dueAt).getTime() : undefined;
@@ -95,11 +86,7 @@ export async function getTodaySnapshot(from: string, to: string): Promise<TodayS
         href: `/tasks?task=${encodeURIComponent(task.id)}`,
       };
     });
-  const allUnreadMail = inbox
-    .filter((message) => !message.isRead)
-    .sort((left, right) => Number(right.isStarred) - Number(left.isStarred) || new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime());
-  const unreadMail = allUnreadMail
-    .slice(0, 6)
+  const unreadMail = unreadInbox.items
     .map((message): TodayMailItem => ({
       id: message.id,
       subject: message.subject,
@@ -129,7 +116,7 @@ export async function getTodaySnapshot(from: string, to: string): Promise<TodayS
     }),
     tasks: todayTasks,
     unreadMail,
-    totals: { events: events.length, tasks: allTodayTasks.length, unreadMail: allUnreadMail.length },
+    totals: { events: events.length, tasks: tasks.length, unreadMail: unreadInbox.total },
   };
 }
 

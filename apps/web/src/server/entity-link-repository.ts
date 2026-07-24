@@ -163,7 +163,7 @@ async function resolveEntityDetails(kind: EntityKind, entityId: string): Promise
   }
   const result = await database.query<{ name: string; status: string }>("SELECT name, status FROM projects WHERE id = $1 LIMIT 1", [entityId]);
   const row = result.rows[0];
-  return row ? { title: row.name, meta: row.status === "archived" ? "项目 · 已归档" : "项目", href: "/notes" } : undefined;
+  return row ? { title: row.name, meta: row.status === "archived" ? "项目 · 已归档" : "项目", href: `/projects?project=${encodeURIComponent(entityId)}` } : undefined;
 }
 
 function mapLink(row: LinkRow): StoredEntityLink {

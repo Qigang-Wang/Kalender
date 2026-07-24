@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -27,6 +27,7 @@ function assert(condition: unknown, message: string): asserts condition {
 async function main() {
   await verifyAtomicMigrations();
   await verifyLegacyUpgradeRecoveryPoint();
+  await verifyDatabaseProcessLock();
   console.log("Database migration tests passed");
 }
 
@@ -153,6 +154,12 @@ async function verifyLegacyUpgradeRecoveryPoint() {
   const seed = await PGlite.create(path.join(root, "postgres"));
   try {
     await seed.exec(DATABASE_MIGRATIONS[0].sql);
+    await seed.exec(`
+      INSERT INTO projects (id, name, area_name, color, status)
+      VALUES ('legacy-project', 'Legacy Research', 'Research', '#86bdf5', 'active');
+      INSERT INTO tasks (id, title, project_name)
+      VALUES ('legacy-task', 'Recover project relation', ' legacy research ');
+    `);
   } finally {
     await seed.close();
   }
@@ -175,6 +182,54 @@ async function verifyLegacyUpgradeRecoveryPoint() {
           AND column_name IN ('reconcile_before_uid', 'last_deep_reconcile_at')`,
     );
     assert(deepAuditColumns.rows[0]?.count === 2, "later migrations add the newest sync schema");
+    const linkedTask = await database.query<{ project_id: string | null; project_name: string | null; area_name: string | null }>(
+      "SELECT project_id, project_name, area_name FROM tasks WHERE id = 'legacy-task'",
+    );
+    assert(linkedTask.rows[0]?.project_id === "legacy-project", "project migration links matching legacy task labels");
+    assert(
+      linkedTask.rows[0]?.project_name === "Legacy Research" && linkedTask.rows[0]?.area_name === "Research",
+      "project migration canonicalizes task project metadata",
+    );
+    const milestoneTable = await database.query<{ count: number }>(
+      `SELECT count(*)::integer AS count
+         FROM information_schema.tables
+        WHERE table_name = 'project_milestones'`,
+    );
+    assert(milestoneTable.rows[0]?.count === 1, "later migrations add project milestone storage");
+    const ganttColumns = await database.query<{ count: number }>(
+      `SELECT count(*)::integer AS count
+         FROM information_schema.columns
+        WHERE table_name = 'tasks'
+          AND column_name IN ('planned_start', 'planned_end')`,
+    );
+    assert(ganttColumns.rows[0]?.count === 2, "later migrations add Gantt planning dates");
+    const dependencyTable = await database.query<{ count: number }>(
+      `SELECT count(*)::integer AS count
+         FROM information_schema.tables
+        WHERE table_name = 'task_dependencies'`,
+    );
+    assert(dependencyTable.rows[0]?.count === 1, "later migrations add Gantt task dependencies");
+    const phaseTable = await database.query<{ count: number }>(
+      `SELECT count(*)::integer AS count
+         FROM information_schema.tables
+        WHERE table_name = 'project_phases'`,
+    );
+    assert(phaseTable.rows[0]?.count === 1, "later migrations add project phase storage");
+    const phaseScheduleColumns = await database.query<{ count: number }>(
+      `SELECT count(*)::integer AS count
+         FROM information_schema.columns
+        WHERE table_name = 'tasks'
+          AND column_name IN ('phase_id', 'duration_workdays', 'auto_schedule')`,
+    );
+    assert(phaseScheduleColumns.rows[0]?.count === 3, "later migrations add phase and automatic scheduling fields");
+    const projectTaskLink = await database.query<{ count: number }>(
+      `SELECT count(*)::integer AS count
+         FROM entity_links
+        WHERE source_kind = 'project' AND source_id = 'legacy-project'
+          AND target_kind = 'task' AND target_id = 'legacy-task'
+          AND relation = 'project-item'`,
+    );
+    assert(projectTaskLink.rows[0]?.count === 1, "project migration backfills shared EntityLink membership");
 
     const recoveryFiles = await readdir(path.join(root, "automatic-backups"));
     const archive = recoveryFiles.find((name) => name.endsWith(".tgz"));
@@ -198,6 +253,45 @@ async function verifyLegacyUpgradeRecoveryPoint() {
       recoveryFilesAfterRestart.length === recoveryFiles.length,
       "an up-to-date restart does not create redundant recovery points",
     );
+  } finally {
+    await closeDatabaseForRestore().catch(() => undefined);
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function verifyDatabaseProcessLock() {
+  const root = path.join(tmpdir(), `kalender-database-lock-test-${randomUUID()}`);
+  const lockPath = path.join(root, "kalender-database.lock");
+  process.env.KALENDER_DATA_DIR = root;
+  await mkdir(root, { recursive: true });
+  try {
+    await writeFile(lockPath, JSON.stringify({ pid: process.pid, token: "other-process" }), "utf8");
+    let activeLockFailure: unknown;
+    try {
+      await getDatabase();
+    } catch (error) {
+      activeLockFailure = error;
+    }
+    assert(
+      activeLockFailure instanceof Error && activeLockFailure.message.includes(String(process.pid)),
+      "an active process lock prevents a second database instance",
+    );
+
+    await rm(lockPath, { force: true });
+    const database = await getDatabase();
+    assert(!database.closed, "database starts after the active lock is released");
+    await closeDatabaseForRestore();
+    let releasedLock: string | undefined;
+    try {
+      releasedLock = await readFile(lockPath, "utf8");
+    } catch {
+      releasedLock = undefined;
+    }
+    assert(releasedLock === undefined, "graceful database close releases the process lock");
+
+    await writeFile(lockPath, JSON.stringify({ pid: 2_147_483_647, token: "stale-process" }), "utf8");
+    const databaseAfterStaleLock = await getDatabase();
+    assert(!databaseAfterStaleLock.closed, "a stale process lock is reclaimed automatically");
   } finally {
     await closeDatabaseForRestore().catch(() => undefined);
     await rm(root, { recursive: true, force: true });

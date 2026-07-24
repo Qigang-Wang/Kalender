@@ -12,6 +12,9 @@ async function main() {
   process.env.KALENDER_DATA_DIR = testRoot;
   const notes = await import("./note-repository");
   const tasks = await import("./task-repository");
+  const projectRepository = await import("./project-repository");
+  const projectValidation = await import("./project-validation");
+  const entityLinks = await import("./entity-link-repository");
   const { parseNoteInput, parseProjectInput, NoteValidationError } = await import("./note-validation");
   const { getDatabase } = await import("./database");
   const database = await getDatabase();
@@ -42,6 +45,10 @@ async function main() {
   assert(note.title === "Notes architecture", "note title is normalized");
   assert(note.projectName === project.name && note.pinned, "project and pin state are stored");
   assert((await notes.listStoredProjects())[0]?.noteCount === 1, "project note count is updated");
+  assert(
+    (await entityLinks.listRelatedEntities("note", note.id)).some((item) => item.entityId === project.id && item.relation === "project-item"),
+    "project notes are mirrored into EntityLink",
+  );
 
   const updated = await notes.saveStoredNote({
     id: note.id,
@@ -64,6 +71,75 @@ async function main() {
   const linked = await notes.getStoredNote(note.id);
   assert(linked?.linkedTasks[0]?.id === task.id, "note exposes its linked task");
   assert(linked.linkedTasks[0]?.href === `/tasks?task=${encodeURIComponent(task.id)}`, "note links back to task detail");
+  const milestone = await projectRepository.saveStoredProjectMilestone(projectValidation.parseProjectMilestoneInput({
+    title: " First integrated project view ",
+    dueOn: "2026-08-15",
+    status: "active",
+  }, project.id));
+  assert(milestone.title === "First integrated project view", "project milestone input is normalized");
+  const overview = await projectRepository.getStoredProjectOverview(project.id);
+  assert(overview?.project.id === project.id, "project overview returns the selected project");
+  assert(
+    overview.stats.openTaskCount === 1
+      && overview.stats.completedTaskCount === 0
+      && overview.stats.noteCount === 1,
+    "project overview aggregates task progress and notes",
+  );
+  assert(
+    overview.tasks[0]?.id === task.id && overview.notes[0]?.id === note.id,
+    "project overview exposes linked tasks and notes",
+  );
+  assert(
+    overview.milestones[0]?.id === milestone.id && overview.milestones[0]?.dueOn === "2026-08-15",
+    "project overview includes its milestone timeline",
+  );
+  assert(
+    overview.review.unscheduledOpenTaskCount === 1 && overview.review.completedLast7DaysCount === 0,
+    "project overview builds a weekly review from task activity",
+  );
+  assert(
+    (await entityLinks.listRelatedEntities("task", task.id)).some((item) => item.entityId === project.id && item.relation === "project-item"),
+    "project tasks are mirrored into EntityLink",
+  );
+
+  const dependentTask = await tasks.saveStoredTask({
+    title: "Validate project Gantt",
+    status: "next",
+    important: false,
+    urgencyMode: "auto",
+    projectId: project.id,
+  });
+  await projectRepository.saveStoredProjectTaskPlan(projectValidation.parseProjectTaskPlanInput({
+    plannedStart: "2026-07-27",
+    plannedEnd: "2026-07-31",
+    dependencyIds: [],
+  }, project.id, task.id));
+  await projectRepository.saveStoredProjectTaskPlan(projectValidation.parseProjectTaskPlanInput({
+    plannedStart: "2026-08-03",
+    plannedEnd: "2026-08-07",
+    dependencyIds: [task.id],
+  }, project.id, dependentTask.id));
+  const ganttOverview = await projectRepository.getStoredProjectOverview(project.id);
+  const plannedDependent = ganttOverview?.ganttTasks.find((entry) => entry.id === dependentTask.id);
+  assert(
+    plannedDependent?.plannedStart === "2026-08-03"
+      && plannedDependent.plannedEnd === "2026-08-07"
+      && plannedDependent.dependencyIds[0] === task.id,
+    "project Gantt stores task ranges and predecessor relationships",
+  );
+  try {
+    await projectRepository.saveStoredProjectTaskPlan(projectValidation.parseProjectTaskPlanInput({
+      plannedStart: "2026-07-27",
+      plannedEnd: "2026-07-31",
+      dependencyIds: [dependentTask.id],
+    }, project.id, task.id));
+    throw new Error("cyclic task dependency unexpectedly accepted");
+  } catch (error) {
+    assert(
+      error instanceof projectRepository.ProjectRepositoryError && error.code === "TASK_DEPENDENCY_CYCLE",
+      "project Gantt rejects circular dependencies",
+    );
+  }
 
   try {
     await notes.deleteStoredProject(project.id);
@@ -75,8 +151,16 @@ async function main() {
   assert(await notes.deleteStoredNote(note.id), "note can be deleted");
   assert(await tasks.getStoredTask(task.id), "deleting a note keeps its task");
   assert((await tasks.getStoredTask(task.id))?.sourceReferences.length === 0, "deleting a note removes the stale source link");
-  assert(await notes.deleteStoredProject(project.id), "empty project can be deleted");
+  try {
+    await notes.deleteStoredProject(project.id);
+    throw new Error("project with a linked task unexpectedly deleted");
+  } catch (error) {
+    assert(error instanceof notes.NoteRepositoryError && error.status === 409, "project tasks also protect the project");
+  }
+  assert(await tasks.deleteStoredTask(dependentTask.id), "dependent project task can be cleaned up");
   assert(await tasks.deleteStoredTask(task.id), "linked task can be cleaned up");
+  assert(await projectRepository.deleteStoredProjectMilestone(project.id, milestone.id), "project milestone can be deleted");
+  assert(await notes.deleteStoredProject(project.id), "empty project can be deleted");
 
   try {
     parseNoteInput({ title: "", content: "" });

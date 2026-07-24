@@ -1,4 +1,6 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { readFileSync, unlinkSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { PGlite } from "@electric-sql/pglite";
@@ -14,6 +16,14 @@ import {
 declare global {
   var kalenderDatabase: Promise<PGlite> | undefined;
   var kalenderDatabaseMigrations: Promise<void> | undefined;
+  var kalenderDatabaseProcessLock: DatabaseProcessLock | undefined;
+  var kalenderDatabaseExitHandlersRegistered: boolean | undefined;
+}
+
+interface DatabaseProcessLock {
+  readonly path: string;
+  readonly token: string;
+  readonly pid: number;
 }
 
 export function workspaceRoot(): string {
@@ -28,21 +38,32 @@ export function dataRoot(): string {
 }
 
 export async function getDatabase(): Promise<PGlite> {
-  globalThis.kalenderDatabase ??= initializeDatabase();
-  const database = await globalThis.kalenderDatabase;
-  globalThis.kalenderDatabaseMigrations ??= ensureLatestSchema(database);
-  await globalThis.kalenderDatabaseMigrations;
-  return database;
+  try {
+    globalThis.kalenderDatabase ??= initializeDatabase();
+    const database = await globalThis.kalenderDatabase;
+    globalThis.kalenderDatabaseMigrations ??= ensureLatestSchema(database);
+    await globalThis.kalenderDatabaseMigrations;
+    return database;
+  } catch (error) {
+    globalThis.kalenderDatabase = undefined;
+    globalThis.kalenderDatabaseMigrations = undefined;
+    await releaseDatabaseProcessLock();
+    throw error;
+  }
 }
 
 export async function closeDatabaseForRestore(): Promise<void> {
-  const pending = globalThis.kalenderDatabase;
-  if (pending) {
-    const database = await pending;
-    if (!database.closed) await database.close();
+  try {
+    const pending = globalThis.kalenderDatabase;
+    if (pending) {
+      const database = await pending;
+      if (!database.closed) await database.close();
+    }
+  } finally {
+    globalThis.kalenderDatabase = undefined;
+    globalThis.kalenderDatabaseMigrations = undefined;
+    await releaseDatabaseProcessLock();
   }
-  globalThis.kalenderDatabase = undefined;
-  globalThis.kalenderDatabaseMigrations = undefined;
 }
 
 const FEATURE_SCHEMA_SQL = String.raw`
@@ -634,10 +655,149 @@ const SYNC_STABILITY_SCHEMA_SQL = String.raw`
     ADD COLUMN IF NOT EXISTS last_deep_reconcile_at timestamptz;
 `;
 
+const PROJECT_TASK_LINKS_SCHEMA_SQL = String.raw`
+  CREATE INDEX IF NOT EXISTS tasks_project_status_updated_idx
+    ON tasks (project_id, status, updated_at DESC);
+
+  UPDATE tasks t
+     SET project_id = p.id,
+         project_name = p.name,
+         area_name = COALESCE(p.area_name, t.area_name)
+    FROM projects p
+   WHERE t.project_id IS NULL
+     AND t.project_name IS NOT NULL
+     AND lower(trim(t.project_name)) = lower(trim(p.name));
+
+  UPDATE tasks t
+     SET project_name = p.name,
+         area_name = COALESCE(p.area_name, t.area_name)
+    FROM projects p
+   WHERE t.project_id = p.id;
+`;
+
+const PROJECT_MILESTONES_SCHEMA_SQL = String.raw`
+  CREATE TABLE IF NOT EXISTS project_milestones (
+    id text PRIMARY KEY,
+    project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    title text NOT NULL,
+    due_on date,
+    status text NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'active', 'done')),
+    sort_order integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  CREATE INDEX IF NOT EXISTS project_milestones_project_due_idx
+    ON project_milestones (project_id, status, due_on, sort_order);
+`;
+
+const PROJECT_GANTT_SCHEMA_SQL = String.raw`
+  ALTER TABLE tasks ADD COLUMN IF NOT EXISTS planned_start date;
+  ALTER TABLE tasks ADD COLUMN IF NOT EXISTS planned_end date;
+
+  CREATE TABLE IF NOT EXISTS task_dependencies (
+    project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    predecessor_task_id text NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    successor_task_id text NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (predecessor_task_id, successor_task_id),
+    CHECK (predecessor_task_id <> successor_task_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS task_dependencies_project_idx
+    ON task_dependencies (project_id, successor_task_id);
+
+  UPDATE tasks
+     SET planned_end = due_at::date
+   WHERE project_id IS NOT NULL
+     AND planned_end IS NULL
+     AND due_at IS NOT NULL;
+`;
+
+const PROJECT_ENTITY_LINKS_SCHEMA_SQL = String.raw`
+  INSERT INTO entity_links (id, source_kind, source_id, target_kind, target_id, relation)
+    SELECT 'project-task:' || t.id, 'project', t.project_id, 'task', t.id, 'project-item'
+      FROM tasks t
+     WHERE t.project_id IS NOT NULL
+    ON CONFLICT (source_kind, source_id, target_kind, target_id, relation) DO NOTHING;
+
+  INSERT INTO entity_links (id, source_kind, source_id, target_kind, target_id, relation)
+    SELECT 'project-note:' || n.id, 'project', n.project_id, 'note', n.id, 'project-item'
+      FROM notes n
+     WHERE n.project_id IS NOT NULL
+    ON CONFLICT (source_kind, source_id, target_kind, target_id, relation) DO NOTHING;
+`;
+
+const PROJECT_PHASES_AND_AUTO_SCHEDULE_SCHEMA_SQL = String.raw`
+  CREATE TABLE IF NOT EXISTS project_phases (
+    id text PRIMARY KEY,
+    project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    color text NOT NULL DEFAULT '#86bdf5',
+    sort_order integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  CREATE INDEX IF NOT EXISTS project_phases_project_order_idx
+    ON project_phases (project_id, sort_order, created_at);
+
+  ALTER TABLE tasks
+    ADD COLUMN IF NOT EXISTS phase_id text REFERENCES project_phases(id) ON DELETE SET NULL;
+  ALTER TABLE tasks
+    ADD COLUMN IF NOT EXISTS duration_workdays integer
+      CHECK (duration_workdays IS NULL OR duration_workdays BETWEEN 1 AND 2600);
+  ALTER TABLE tasks
+    ADD COLUMN IF NOT EXISTS auto_schedule boolean NOT NULL DEFAULT false;
+
+  CREATE INDEX IF NOT EXISTS tasks_project_phase_plan_idx
+    ON tasks (project_id, phase_id, planned_start, planned_end);
+`;
+
+const MAIL_QUERY_PERFORMANCE_SCHEMA_SQL = String.raw`
+  CREATE INDEX IF NOT EXISTS mail_messages_thread_received_idx
+    ON mail_messages (thread_id, received_at DESC, id DESC);
+
+  CREATE INDEX IF NOT EXISTS mail_messages_thread_read_idx
+    ON mail_messages (thread_id, is_read);
+
+  CREATE INDEX IF NOT EXISTS mail_messages_folder_received_idx
+    ON mail_messages (account_id, provider_folder_id, received_at DESC, id DESC);
+
+  CREATE INDEX IF NOT EXISTS mail_folders_role_account_provider_idx
+    ON mail_folders (role, account_id, provider_folder_id);
+`;
+
+const WORKSPACE_QUERY_PERFORMANCE_SCHEMA_SQL = String.raw`
+  CREATE INDEX IF NOT EXISTS tasks_active_due_idx
+    ON tasks (due_at, important DESC, updated_at DESC)
+    WHERE status <> 'done';
+
+  CREATE INDEX IF NOT EXISTS tasks_next_urgency_due_idx
+    ON tasks (urgency_mode, due_at, important DESC)
+    WHERE status = 'next';
+
+  CREATE INDEX IF NOT EXISTS task_source_references_source_idx
+    ON task_source_references (source_kind, source_id, task_id);
+
+  CREATE INDEX IF NOT EXISTS entity_links_target_idx
+    ON entity_links (target_kind, target_id, relation);
+
+  CREATE INDEX IF NOT EXISTS mail_messages_account_provider_message_idx
+    ON mail_messages (account_id, provider_message_id);
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
   { version: 3, name: "mail-sync-deep-reconciliation", sql: SYNC_STABILITY_SCHEMA_SQL },
+  { version: 4, name: "project-task-links", sql: PROJECT_TASK_LINKS_SCHEMA_SQL },
+  { version: 5, name: "project-milestones", sql: PROJECT_MILESTONES_SCHEMA_SQL },
+  { version: 6, name: "project-gantt", sql: PROJECT_GANTT_SCHEMA_SQL },
+  { version: 7, name: "project-entity-links", sql: PROJECT_ENTITY_LINKS_SCHEMA_SQL },
+  { version: 8, name: "project-phases-and-auto-schedule", sql: PROJECT_PHASES_AND_AUTO_SCHEDULE_SCHEMA_SQL },
+  { version: 9, name: "mail-query-performance", sql: MAIL_QUERY_PERFORMANCE_SCHEMA_SQL },
+  { version: 10, name: "workspace-query-performance", sql: WORKSPACE_QUERY_PERFORMANCE_SCHEMA_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;
@@ -692,5 +852,108 @@ async function createMigrationRecoveryPoint(
 async function initializeDatabase(): Promise<PGlite> {
   const root = dataRoot();
   await mkdir(root, { recursive: true });
-  return PGlite.create(path.join(root, "postgres"));
+  await acquireDatabaseProcessLock(root);
+  try {
+    return await PGlite.create(path.join(root, "postgres"));
+  } catch (error) {
+    await releaseDatabaseProcessLock();
+    throw error;
+  }
+}
+
+async function acquireDatabaseProcessLock(root: string): Promise<void> {
+  if (globalThis.kalenderDatabaseProcessLock) return;
+  const lockPath = path.join(root, "kalender-database.lock");
+  const token = randomUUID();
+  const lock = { path: lockPath, token, pid: process.pid } satisfies DatabaseProcessLock;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const handle = await open(lockPath, "wx", 0o600);
+      try {
+        await handle.writeFile(`${JSON.stringify({
+          pid: lock.pid,
+          token: lock.token,
+          createdAt: new Date().toISOString(),
+          workspace: workspaceRoot(),
+        })}\n`);
+      } finally {
+        await handle.close();
+      }
+      globalThis.kalenderDatabaseProcessLock = lock;
+      registerDatabaseExitHandlers();
+      return;
+    } catch (error) {
+      if (!isFileAlreadyExistsError(error)) throw error;
+      const existing = await readDatabaseProcessLock(lockPath);
+      if (existing?.pid && isProcessAlive(existing.pid)) {
+        throw new Error(`数据库正在被另一个 Kalender 进程使用（PID ${existing.pid}）`);
+      }
+      await rm(lockPath, { force: true });
+    }
+  }
+  throw new Error("无法获取 Kalender 数据库单实例锁");
+}
+
+async function releaseDatabaseProcessLock(): Promise<void> {
+  const lock = globalThis.kalenderDatabaseProcessLock;
+  if (!lock) return;
+  globalThis.kalenderDatabaseProcessLock = undefined;
+  try {
+    const existing = await readDatabaseProcessLock(lock.path);
+    if (existing?.token === lock.token) await rm(lock.path, { force: true });
+  } catch {
+    // The process is shutting down; a stale lock is safely reclaimed on the next start.
+  }
+}
+
+function registerDatabaseExitHandlers(): void {
+  if (globalThis.kalenderDatabaseExitHandlersRegistered) return;
+  globalThis.kalenderDatabaseExitHandlersRegistered = true;
+  const shutdown = (signal: "SIGINT" | "SIGTERM") => {
+    void closeDatabaseForRestore()
+      .catch(() => undefined)
+      .finally(() => process.exit(signal === "SIGINT" ? 130 : 143));
+  };
+  process.once("SIGINT", () => shutdown("SIGINT"));
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
+  process.once("exit", releaseDatabaseProcessLockSync);
+}
+
+function releaseDatabaseProcessLockSync(): void {
+  const lock = globalThis.kalenderDatabaseProcessLock;
+  if (!lock) return;
+  try {
+    const existing = JSON.parse(readFileSync(lock.path, "utf8")) as { token?: unknown };
+    if (existing.token === lock.token) unlinkSync(lock.path);
+  } catch {
+    // The lock may already be gone after a graceful shutdown.
+  }
+  globalThis.kalenderDatabaseProcessLock = undefined;
+}
+
+async function readDatabaseProcessLock(lockPath: string): Promise<{ readonly pid?: number; readonly token?: string } | undefined> {
+  try {
+    const parsed = JSON.parse(await readFile(lockPath, "utf8")) as { readonly pid?: unknown; readonly token?: unknown };
+    return {
+      pid: typeof parsed.pid === "number" && Number.isInteger(parsed.pid) ? parsed.pid : undefined,
+      token: typeof parsed.token === "string" ? parsed.token : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+function isFileAlreadyExistsError(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === "EEXIST";
 }

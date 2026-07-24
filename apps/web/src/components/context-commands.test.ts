@@ -19,16 +19,18 @@ assert(ready.map((command) => command.id).join(",") === [
   "mail.toggle-read",
   "mail.toggle-star",
   "mail.create-task",
+  "mail.assign-project",
   "mail.ai-summary",
   "mail.archive",
   "mail.delete",
 ].join(","), "mail command order is stable");
 assert(ready[0]?.label === "标记为未读", "read label reflects current state");
 assert(ready[1]?.label === "取消星标" && ready[1].icon === "star-filled", "star label and icon reflect current state");
-assert(!ready[4]?.disabledReason, "archive is enabled when a destination exists");
-assert(ready[5]?.id === "mail.delete" && !ready[5]?.disabledReason, "delete is enabled for a connected mailbox");
+assert(!ready[5]?.disabledReason, "archive is enabled when a destination exists");
+assert(ready[6]?.id === "mail.delete" && !ready[6]?.disabledReason, "delete is enabled for a connected mailbox");
 assert(!ready[2]?.disabledReason && ready[2]?.label === "创建关联任务", "mail can create a local linked task");
-assert(ready[3]?.disabledReason === "需配置 GPT", "AI command explains its dependency");
+assert(!ready[3]?.disabledReason && ready[3]?.label === "关联到项目", "mail can be organized into a project");
+assert(ready[4]?.disabledReason === "需配置 GPT", "AI command explains its dependency");
 
 const disconnected = resolveContextCommands({
   kind: "mail-message",
@@ -43,8 +45,8 @@ const disconnected = resolveContextCommands({
 
 assert(disconnected[0]?.label === "标记为已读", "unread label reflects current state");
 assert(disconnected[0]?.disabledReason === "连接真实邮箱后可用", "remote actions explain connection requirement");
-assert(disconnected[4]?.disabledReason === "连接真实邮箱后可用", "connection requirement takes priority over archive capability");
-assert(disconnected[5]?.disabledReason === "连接真实邮箱后可用", "delete requires a connected mailbox");
+assert(disconnected[5]?.disabledReason === "连接真实邮箱后可用", "connection requirement takes priority over archive capability");
+assert(disconnected[6]?.disabledReason === "连接真实邮箱后可用", "delete requires a connected mailbox");
 
 const noArchive = resolveContextCommands({
   kind: "mail-message",
@@ -56,7 +58,7 @@ const noArchive = resolveContextCommands({
   isStarred: false,
   canArchive: false,
 });
-assert(noArchive[4]?.disabledReason === "无归档文件夹", "archive capability is reported clearly");
+assert(noArchive[5]?.disabledReason === "无归档文件夹", "archive capability is reported clearly");
 
 const calendarEvent = resolveContextCommands({
   kind: "calendar-event",
@@ -183,5 +185,40 @@ const pinnedBusyNote = resolveContextCommands({
 });
 assert(pinnedBusyNote[2]?.label === "取消置顶" && pinnedBusyNote[2]?.icon === "star-filled", "pinned note command reflects current state");
 assert(pinnedBusyNote[1]?.disabledReason === "操作进行中" && pinnedBusyNote[4]?.disabledReason === "操作进行中", "note writes are disabled while busy");
+
+const activeProject = resolveContextCommands({
+  kind: "project",
+  id: "project-1",
+  title: "Drone development",
+  busy: false,
+  archived: false,
+});
+assert(activeProject.map((command) => command.id).join(",") === [
+  "project.open",
+  "project.create-task",
+  "project.create-note",
+  "project.move-area",
+  "project.edit",
+  "project.copy-link",
+  "project.archive",
+].join(","), "active project commands are stable");
+assert(activeProject[1]?.label === "添加任务" && !activeProject[1]?.disabledReason, "active projects accept tasks");
+assert(activeProject[6]?.label === "归档项目" && activeProject[6]?.risk === "local-write", "active projects can be archived safely");
+
+const archivedProject = resolveContextCommands({
+  kind: "project",
+  id: "project-2",
+  title: "Old project",
+  busy: false,
+  archived: true,
+});
+assert(archivedProject.map((command) => command.id).join(",") === [
+  "project.open",
+  "project.move-area",
+  "project.edit",
+  "project.copy-link",
+  "project.restore",
+].join(","), "archived project commands replace archive with restore");
+assert(archivedProject[4]?.label === "恢复项目" && archivedProject[4]?.icon === "restore", "archived projects can be restored");
 
 console.log("Context command registry tests passed");

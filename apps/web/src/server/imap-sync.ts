@@ -22,7 +22,7 @@ import {
   updateMessageFlags,
   updateSyncRunProgress,
   upsertFolder,
-  upsertMessage,
+  upsertMessages,
   type MessageRecord,
   type SyncMode,
 } from "./mail-repository";
@@ -388,9 +388,10 @@ async function fetchAndStore(
     { uid: true, flags: true, envelope: true, internalDate: true, size: true, bodyStructure: true, threadId: true },
     { uid: true },
   );
-  for (const message of fetched) {
-    await upsertMessage(accountId, toMessageRecord(accountId, folderPath, message));
-  }
+  await upsertMessages(
+    accountId,
+    fetched.map((message) => toMessageRecord(accountId, folderPath, message)),
+  );
   return fetched.length;
 }
 

@@ -11,11 +11,19 @@ async function main() {
   const testRoot = path.join(tmpdir(), `kalender-task-test-${randomUUID()}`);
   process.env.KALENDER_DATA_DIR = testRoot;
   const repository = await import("./task-repository");
+  const noteRepository = await import("./note-repository");
   const schedule = await import("./task-schedule");
   const calendarRepository = await import("./calendar-repository");
   const { parseTaskInput, TaskValidationError } = await import("./task-validation");
   const { getDatabase } = await import("./database");
   const database = await getDatabase();
+  const project = await noteRepository.saveStoredProject({
+    name: "Customer project",
+    description: "A shared context for delivery work",
+    areaName: "Work",
+    color: "#86bdf5",
+    status: "active",
+  });
 
   const input = parseTaskInput({
       title: " Confirm delivery time ",
@@ -24,14 +32,42 @@ async function main() {
       urgencyMode: "auto",
       dueAt: "2026-07-20T12:00:00.000Z",
       estimatedMinutes: 45,
-      projectName: "Customer project",
+      projectId: project.id,
       sourceReferences: [{ kind: "mail", sourceId: "message-1", label: "Delivery email", href: "/inbox" }],
     });
   const created = await repository.saveStoredTask(input);
   assert(created.title === "Confirm delivery time", "task title is normalized");
   assert(created.important && created.estimatedMinutes === 45, "priority and estimate are stored");
+  assert(created.projectId === project.id && created.projectName === project.name, "task stores a real project relation");
+  assert(created.projectColor === project.color && created.areaName === "Work", "task inherits project presentation and area");
   assert(created.sourceReferences[0]?.kind === "mail", "mail backlink is stored");
   assert(created.isUrgent, "past automatic deadline is urgent");
+
+  const renamedProject = await noteRepository.saveStoredProject({
+    id: project.id,
+    name: "Delivery project",
+    description: project.description,
+    areaName: "Research",
+    color: "#9ad3bc",
+    status: "active",
+  });
+  const linkedAfterRename = await repository.getStoredTask(created.id);
+  assert(
+    linkedAfterRename?.projectName === renamedProject.name
+      && linkedAfterRename.projectColor === renamedProject.color
+      && linkedAfterRename.areaName === renamedProject.areaName,
+    "linked tasks follow project metadata changes",
+  );
+
+  try {
+    await repository.saveStoredTask(parseTaskInput({ title: "Invalid project task", projectId: "missing-project" }));
+    throw new Error("missing project unexpectedly accepted");
+  } catch (error) {
+    assert(
+      error instanceof repository.TaskRepositoryError && error.code === "PROJECT_NOT_FOUND",
+      "archived or missing projects cannot receive new tasks",
+    );
+  }
 
   const listed = await repository.listStoredTasks();
   assert(listed.length === 1 && listed[0]?.id === created.id, "open task is listed");
@@ -96,6 +132,7 @@ async function main() {
   const tasks = await repository.listStoredTasks(true);
   assert(tasks[0] && await repository.deleteStoredTask(tasks[0].id), "task can be deleted");
   assert((await repository.listStoredTasks(true)).length === 0, "deleted task is removed");
+  assert(await noteRepository.deleteStoredProject(project.id), "an empty project can be deleted after its tasks are removed");
   console.log("Task repository tests passed");
   await database.close();
   await rm(testRoot, { recursive: true, force: true });

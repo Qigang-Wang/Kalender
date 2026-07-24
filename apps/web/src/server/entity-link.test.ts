@@ -67,6 +67,23 @@ async function main() {
 
     assert(await links.deleteEntityLink(projectLink.id), "a generic link can be removed");
     assert((await links.listRelatedEntities("project", project.id)).length === 0, "removed links disappear from both directions");
+    const disposableProject = await notes.saveStoredProject({
+      name: "Disposable project link",
+      color: "#9ad3bc",
+      status: "active",
+    });
+    await links.saveEntityLink({
+      sourceKind: "project",
+      sourceId: disposableProject.id,
+      targetKind: "note",
+      targetId: note.id,
+      relation: "related",
+    });
+    assert(await notes.deleteStoredProject(disposableProject.id), "a project without owned content can be deleted");
+    assert(
+      !(await links.listRelatedEntities("note", note.id)).some((item) => item.entityId === disposableProject.id),
+      "deleting a project removes its remaining generic links",
+    );
     assert(await notes.deleteStoredNote(note.id), "linked note can be deleted");
     assert((await links.listRelatedEntities("task", task.id)).length === 0, "deleting an entity removes its generic links");
 

@@ -45,10 +45,28 @@ async function main() {
       urgencyMode: "not_urgent",
       dueAt: "2026-07-25T15:00:00.000Z",
     });
+    await tasks.saveStoredTask({
+      title: "Manual urgent",
+      status: "next",
+      important: false,
+      urgencyMode: "urgent",
+    });
+    await tasks.saveStoredTask({
+      title: "Already completed",
+      status: "done",
+      important: true,
+      urgencyMode: "urgent",
+      dueAt: "2026-07-20T15:00:00.000Z",
+    });
 
     const snapshot = await today.getTodaySnapshot("2026-07-21T00:00:00.000Z", "2026-07-22T00:00:00.000Z");
     assert(snapshot.events.length === 1 && snapshot.events[0]?.title === "Today review", "Today includes only overlapping calendar events");
-    assert(snapshot.tasks.length === 1 && snapshot.tasks[0]?.title === "Due today", "Today includes due tasks but not later work");
+    assert(
+      snapshot.tasks.length === 2
+        && snapshot.tasks[0]?.title === "Due today"
+        && snapshot.tasks[1]?.title === "Manual urgent",
+      "Today queries due and manually urgent tasks but excludes later or completed work",
+    );
     assert(snapshot.tasks[0]?.attention === "today", "Today classifies due tasks");
     assert(snapshot.unreadMail.length === 0, "Today handles an empty inbox");
 

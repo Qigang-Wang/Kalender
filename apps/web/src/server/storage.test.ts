@@ -140,6 +140,11 @@ async function main() {
   const inbox = await repository.listInbox();
   assert(inbox.length === 1, "stored inbox message is returned");
   assert(inbox[0]?.threadCount === 2, "inbox collapses a conversation into one row with a message count");
+  const unreadSummary = await repository.listUnreadInboxSummary();
+  assert(
+    unreadSummary.total === 1 && unreadSummary.items[0]?.id === `${account.id}:message:1`,
+    "unread inbox summary returns the newest unread thread without loading the full inbox",
+  );
   const thread = await repository.listMailThread(`${account.id}:message:1`);
   assert(thread.length === 2 && thread[1]?.folderRole === "sent", "thread detail contains incoming and sent messages in order");
   const selfAddresses = await repository.listAccountSelfAddresses(account.id);
@@ -160,6 +165,7 @@ async function main() {
   assert(await repository.updateMessageFlags(account.id, "INBOX", 1, true, true), "message flags can be reconciled");
   const updatedInbox = await repository.listInbox();
   assert(updatedInbox[0]?.isRead && updatedInbox[0]?.isStarred, "read and starred state is persisted");
+  assert((await repository.listUnreadInboxSummary()).total === 0, "unread inbox summary follows stored read state");
   const uncachedBody = await repository.getStoredMessageBody(`${account.id}:message:1`);
   assert(uncachedBody && !uncachedBody.loadedAt, "message body starts uncached");
   const cachedBody = await repository.saveMessageBody(
@@ -194,6 +200,108 @@ async function main() {
   assert(
     await repository.removeMissingFolderMessages(account.id, "INBOX", 1, 1, new Set([1])) === 0,
     "present remote message is preserved",
+  );
+  await repository.upsertMessages(account.id, [
+    {
+      id: `${account.id}:message:3`,
+      threadId: `${account.id}:thread:3`,
+      providerMessageId: "<batch-3@example.test>",
+      providerUid: 3,
+      providerFolderId: "INBOX",
+      subject: "Batch insert three",
+      from: { address: "three@example.test" },
+      to: [{ address: "storage@example.test" }],
+      cc: [],
+      sentAt: "2026-07-22T12:00:00.000Z",
+      receivedAt: "2026-07-22T12:00:00.000Z",
+      snippet: "Third thread",
+      isRead: true,
+      isStarred: false,
+      attachments: [],
+    },
+    {
+      id: `${account.id}:message:4`,
+      threadId: `${account.id}:thread:4`,
+      providerMessageId: "<batch-4@example.test>",
+      providerUid: 4,
+      providerFolderId: "INBOX",
+      subject: "Batch insert four",
+      from: { address: "four@example.test" },
+      to: [{ address: "storage@example.test" }],
+      cc: [],
+      sentAt: "2026-07-21T12:00:00.000Z",
+      receivedAt: "2026-07-21T12:00:00.000Z",
+      snippet: "Fourth thread",
+      isRead: true,
+      isStarred: false,
+      attachments: [],
+    },
+  ]);
+  const firstInboxPage = await repository.listInbox(1);
+  const secondInboxPage = await repository.listInbox(1, undefined, {
+    receivedAt: firstInboxPage[0]!.receivedAt,
+    id: firstInboxPage[0]!.id,
+  });
+  assert(
+    firstInboxPage[0]?.id === `${account.id}:message:3` && secondInboxPage[0]?.id === `${account.id}:message:4`,
+    "inbox cursor pagination returns the next thread without repeating the previous page",
+  );
+  await repository.upsertMessages(account.id, [
+    {
+      id: `${account.id}:message:5`,
+      threadId: `${account.id}:thread:5`,
+      providerMessageId: "<batch-5@example.test>",
+      providerUid: 5,
+      providerFolderId: "INBOX",
+      subject: "Batch conversation",
+      from: { address: "five@example.test" },
+      to: [{ address: "storage@example.test" }],
+      cc: [],
+      sentAt: "2026-07-19T11:00:00.000Z",
+      receivedAt: "2026-07-19T11:00:00.000Z",
+      snippet: "First batch conversation message",
+      isRead: true,
+      isStarred: false,
+      attachments: [],
+    },
+    {
+      id: `${account.id}:message:6`,
+      threadId: `${account.id}:thread:5`,
+      providerMessageId: "<batch-6@example.test>",
+      providerUid: 6,
+      providerFolderId: "INBOX",
+      subject: "Batch conversation update",
+      from: { address: "five@example.test" },
+      to: [{ address: "storage@example.test" }],
+      cc: [],
+      sentAt: "2026-07-19T12:00:00.000Z",
+      receivedAt: "2026-07-19T12:00:00.000Z",
+      snippet: "Latest batch conversation message",
+      isRead: true,
+      isStarred: false,
+      attachments: [],
+    },
+  ]);
+  const batchThread = await repository.listMailThread(`${account.id}:message:5`);
+  assert(
+    batchThread.length === 2 && batchThread[1]?.snippet === "Latest batch conversation message",
+    "one bulk write can insert multiple messages from the same thread",
+  );
+  assert(
+    await repository.updateExchangeMessageReadFlags(account.id, [
+      { providerMessageId: "<batch-3@example.test>", isRead: false },
+      { providerMessageId: "<batch-4@example.test>", isRead: false },
+    ]) === 2,
+    "read-state reconciliation updates a batch in one repository call",
+  );
+  assert((await repository.listUnreadInboxSummary()).total === 2, "batch read-state reconciliation refreshes thread counters");
+  await repository.updateExchangeMessageReadFlags(account.id, [
+    { providerMessageId: "<batch-3@example.test>", isRead: true },
+    { providerMessageId: "<batch-4@example.test>", isRead: true },
+  ]);
+  assert(
+    (await repository.getMailNavigationSummary()).unreadCount === 1,
+    "mail navigation summary reads only the lightweight folder unread total",
   );
   await repository.saveSyncCursor(account.id, "INBOX", "42", 100, 80, false);
   await repository.saveDeepReconcileCursor(account.id, "INBOX", 70);

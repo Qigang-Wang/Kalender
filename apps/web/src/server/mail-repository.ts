@@ -136,6 +136,18 @@ export interface MessageRecord {
   readonly sizeBytes?: number;
 }
 
+export interface MessageBodyRecord {
+  readonly id: string;
+  readonly textBody?: string;
+  readonly htmlBody?: string;
+  readonly snippet: string;
+}
+
+export interface ExchangeMessageReadFlagChange {
+  readonly providerMessageId: string;
+  readonly isRead: boolean;
+}
+
 export interface InboxItem {
   readonly id: string;
   readonly threadId: string;
@@ -153,6 +165,26 @@ export interface InboxItem {
   readonly isStarred: boolean;
   readonly canArchive: boolean;
   readonly attachments: readonly InboxAttachment[];
+}
+
+export interface UnreadInboxSummaryItem {
+  readonly id: string;
+  readonly accountName: string;
+  readonly accountColor: string;
+  readonly senderName: string;
+  readonly subject: string;
+  readonly receivedAt: string;
+  readonly isStarred: boolean;
+}
+
+export interface UnreadInboxSummary {
+  readonly items: readonly UnreadInboxSummaryItem[];
+  readonly total: number;
+}
+
+export interface InboxPageCursor {
+  readonly receivedAt: string;
+  readonly id: string;
 }
 
 export interface MailThreadMessage {
@@ -565,6 +597,17 @@ export async function listMailFolders(): Promise<readonly StoredMailFolder[]> {
   return result.rows.map(mapMailFolder);
 }
 
+export async function getMailNavigationSummary(): Promise<{ readonly unreadCount: number }> {
+  const database = await getDatabase();
+  const result = await database.query<{ unread_count: number }>(
+    `SELECT COALESCE(sum(COALESCE(f.unread_count, 0)), 0)::integer AS unread_count
+       FROM mail_folders f
+       JOIN accounts a ON a.id = f.account_id AND a.enabled = true
+      WHERE f.role = 'inbox'`,
+  );
+  return { unreadCount: Number(result.rows[0]?.unread_count ?? 0) };
+}
+
 export async function getMailFolder(folderId: string): Promise<StoredMailFolder | undefined> {
   const database = await getDatabase();
   const result = await database.query<{
@@ -684,29 +727,87 @@ export async function removeFolderSubtreeFromIndex(folderId: string): Promise<vo
 }
 
 export async function upsertMessage(accountId: string, message: MessageRecord): Promise<void> {
+  await upsertMessages(accountId, [message]);
+}
+
+export async function upsertMessages(accountId: string, messages: readonly MessageRecord[]): Promise<void> {
+  if (messages.length === 0) return;
   const database = await getDatabase();
+  const batch = JSON.stringify(messages.map((message) => ({
+    id: message.id,
+    thread_id: message.threadId,
+    provider_message_id: message.providerMessageId,
+    provider_uid: message.providerUid,
+    provider_folder_id: message.providerFolderId,
+    subject: message.subject,
+    from_address: message.from,
+    to_addresses: message.to,
+    cc_addresses: message.cc,
+    sent_at: message.sentAt,
+    received_at: message.receivedAt,
+    snippet: message.snippet,
+    is_read: message.isRead,
+    is_starred: message.isStarred,
+    attachments: message.attachments,
+    size_bytes: message.sizeBytes ?? null,
+  })));
+  const threadIds = [...new Set(messages.map((message) => message.threadId))];
   await database.transaction(async (transaction) => {
     await transaction.query(
-      `INSERT INTO mail_threads (
+      `WITH message_batch AS (
+         SELECT *
+           FROM jsonb_to_recordset($2::jsonb) AS message (
+             id text, thread_id text, provider_message_id text, provider_uid integer,
+             provider_folder_id text, subject text, from_address jsonb,
+             to_addresses jsonb, cc_addresses jsonb, sent_at timestamptz,
+             received_at timestamptz, snippet text, is_read boolean,
+             is_starred boolean, attachments jsonb, size_bytes integer
+           )
+       ), latest_threads AS (
+         SELECT DISTINCT ON (thread_id)
+                thread_id, subject, snippet, from_address, to_addresses,
+                received_at, is_read
+           FROM message_batch
+          ORDER BY thread_id, received_at DESC, id DESC
+       )
+       INSERT INTO mail_threads (
          id, account_id, provider_thread_id, subject, snippet, participants,
          last_message_at, unread_count, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,now())
+       )
+       SELECT thread_id, $1, thread_id, subject, snippet,
+              jsonb_build_array(from_address) || to_addresses,
+              received_at, CASE WHEN is_read THEN 0 ELSE 1 END, now()
+         FROM latest_threads
        ON CONFLICT (id) DO UPDATE SET
          subject = CASE WHEN EXCLUDED.last_message_at >= mail_threads.last_message_at THEN EXCLUDED.subject ELSE mail_threads.subject END,
          snippet = CASE WHEN EXCLUDED.last_message_at >= mail_threads.last_message_at THEN EXCLUDED.snippet ELSE mail_threads.snippet END,
          participants = CASE WHEN EXCLUDED.last_message_at >= mail_threads.last_message_at THEN EXCLUDED.participants ELSE mail_threads.participants END,
          last_message_at = GREATEST(mail_threads.last_message_at, EXCLUDED.last_message_at),
          updated_at = now()`,
-      [message.threadId, accountId, message.threadId, message.subject, message.snippet,
-        JSON.stringify([message.from, ...message.to]), message.receivedAt, message.isRead ? 0 : 1],
+      [accountId, batch],
     );
     await transaction.query(
-      `INSERT INTO mail_messages (
+      `WITH message_batch AS (
+         SELECT *
+           FROM jsonb_to_recordset($2::jsonb) AS message (
+             id text, thread_id text, provider_message_id text, provider_uid integer,
+             provider_folder_id text, subject text, from_address jsonb,
+             to_addresses jsonb, cc_addresses jsonb, sent_at timestamptz,
+             received_at timestamptz, snippet text, is_read boolean,
+             is_starred boolean, attachments jsonb, size_bytes integer
+           )
+       )
+       INSERT INTO mail_messages (
          id, account_id, thread_id, provider_message_id, provider_uid,
          provider_folder_id, subject, from_address, to_addresses, cc_addresses,
          sent_at, received_at, snippet, is_read, is_starred, attachments,
          size_bytes, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16::jsonb,$17,now())
+       )
+       SELECT id, $1, thread_id, provider_message_id, provider_uid,
+              provider_folder_id, subject, from_address, to_addresses, cc_addresses,
+              sent_at, received_at, snippet, is_read, is_starred, attachments,
+              size_bytes, now()
+         FROM message_batch
        ON CONFLICT (account_id, provider_folder_id, provider_uid) DO UPDATE SET
          subject = EXCLUDED.subject, from_address = EXCLUDED.from_address,
          to_addresses = EXCLUDED.to_addresses, cc_addresses = EXCLUDED.cc_addresses,
@@ -714,29 +815,31 @@ export async function upsertMessage(accountId: string, message: MessageRecord): 
          snippet = EXCLUDED.snippet, is_read = EXCLUDED.is_read,
          is_starred = EXCLUDED.is_starred, attachments = EXCLUDED.attachments,
          size_bytes = EXCLUDED.size_bytes, updated_at = now()`,
-      [message.id, accountId, message.threadId, message.providerMessageId,
-        message.providerUid, message.providerFolderId, message.subject,
-        JSON.stringify(message.from), JSON.stringify(message.to), JSON.stringify(message.cc),
-        message.sentAt, message.receivedAt, message.snippet, message.isRead,
-        message.isStarred, JSON.stringify(message.attachments), message.sizeBytes ?? null],
+      [accountId, batch],
     );
     await transaction.query(
-      `UPDATE mail_threads t SET
+      `WITH latest AS (
+         SELECT DISTINCT ON (thread_id) thread_id, subject, snippet, received_at
+           FROM mail_messages
+          WHERE thread_id = ANY($1::text[])
+          ORDER BY thread_id, received_at DESC, id DESC
+       ), stats AS (
+         SELECT thread_id,
+                count(*) FILTER (WHERE is_read = false)::integer AS unread_count
+           FROM mail_messages
+          WHERE thread_id = ANY($1::text[])
+          GROUP BY thread_id
+       )
+       UPDATE mail_threads t SET
          subject = latest.subject,
          snippet = latest.snippet,
          last_message_at = latest.received_at,
          unread_count = stats.unread_count,
          updated_at = now()
-       FROM (
-         SELECT subject, snippet, received_at FROM mail_messages
-          WHERE thread_id = $1 ORDER BY received_at DESC, id DESC LIMIT 1
-       ) latest,
-       (
-         SELECT count(*) FILTER (WHERE is_read = false)::integer AS unread_count
-           FROM mail_messages WHERE thread_id = $1
-       ) stats
-       WHERE t.id = $1`,
-      [message.threadId],
+       FROM latest
+       JOIN stats ON stats.thread_id = latest.thread_id
+       WHERE t.id = latest.thread_id`,
+      [threadIds],
     );
   });
 }
@@ -997,27 +1100,63 @@ export async function updateExchangeMessageReadFlag(
   providerMessageId: string,
   isRead: boolean,
 ): Promise<number> {
+  return updateExchangeMessageReadFlags(accountId, [{ providerMessageId, isRead }]);
+}
+
+export async function updateExchangeMessageReadFlags(
+  accountId: string,
+  changes: readonly ExchangeMessageReadFlagChange[],
+): Promise<number> {
+  if (changes.length === 0) return 0;
   const database = await getDatabase();
   return database.transaction(async (transaction) => {
+    const batch = JSON.stringify(changes.map((change) => ({
+      provider_message_id: change.providerMessageId,
+      is_read: change.isRead,
+    })));
     const result = await transaction.query<{ thread_id: string }>(
-      `UPDATE mail_messages SET is_read = $3, updated_at = now()
-        WHERE account_id = $1 AND provider_message_id = $2
-        RETURNING thread_id`,
-      [accountId, providerMessageId, isRead],
+      `WITH read_flag_batch AS (
+         SELECT *
+           FROM jsonb_to_recordset($2::jsonb) AS change (
+             provider_message_id text,
+             is_read boolean
+           )
+       )
+       UPDATE mail_messages message SET
+         is_read = change.is_read,
+         updated_at = now()
+       FROM read_flag_batch change
+       WHERE message.account_id = $1
+         AND message.provider_message_id = change.provider_message_id
+       RETURNING message.thread_id`,
+      [accountId, batch],
     );
-    for (const threadId of new Set(result.rows.map((row) => row.thread_id))) {
+    const threadIds = [...new Set(result.rows.map((row) => row.thread_id))];
+    if (threadIds.length > 0) {
       await transaction.query(
-        `UPDATE mail_threads SET unread_count = (
-           SELECT count(*)::int FROM mail_messages WHERE thread_id = $1 AND is_read = false
-         ), updated_at = now() WHERE id = $1`,
-        [threadId],
+        `UPDATE mail_threads thread SET
+           unread_count = stats.unread_count,
+           updated_at = now()
+         FROM (
+           SELECT thread_id,
+                  count(*) FILTER (WHERE is_read = false)::integer AS unread_count
+             FROM mail_messages
+            WHERE thread_id = ANY($1::text[])
+            GROUP BY thread_id
+         ) stats
+         WHERE thread.id = stats.thread_id`,
+        [threadIds],
       );
     }
     return result.rows.length;
   });
 }
 
-export async function listInbox(limit = 100, folderId?: string): Promise<readonly InboxItem[]> {
+export async function listInbox(
+  limit = 100,
+  folderId?: string,
+  cursor?: InboxPageCursor,
+): Promise<readonly InboxItem[]> {
   const database = await getDatabase();
   const result = await database.query<{
     id: string;
@@ -1036,40 +1175,52 @@ export async function listInbox(limit = 100, folderId?: string): Promise<readonl
     can_archive: boolean;
     attachments: InboxAttachment[];
   }>(
-    `WITH ranked_inbox AS (
-       SELECT m.*, row_number() OVER (PARTITION BY m.thread_id ORDER BY m.received_at DESC, m.id DESC) AS position
+    `WITH candidate_inbox AS (
+       SELECT DISTINCT ON (m.thread_id) m.*
          FROM mail_messages m
          JOIN mail_folders f ON f.account_id = m.account_id
                             AND f.provider_folder_id = m.provider_folder_id
+         JOIN accounts candidate_account ON candidate_account.id = m.account_id
+                                        AND candidate_account.enabled = true
         WHERE (($2::text IS NULL AND f.role = 'inbox') OR f.id = $2)
-     ), thread_stats AS (
-       SELECT thread_id, count(*)::integer AS thread_count
-         FROM mail_messages GROUP BY thread_id
-     ), unread_stats AS (
-       SELECT m.thread_id, count(*) FILTER (WHERE m.is_read = false)::integer AS unread_count
-         FROM mail_messages m
-         JOIN mail_folders f ON f.account_id = m.account_id
-                            AND f.provider_folder_id = m.provider_folder_id
-        WHERE (($2::text IS NULL AND f.role = 'inbox') OR f.id = $2)
-        GROUP BY m.thread_id
+        ORDER BY m.thread_id, m.received_at DESC, m.id DESC
+     ), selected_inbox AS (
+       SELECT *
+         FROM candidate_inbox
+        WHERE ($3::timestamptz IS NULL OR received_at < $3
+               OR (received_at = $3 AND id < $4))
+        ORDER BY received_at DESC, id DESC
+        LIMIT $1
+     ), selected_thread_stats AS (
+       SELECT peer.thread_id,
+              count(*)::integer AS thread_count,
+              count(*) FILTER (
+                WHERE peer.is_read = false
+                  AND (($2::text IS NULL AND peer_folder.role = 'inbox') OR peer_folder.id = $2)
+              )::integer AS unread_count
+         FROM mail_messages peer
+         JOIN selected_inbox selected ON selected.thread_id = peer.thread_id
+         LEFT JOIN mail_folders peer_folder
+           ON peer_folder.account_id = peer.account_id
+          AND peer_folder.provider_folder_id = peer.provider_folder_id
+        GROUP BY peer.thread_id
      )
      SELECT m.id, m.thread_id, m.account_id, a.display_name AS account_name,
             a.color AS account_color, m.from_address, m.subject, m.snippet,
-            m.received_at, (COALESCE(u.unread_count, 0) = 0) AS is_read,
-            m.is_starred, m.attachments, s.thread_count, COALESCE(u.unread_count, 0) AS unread_count,
+            m.received_at, (COALESCE(stats.unread_count, 0) = 0) AS is_read,
+            m.is_starred, m.attachments,
+            stats.thread_count, COALESCE(stats.unread_count, 0) AS unread_count,
             EXISTS (
               SELECT 1 FROM mail_folders archive
                WHERE archive.account_id = m.account_id
                  AND (archive.role = 'archive' OR lower(archive.name) IN ('archive', 'archiv'))
                  AND archive.provider_folder_id <> m.provider_folder_id
             ) AS can_archive
-       FROM ranked_inbox m
+       FROM selected_inbox m
        JOIN accounts a ON a.id = m.account_id
-       JOIN thread_stats s ON s.thread_id = m.thread_id
-       LEFT JOIN unread_stats u ON u.thread_id = m.thread_id
-      WHERE a.enabled = true AND m.position = 1
-      ORDER BY m.received_at DESC LIMIT $1`,
-    [Math.max(1, Math.min(limit, 500)), folderId ?? null],
+       JOIN selected_thread_stats stats ON stats.thread_id = m.thread_id
+      ORDER BY m.received_at DESC, m.id DESC`,
+    [Math.max(1, Math.min(limit, 500)), folderId ?? null, cursor?.receivedAt ?? null, cursor?.id ?? null],
   );
   return result.rows.map((row) => ({
     id: row.id,
@@ -1089,6 +1240,50 @@ export async function listInbox(limit = 100, folderId?: string): Promise<readonl
     canArchive: row.can_archive,
     attachments: Array.isArray(row.attachments) ? row.attachments : [],
   }));
+}
+
+export async function listUnreadInboxSummary(limit = 6): Promise<UnreadInboxSummary> {
+  const database = await getDatabase();
+  const result = await database.query<{
+    id: string;
+    account_name: string;
+    account_color: string;
+    from_address: { address: string; name?: string };
+    subject: string;
+    received_at: string;
+    is_starred: boolean;
+    total: number;
+  }>(
+    `WITH unread_threads AS (
+       SELECT DISTINCT ON (m.thread_id)
+              m.id, m.thread_id, a.display_name AS account_name, a.color AS account_color,
+              m.from_address, m.subject, m.received_at, m.is_starred
+         FROM mail_messages m
+         JOIN mail_folders f ON f.account_id = m.account_id
+                            AND f.provider_folder_id = m.provider_folder_id
+         JOIN accounts a ON a.id = m.account_id AND a.enabled = true
+        WHERE f.role = 'inbox' AND m.is_read = false
+        ORDER BY m.thread_id, m.is_starred DESC, m.received_at DESC, m.id DESC
+     )
+     SELECT id, account_name, account_color, from_address, subject, received_at, is_starred,
+            count(*) OVER ()::integer AS total
+       FROM unread_threads
+      ORDER BY is_starred DESC, received_at DESC, id DESC
+      LIMIT $1`,
+    [Math.max(1, Math.min(limit, 50))],
+  );
+  return {
+    items: result.rows.map((row) => ({
+      id: row.id,
+      accountName: row.account_name,
+      accountColor: row.account_color,
+      senderName: row.from_address.name ?? row.from_address.address,
+      subject: row.subject,
+      receivedAt: row.received_at,
+      isStarred: row.is_starred,
+    })),
+    total: Number(result.rows[0]?.total ?? 0),
+  };
 }
 
 export async function listMailThread(messageId: string): Promise<readonly MailThreadMessage[]> {
@@ -1353,25 +1548,60 @@ export async function saveMessageBody(
   htmlBody: string | undefined,
   snippet: string,
 ): Promise<StoredMessageBody | undefined> {
+  await saveMessageBodies([{ id: messageId, textBody, htmlBody, snippet }]);
+  return getStoredMessageBody(messageId);
+}
+
+export async function saveMessageBodies(messages: readonly MessageBodyRecord[]): Promise<void> {
+  if (messages.length === 0) return;
   const database = await getDatabase();
   await database.transaction(async (transaction) => {
+    const batch = JSON.stringify(messages.map((message) => ({
+      id: message.id,
+      text_body: message.textBody ?? null,
+      html_body: message.htmlBody ?? null,
+      snippet: message.snippet,
+    })));
     const result = await transaction.query<{ thread_id: string }>(
-      `UPDATE mail_messages
-          SET text_body = $2, html_body = $3, snippet = $4,
-              body_loaded_at = now(), body_cache_version = $5, updated_at = now()
-        WHERE id = $1
-        RETURNING thread_id`,
-      [messageId, textBody ?? null, htmlBody ?? null, snippet, MAIL_BODY_CACHE_VERSION],
+      `WITH body_batch AS (
+         SELECT *
+           FROM jsonb_to_recordset($1::jsonb) AS body (
+             id text,
+             text_body text,
+             html_body text,
+             snippet text
+           )
+       )
+       UPDATE mail_messages message SET
+         text_body = body.text_body,
+         html_body = body.html_body,
+         snippet = body.snippet,
+         body_loaded_at = now(),
+         body_cache_version = $2,
+         updated_at = now()
+       FROM body_batch body
+       WHERE message.id = body.id
+       RETURNING message.thread_id`,
+      [batch, MAIL_BODY_CACHE_VERSION],
     );
-    const threadId = result.rows[0]?.thread_id;
-    if (threadId) {
+    const threadIds = [...new Set(result.rows.map((row) => row.thread_id))];
+    if (threadIds.length > 0) {
       await transaction.query(
-        "UPDATE mail_threads SET snippet = $2, updated_at = now() WHERE id = $1",
-        [threadId, snippet],
+        `WITH latest AS (
+           SELECT DISTINCT ON (thread_id) thread_id, snippet
+             FROM mail_messages
+            WHERE thread_id = ANY($1::text[])
+            ORDER BY thread_id, received_at DESC, id DESC
+         )
+         UPDATE mail_threads thread SET
+           snippet = latest.snippet,
+           updated_at = now()
+         FROM latest
+         WHERE thread.id = latest.thread_id`,
+        [threadIds],
       );
     }
   });
-  return getStoredMessageBody(messageId);
 }
 
 export async function cleanupMailBodyCache(

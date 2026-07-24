@@ -21,6 +21,7 @@ const testScripts = [
   "test:exchange-mail",
   "test:ics",
   "test:tasks",
+  "test:projects",
   "test:notes",
   "test:links",
   "test:today",

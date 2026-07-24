@@ -97,6 +97,21 @@ export async function listStoredProjects(includeArchived = false): Promise<reado
   return result.rows.map(mapProject);
 }
 
+export async function getStoredProject(projectId: string): Promise<StoredProject | undefined> {
+  const database = await getDatabase();
+  const result = await database.query<ProjectRow>(
+    `SELECT p.id, p.name, p.description, p.area_name, p.color, p.status,
+            count(n.id)::int AS note_count, p.created_at, p.updated_at
+       FROM projects p
+       LEFT JOIN notes n ON n.project_id = p.id
+      WHERE p.id = $1
+      GROUP BY p.id
+      LIMIT 1`,
+    [projectId],
+  );
+  return result.rows[0] ? mapProject(result.rows[0]) : undefined;
+}
+
 export async function saveStoredProject(input: SaveProjectInput): Promise<StoredProject> {
   const database = await getDatabase();
   const id = input.id ?? randomUUID();
@@ -120,29 +135,53 @@ export async function saveStoredProject(input: SaveProjectInput): Promise<Stored
     }
     throw error;
   }
-  const saved = (await listStoredProjects(true)).find((project) => project.id === id);
+  const saved = await getStoredProject(id);
   if (!saved) throw new NoteRepositoryError("PROJECT_SAVE_FAILED", "无法保存项目", 500);
   return saved;
 }
 
 export async function deleteStoredProject(projectId: string): Promise<boolean> {
   const database = await getDatabase();
-  const notes = await database.query<{ count: number | string }>("SELECT count(*)::int AS count FROM notes WHERE project_id = $1", [projectId]);
-  if (Number(notes.rows[0]?.count ?? 0) > 0) {
-    throw new NoteRepositoryError("PROJECT_NOT_EMPTY", "请先移动或删除该项目中的笔记", 409);
+  const contents = await database.query<{ note_count: number | string; task_count: number | string }>(
+    `SELECT
+       (SELECT count(*)::int FROM notes WHERE project_id = $1) AS note_count,
+       (SELECT count(*)::int FROM tasks WHERE project_id = $1) AS task_count`,
+    [projectId],
+  );
+  if (Number(contents.rows[0]?.note_count ?? 0) > 0 || Number(contents.rows[0]?.task_count ?? 0) > 0) {
+    throw new NoteRepositoryError("PROJECT_NOT_EMPTY", "请先移动或删除该项目中的笔记和任务", 409);
   }
-  const result = await database.query<{ id: string }>("DELETE FROM projects WHERE id = $1 RETURNING id", [projectId]);
-  return Boolean(result.rows[0]);
+  return database.transaction(async (transaction) => {
+    await transaction.query(
+      "DELETE FROM entity_links WHERE (source_kind = 'project' AND source_id = $1) OR (target_kind = 'project' AND target_id = $1)",
+      [projectId],
+    );
+    const result = await transaction.query<{ id: string }>("DELETE FROM projects WHERE id = $1 RETURNING id", [projectId]);
+    return Boolean(result.rows[0]);
+  });
 }
 
 export async function listStoredNotes(): Promise<readonly StoredNote[]> {
+  return queryStoredNotes("", []);
+}
+
+export async function listStoredProjectNotes(projectId: string): Promise<readonly StoredNote[]> {
+  return queryStoredNotes("WHERE n.project_id = $1", [projectId]);
+}
+
+async function queryStoredNotes(
+  whereClause: string,
+  parameters: unknown[],
+): Promise<readonly StoredNote[]> {
   const database = await getDatabase();
   const result = await database.query<NoteRow>(
     `SELECT n.id, n.project_id, p.name AS project_name, p.color AS project_color,
             n.title, n.content, n.note_type, n.pinned, n.created_at, n.updated_at
        FROM notes n
        LEFT JOIN projects p ON p.id = n.project_id
+       ${whereClause}
       ORDER BY n.pinned DESC, n.updated_at DESC, n.title`,
+    parameters,
   );
   return attachLinkedTasks(result.rows);
 }
@@ -170,15 +209,29 @@ export async function saveStoredNote(input: SaveNoteInput): Promise<StoredNote> 
     const project = await database.query<{ id: string }>("SELECT id FROM projects WHERE id = $1 AND status = 'active' LIMIT 1", [input.projectId]);
     if (!project.rows[0]) throw new NoteRepositoryError("PROJECT_NOT_FOUND", "项目不存在或已归档", 404);
   }
-  await database.query(
-    `INSERT INTO notes (id, project_id, title, content, note_type, pinned, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,now())
-     ON CONFLICT (id) DO UPDATE SET
-       project_id = EXCLUDED.project_id, title = EXCLUDED.title,
-       content = EXCLUDED.content, note_type = EXCLUDED.note_type,
-       pinned = EXCLUDED.pinned, updated_at = now()`,
-    [id, input.projectId ?? null, input.title, input.content, input.noteType, input.pinned],
-  );
+  await database.transaction(async (transaction) => {
+    await transaction.query(
+      `INSERT INTO notes (id, project_id, title, content, note_type, pinned, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,now())
+       ON CONFLICT (id) DO UPDATE SET
+         project_id = EXCLUDED.project_id, title = EXCLUDED.title,
+         content = EXCLUDED.content, note_type = EXCLUDED.note_type,
+         pinned = EXCLUDED.pinned, updated_at = now()`,
+      [id, input.projectId ?? null, input.title, input.content, input.noteType, input.pinned],
+    );
+    await transaction.query(
+      "DELETE FROM entity_links WHERE source_kind = 'project' AND target_kind = 'note' AND target_id = $1 AND relation = 'project-item'",
+      [id],
+    );
+    if (input.projectId) {
+      await transaction.query(
+        `INSERT INTO entity_links (id, source_kind, source_id, target_kind, target_id, relation)
+         VALUES ($1,'project',$2,'note',$3,'project-item')
+         ON CONFLICT (source_kind, source_id, target_kind, target_id, relation) DO NOTHING`,
+        [`project-note:${id}`, input.projectId, id],
+      );
+    }
+  });
   const saved = await getStoredNote(id);
   if (!saved) throw new NoteRepositoryError("NOTE_SAVE_FAILED", "无法保存笔记", 500);
   return saved;

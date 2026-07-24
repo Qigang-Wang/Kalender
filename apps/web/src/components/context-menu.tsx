@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, CalendarPlus, CheckCircle2, Clock3, Copy, Eye, EyeOff, Mail, NotebookPen, Pencil, Sparkles, Star, Trash2 } from "lucide-react";
+import { Archive, CalendarPlus, CheckCircle2, Clock3, Copy, Eye, EyeOff, FolderPlus, Mail, NotebookPen, Pencil, RotateCcw, Sparkles, Star, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import type {
@@ -28,12 +28,14 @@ const iconComponents = {
   edit: Pencil,
   eye: Eye,
   "eye-off": EyeOff,
+  folder: FolderPlus,
   mail: Mail,
   sparkles: Sparkles,
   star: Star,
   "star-filled": Star,
   task: CheckCircle2,
   note: NotebookPen,
+  restore: RotateCcw,
   trash: Trash2,
 } satisfies Record<ContextCommandIcon, typeof Archive>;
 
