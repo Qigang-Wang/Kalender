@@ -36,7 +36,7 @@ interface SaveAccountBody {
 }
 
 export async function GET() {
-  const scheduler = ensureMailSyncScheduler();
+  const scheduler = await ensureMailSyncScheduler();
   const accounts = await listAccounts();
   return NextResponse.json({
     accounts: await Promise.all(accounts.map(async (account) => ({

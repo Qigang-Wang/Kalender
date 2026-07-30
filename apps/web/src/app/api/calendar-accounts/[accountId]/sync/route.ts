@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { toCalDavPublicError } from "@/server/caldav-client";
 import { getCalendarAccount } from "@/server/calendar-account-repository";
-import { syncCalDavAccount } from "@/server/caldav-sync";
+import { CalendarSyncAlreadyRunningError, syncCalDavAccount } from "@/server/caldav-sync";
 import { toIcsSubscriptionPublicError } from "@/server/ics-subscription";
 import { toExchangeCalendarPublicError } from "@/server/exchange-calendar";
 import { runExchangeMailSync } from "@/server/exchange-mail-sync";
@@ -30,6 +30,9 @@ export async function POST(_request: Request, context: CalendarSyncRouteContext)
     const mailSync = mailAccount ? await runExchangeMailSync(mailAccount.id, 100) : undefined;
     return NextResponse.json({ ok: true, sync, mailSync });
   } catch (error) {
+    if (error instanceof CalendarSyncAlreadyRunningError) {
+      return NextResponse.json({ ok: false, message: error.message }, { status: 409 });
+    }
     const normalized = account.providerId === "ics"
       ? toIcsSubscriptionPublicError(error)
       : account.providerId === "exchange"

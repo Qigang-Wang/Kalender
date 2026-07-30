@@ -3,12 +3,14 @@
 import Link from "next/link";
 import {
   AlertCircle, CalendarDays, CalendarClock, Check, CheckCircle2, ChevronDown,
-  ChevronRight, Circle, Clock3, Folder, FolderPlus, Inbox, Link2, ListChecks,
+  ChevronRight, Circle, Clock3, Folder, FolderPlus, GripVertical, Inbox, Link2, ListChecks,
   LayoutGrid, LoaderCircle, Mail, MoreHorizontal, Pause, Pencil, Plus, RefreshCw, Star, Trash2, X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
+import { appConfirm } from "@/components/app-dialog-provider";
+import { AppSelect } from "../app-select";
 import { ContextMenu } from "../context-menu";
 import { resolveContextCommands, type TaskCommandId } from "../context-commands";
 import { TransientToast } from "../workspace-shared";
@@ -80,6 +82,9 @@ interface ClientTask {
   readonly projectName?: string;
   readonly projectColor?: string;
   readonly areaName?: string;
+  readonly assigneeUserId?: string;
+  readonly assigneeDisplayName?: string;
+  readonly assigneeEmail?: string;
   readonly completedAt?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -129,6 +134,13 @@ interface TaskDraft {
   projectId: string;
   projectName: string;
   areaName: string;
+  assigneeUserId: string;
+}
+
+interface ClientCollaborator {
+  readonly id: string;
+  readonly displayName: string;
+  readonly email: string;
 }
 
 interface TaskContextMenuState {
@@ -138,14 +150,14 @@ interface TaskContextMenuState {
   readonly returnFocus?: HTMLElement | null;
 }
 
-const taskViewCopy: Record<TaskView, { readonly label: string; readonly description: string }> = {
-  today: { label: "Today", description: "今天到期或需要立即推进的任务" },
-  inbox: { label: "Inbox", description: "先收集，再决定优先级和下一步" },
-  upcoming: { label: "Upcoming", description: "查看今天之后有截止时间的任务" },
-  waiting: { label: "Waiting", description: "集中跟进正在等待他人的事项" },
-  projects: { label: "项目", description: "按项目查看当前尚未完成的行动" },
-  completed: { label: "Completed", description: "最近完成的任务，可重新打开" },
-  matrix: { label: "四象限", description: "按重要性和紧急性决定行动方式" },
+const taskViewCopy: Record<TaskView, string> = {
+  today: "Today",
+  inbox: "Inbox",
+  upcoming: "Upcoming",
+  waiting: "Waiting",
+  projects: "项目",
+  completed: "Completed",
+  matrix: "四象限",
 };
 
 export function TasksPage({
@@ -163,6 +175,7 @@ export function TasksPage({
 }) {
   const [tasks, setTasks] = useState<readonly ClientTask[]>([]);
   const [taskProjects, setTaskProjects] = useState<readonly ClientProject[]>([]);
+  const [collaborators, setCollaborators] = useState<readonly ClientCollaborator[]>([]);
   const [view, setView] = useState<TaskView>(initialTaskView ?? "today");
   const [loading, setLoading] = useState(true);
   const [busyTaskId, setBusyTaskId] = useState<string>();
@@ -179,16 +192,19 @@ export function TasksPage({
   const loadTasks = useCallback(async () => {
     setLoading(true);
     try {
-      const [tasksResponse, projectsResponse] = await Promise.all([
-      workspaceFetch("/api/tasks?includeCompleted=true"),
-      workspaceFetch("/api/projects?includeArchived=true"),
+      const [tasksResponse, projectsResponse, collaboratorsResponse] = await Promise.all([
+        workspaceFetch("/api/tasks?includeCompleted=true"),
+        workspaceFetch("/api/projects?includeArchived=true"),
+        workspaceFetch("/api/collaborators"),
       ]);
       const tasksPayload = await tasksResponse.json() as { ok: boolean; tasks?: readonly ClientTask[]; message?: string };
       const projectsPayload = await projectsResponse.json() as { ok: boolean; projects?: readonly ClientProject[]; message?: string };
+      const collaboratorsPayload = await collaboratorsResponse.json() as { ok: boolean; users?: readonly ClientCollaborator[]; message?: string };
       if (!tasksResponse.ok || !tasksPayload.ok) throw new Error(tasksPayload.message ?? "无法读取任务");
       if (!projectsResponse.ok || !projectsPayload.ok) throw new Error(projectsPayload.message ?? "无法读取项目");
       setTasks(tasksPayload.tasks ?? []);
       setTaskProjects(projectsPayload.projects ?? []);
+      if (collaboratorsResponse.ok && collaboratorsPayload.ok) setCollaborators(collaboratorsPayload.users ?? []);
       setFeedback(undefined);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法读取任务");
@@ -282,7 +298,12 @@ export function TasksPage({
   };
 
   const deleteTask = async (task: ClientTask) => {
-    if (!window.confirm(`删除任务“${task.title}”？此操作无法撤销。`)) return;
+    if (!await appConfirm({
+      title: `删除任务“${task.title}”？`,
+      description: "任务及其日历时间块将被永久删除，此操作无法撤销。",
+      confirmLabel: "删除任务",
+      tone: "danger",
+    })) return;
     setBusyTaskId(task.id);
     try {
       const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, { method: "DELETE" });
@@ -397,7 +418,12 @@ export function TasksPage({
   };
 
   const deleteTaskTimeBlock = async (task: ClientTask, block: ClientTaskTimeBlock) => {
-    if (scheduleBusy || !window.confirm(`删除时间块“${formatTaskBlockRange(block.start, block.end)}”？任务本身会保留。`)) return;
+    if (scheduleBusy || !await appConfirm({
+      title: "删除这个时间块？",
+      description: `${formatTaskBlockRange(block.start, block.end)}\n任务本身会保留，并重新回到待安排状态。`,
+      confirmLabel: "删除时间块",
+      tone: "danger",
+    })) return;
     setScheduleBusy(true);
     try {
       const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}/schedule/${encodeURIComponent(block.eventId)}`, { method: "DELETE" });
@@ -461,12 +487,11 @@ export function TasksPage({
       <nav className="task-view-tabs task-view-tabs-mobile" aria-label="任务视图">
         {taskViews.map((item) => {
           const Icon = item === "today" ? CalendarClock : item === "inbox" ? Inbox : item === "upcoming" ? CalendarDays : item === "waiting" ? Pause : item === "projects" ? FolderPlus : item === "completed" ? CheckCircle2 : LayoutGrid;
-          return <button className={view === item ? "active" : ""} key={item} onClick={() => setView(item)}><Icon size={15} />{taskViewCopy[item].label}<span>{viewCounts[item]}</span></button>;
+          return <button className={view === item ? "active" : ""} key={item} onClick={() => setView(item)}><Icon size={15} />{taskViewCopy[item]}<span>{viewCounts[item]}</span></button>;
         })}
       </nav>
 
-      <div className="task-view-heading">
-        <div><h2>{taskViewCopy[view].label}</h2><p>{taskViewCopy[view].description}</p></div>
+      <div className="task-view-actions">
         <button className="secondary-button" onClick={() => setDraft(createEmptyTaskDraft(view === "matrix" ? "next" : "inbox"))}><Plus size={15} />添加任务</button>
       </div>
 
@@ -474,7 +499,7 @@ export function TasksPage({
       {loading ? (
         <div className="task-loading"><LoaderCircle className="spin" size={17} />正在读取任务…</div>
       ) : view === "matrix" ? (
-        <TaskMatrix tasks={matrixTasks} busyTaskId={busyTaskId} onComplete={(task) => void updateTask(task, { status: "done" })} onEdit={(task) => setDraft(taskToDraft(task))} onMenu={openTaskMenu} />
+        <TaskMatrix tasks={matrixTasks} busyTaskId={busyTaskId} onComplete={(task) => void updateTask(task, { status: "done" })} onEdit={(task) => setDraft(taskToDraft(task))} onMenu={openTaskMenu} onMove={(task, important, urgent) => void updateTask(task, { important, urgencyMode: urgent ? "urgent" : "not_urgent" })} />
       ) : view === "projects" ? (
         <TaskProjectGroups tasks={projectTasks} busyTaskId={busyTaskId} onComplete={(task) => void updateTask(task, { status: "done" })} onEdit={(task) => setDraft(taskToDraft(task))} onMenu={openTaskMenu} />
       ) : visibleTasks.length ? (
@@ -496,20 +521,21 @@ export function TasksPage({
             <header><div><span>{draft.id ? "整理下一步行动" : "快速收集，随后归类"}</span><h2 id="task-dialog-title">{draft.id ? "编辑任务" : "新建任务"}</h2></div><button aria-label="关闭" onClick={() => setDraft(undefined)} disabled={Boolean(busyTaskId)}><X size={18} /></button></header>
             <div className="task-form">
               <label className="task-title-field"><span>任务标题</span><input autoFocus value={draft.title} maxLength={240} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="要完成什么？" /></label>
-              <label><span>状态</span><select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as TaskStatus })}><option value="inbox">Inbox · 待整理</option><option value="next">下一步</option><option value="waiting">等待中</option><option value="someday">以后也许</option><option value="done">已完成</option></select></label>
-              <label><span>紧急程度</span><select value={draft.urgencyMode} onChange={(event) => setDraft({ ...draft, urgencyMode: event.target.value as TaskUrgencyMode })}><option value="auto">自动（按截止时间）</option><option value="urgent">紧急</option><option value="not_urgent">不紧急</option></select></label>
+              <label><span>状态</span><AppSelect ariaLabel="任务状态" value={draft.status} onValueChange={(status) => setDraft({ ...draft, status: status as TaskStatus })} options={[{ value: "inbox", label: "Inbox · 待整理" }, { value: "next", label: "下一步" }, { value: "waiting", label: "等待中" }, { value: "someday", label: "以后也许" }, { value: "done", label: "已完成" }]} /></label>
+              <label><span>紧急程度</span><AppSelect ariaLabel="紧急程度" value={draft.urgencyMode} onValueChange={(urgencyMode) => setDraft({ ...draft, urgencyMode: urgencyMode as TaskUrgencyMode })} options={[{ value: "auto", label: "自动（按截止时间）" }, { value: "urgent", label: "紧急" }, { value: "not_urgent", label: "不紧急" }]} /></label>
               <label><span>截止时间</span><input type="datetime-local" value={draft.dueAt} onChange={(event) => setDraft({ ...draft, dueAt: event.target.value })} /></label>
               <label><span>预计时长（分钟）</span><input type="number" min="5" max="1440" step="5" value={draft.estimatedMinutes} onChange={(event) => setDraft({ ...draft, estimatedMinutes: event.target.value })} placeholder="例如 45" /></label>
-              <label className="task-project-field"><span>项目</span><select value={draft.projectId || (draft.projectName ? "__legacy__" : "")} onChange={(event) => {
-                const project = taskProjects.find((entry) => entry.id === event.target.value);
+              <label className="task-project-field"><span>项目</span><AppSelect ariaLabel="任务所属项目" value={draft.projectId || (draft.projectName ? "__legacy__" : "")} onValueChange={(projectId) => {
+                const project = taskProjects.find((entry) => entry.id === projectId);
                 setDraft({
                   ...draft,
                   projectId: project?.id ?? "",
                   projectName: project?.name ?? "",
-                  areaName: project?.areaName ?? (event.target.value ? draft.areaName : ""),
+                  areaName: project?.areaName ?? (projectId ? draft.areaName : ""),
                 });
-              }}><option value="">无项目</option>{draft.projectName && !draft.projectId && <option value="__legacy__" disabled>旧标签 · {draft.projectName}</option>}{taskProjects.map((project) => <option value={project.id} key={project.id} disabled={project.status === "archived" && project.id !== draft.projectId}>{project.name}{project.areaName ? ` · ${project.areaName}` : ""}{project.status === "archived" ? " · 已归档" : ""}</option>)}</select><small>{taskProjects.length ? "项目在 Notes 中统一创建和维护" : "还没有项目，可先在 Notes 中创建"}</small></label>
+              }} options={[{ value: "", label: "无项目" }, ...(draft.projectName && !draft.projectId ? [{ value: "__legacy__", label: `旧标签 · ${draft.projectName}`, disabled: true }] : []), ...taskProjects.map((project) => ({ value: project.id, label: `${project.name}${project.areaName ? ` · ${project.areaName}` : ""}${project.status === "archived" ? " · 已归档" : ""}`, disabled: project.status === "archived" && project.id !== draft.projectId }))]} /><small>{taskProjects.length ? "项目在 Notes 中统一创建和维护" : "还没有项目，可先在 Notes 中创建"}</small></label>
               <label><span>领域{draft.projectId ? " · 由项目继承" : ""}</span><input value={draft.areaName} maxLength={100} disabled={Boolean(draft.projectId)} onChange={(event) => setDraft({ ...draft, areaName: event.target.value })} placeholder="例如 工作 / 个人" /></label>
+              <label><span>指派给</span><AppSelect ariaLabel="任务负责人" value={draft.assigneeUserId} onValueChange={(assigneeUserId) => setDraft({ ...draft, assigneeUserId })} options={[{ value: "", label: "未指派" }, ...collaborators.map((user) => ({ value: user.id, label: `${user.displayName} · ${user.email}` }))]} /></label>
               <label className="task-important-field"><input type="checkbox" checked={draft.important} onChange={(event) => setDraft({ ...draft, important: event.target.checked })} /><Star size={15} fill={draft.important ? "currentColor" : "none"} /><span>这是重要任务</span></label>
               <label className="task-notes-field"><span>备注</span><textarea value={draft.notes} maxLength={10_000} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="补充完成标准、等待事项或下一步…" /></label>
               {editingTask && <section className="task-time-blocks"><header><div><CalendarClock size={15} /><span>专注时间</span><em>{editingTask.scheduledBlocks.length}</em></div><button type="button" className="secondary-button" onClick={() => openSchedule(editingTask, undefined, true)}><Plus size={14} />添加时间</button></header>{editingTask.scheduledBlocks.length ? <div>{editingTask.scheduledBlocks.map((block) => <article key={block.eventId}><Link href={block.href}><CalendarClock size={14} /><span><strong>{formatTaskBlockRange(block.start, block.end)}</strong><small>{block.calendarName}</small></span></Link><button type="button" aria-label={`调整时间：${formatTaskBlockRange(block.start, block.end)}`} title="调整时间" onClick={() => openSchedule(editingTask, block, true)}><Pencil size={14} /></button><button type="button" className="danger-button" aria-label={`删除时间块：${formatTaskBlockRange(block.start, block.end)}`} title="删除时间块" disabled={scheduleBusy} onClick={() => void deleteTaskTimeBlock(editingTask, block)}><Trash2 size={14} /></button></article>)}</div> : <p>尚未安排专注时间。可以添加多个时间块，也可以稍后拖入日历。</p>}</section>}
@@ -528,7 +554,7 @@ export function TasksPage({
             <div className="calendar-form task-schedule-form">
               <label><span>开始</span><input type="datetime-local" value={scheduleDraft.startLocal} onChange={(event) => changeScheduleStart(event.target.value)} /></label>
               <label><span>结束</span><input type="datetime-local" value={scheduleDraft.endLocal} onChange={(event) => { const value = event.target.value; setScheduleDraft((current) => current ? { ...current, endLocal: value, conflicts: [] } : current); }} /></label>
-              <label className="calendar-title-field"><span>日历</span><select value={scheduleDraft.calendarId} onChange={(event) => { const value = event.target.value; setScheduleDraft((current) => current ? { ...current, calendarId: value, conflicts: [] } : current); }}>{taskCalendars.map((calendar) => <option value={calendar.id} key={calendar.id}>{calendar.name}</option>)}</select></label>
+              <label className="calendar-title-field"><span>日历</span><AppSelect ariaLabel="安排到日历" value={scheduleDraft.calendarId} onValueChange={(calendarId) => setScheduleDraft((current) => current ? { ...current, calendarId, conflicts: [] } : current)} options={taskCalendars.map((calendar) => ({ value: calendar.id, label: calendar.name }))} /></label>
             </div>
             {scheduleDraft.conflicts.length > 0 && <div className="task-schedule-conflicts" role="alert"><header><AlertCircle size={16} /><strong>发现时间冲突</strong></header>{scheduleDraft.conflicts.map((conflict) => <div key={conflict.id}><span>{formatTaskBlockRange(conflict.start, conflict.end)}</span><strong>{conflict.title}</strong></div>)}<p>你可以修改时间，或者确认仍然安排。</p></div>}
             <footer><small>删除日历时间块不会删除原任务；任务完成后也会保留日历记录。</small><div><button className="secondary-button" disabled={scheduleBusy} onClick={() => { if (scheduleDraft.returnTaskDraft) setDraft(scheduleDraft.returnTaskDraft); setScheduleDraft(undefined); }}>取消</button><button className={scheduleDraft.conflicts.length ? "danger-confirm-button" : "primary-button"} disabled={scheduleBusy} onClick={() => void saveSchedule(scheduleDraft.conflicts.length > 0)}>{scheduleBusy && <LoaderCircle className="spin" size={15} />}{scheduleDraft.conflicts.length ? "仍然安排" : scheduleDraft.eventId ? "保存时间" : "创建时间块"}</button></div></footer>
@@ -569,29 +595,70 @@ function TaskProjectGroups({ tasks, busyTaskId, onComplete, onEdit, onMenu }: {
   })}</div>;
 }
 
-function TaskMatrix({ tasks, busyTaskId, onComplete, onEdit, onMenu }: {
+function TaskMatrix({ tasks, busyTaskId, onComplete, onEdit, onMenu, onMove }: {
   readonly tasks: readonly ClientTask[];
   readonly busyTaskId?: string;
   readonly onComplete: (task: ClientTask) => void;
   readonly onEdit: (task: ClientTask) => void;
   readonly onMenu: (task: ClientTask, x: number, y: number, returnFocus?: HTMLElement | null) => void;
+  readonly onMove: (task: ClientTask, important: boolean, urgent: boolean) => void;
 }) {
+  const [draggedTaskId, setDraggedTaskId] = useState<string>();
+  const [dropTarget, setDropTarget] = useState<string>();
   const quadrants = [
-    { key: "important-urgent", title: "重要且紧急", hint: "立即处理", important: true, urgent: true },
-    { key: "important-calm", title: "重要不紧急", hint: "安排专注时间", important: true, urgent: false },
-    { key: "urgent-light", title: "不重要但紧急", hint: "批量处理或委托", important: false, urgent: true },
-    { key: "calm-light", title: "不重要不紧急", hint: "以后、归档或删除", important: false, urgent: false },
+    { key: "important-urgent", title: "立即处理", hint: "重要且紧急", important: true, urgent: true },
+    { key: "important-calm", title: "安排时间", hint: "重要但不紧急", important: true, urgent: false },
+    { key: "urgent-light", title: "批量或委托", hint: "紧急但不重要", important: false, urgent: true },
+    { key: "calm-light", title: "减少投入", hint: "不重要且不紧急", important: false, urgent: false },
   ] as const;
+
+  const finishDrag = () => {
+    setDraggedTaskId(undefined);
+    setDropTarget(undefined);
+  };
+
   return (
-    <div className="task-matrix">
+    <div className={`task-matrix panel ${draggedTaskId ? "is-dragging" : ""}`} aria-label="任务四象限">
+      <div className="task-matrix-corner" aria-hidden="true"><LayoutGrid size={16} /><span>重要性</span></div>
+      <div className="task-matrix-column-heading urgent"><strong>紧急</strong><span>需要尽快推进</span></div>
+      <div className="task-matrix-column-heading calm"><strong>不紧急</strong><span>可以计划安排</span></div>
+      <div className="task-matrix-row-heading important"><strong>重要</strong><span>影响目标</span></div>
+      <div className="task-matrix-row-heading light"><strong>不重要</strong><span>影响有限</span></div>
       {quadrants.map((quadrant) => {
         const entries = tasks.filter((task) => task.important === quadrant.important && task.isUrgent === quadrant.urgent);
+        const isDropTarget = dropTarget === quadrant.key;
         return (
-          <section className={`panel task-quadrant ${quadrant.key}`} key={quadrant.key}>
-            <header><div><h3>{quadrant.title}</h3><p>{quadrant.hint}</p></div><span>{entries.length}</span></header>
+          <section
+            className={`task-quadrant ${quadrant.key} ${isDropTarget ? "drop-target" : ""}`}
+            key={quadrant.key}
+            onDragEnter={(event) => {
+              if (!draggedTaskId) return;
+              event.preventDefault();
+              setDropTarget(quadrant.key);
+            }}
+            onDragOver={(event) => {
+              if (!draggedTaskId) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              const taskId = draggedTaskId ?? event.dataTransfer.getData("text/plain");
+              const task = tasks.find((entry) => entry.id === taskId);
+              if (task && (task.important !== quadrant.important || task.isUrgent !== quadrant.urgent)) {
+                onMove(task, quadrant.important, quadrant.urgent);
+              }
+              finishDrag();
+            }}
+          >
+            <header><div><h3>{quadrant.title}</h3><p>{quadrant.hint}</p></div><span aria-label={`${entries.length} 个任务`}>{entries.length}</span></header>
             <div className="task-quadrant-list">
-              {entries.map((task) => <TaskCard task={task} compact key={task.id} busy={busyTaskId === task.id} onComplete={() => onComplete(task)} onEdit={() => onEdit(task)} onMenu={(x, y, returnFocus) => onMenu(task, x, y, returnFocus)} />)}
-              {!entries.length && <div className="task-quadrant-empty">暂无任务</div>}
+              {entries.map((task) => <TaskCard task={task} compact draggable key={task.id} busy={busyTaskId === task.id} dragging={draggedTaskId === task.id} onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", task.id);
+                setDraggedTaskId(task.id);
+              }} onDragEnd={finishDrag} onComplete={() => onComplete(task)} onEdit={() => onEdit(task)} onMenu={(x, y, returnFocus) => onMenu(task, x, y, returnFocus)} />)}
+              {!entries.length && <div className="task-quadrant-empty"><CheckCircle2 size={17} /><span>{draggedTaskId ? "放到这里" : "暂无任务"}</span></div>}
             </div>
           </section>
         );
@@ -600,10 +667,14 @@ function TaskMatrix({ tasks, busyTaskId, onComplete, onEdit, onMenu }: {
   );
 }
 
-function TaskCard({ task, busy, compact, onComplete, onEdit, onMenu }: {
+function TaskCard({ task, busy, compact, draggable, dragging, onDragStart, onDragEnd, onComplete, onEdit, onMenu }: {
   readonly task: ClientTask;
   readonly busy: boolean;
   readonly compact?: boolean;
+  readonly draggable?: boolean;
+  readonly dragging?: boolean;
+  readonly onDragStart?: (event: DragEvent<HTMLElement>) => void;
+  readonly onDragEnd?: () => void;
   readonly onComplete: () => void;
   readonly onEdit: () => void;
   readonly onMenu: (x: number, y: number, returnFocus?: HTMLElement | null) => void;
@@ -612,7 +683,7 @@ function TaskCard({ task, busy, compact, onComplete, onEdit, onMenu }: {
   const mailSource = task.sourceReferences.find((entry) => entry.kind === "mail");
   const scheduledBlock = task.scheduledBlocks[0];
   return (
-    <article className={`task-card ${compact ? "compact" : ""}`} onContextMenu={(event) => { event.preventDefault(); onMenu(event.clientX, event.clientY, event.currentTarget); }}>
+    <article className={`task-card ${compact ? "compact" : ""} ${draggable ? "draggable" : ""} ${dragging ? "dragging" : ""}`} draggable={draggable && !busy} onDragStart={onDragStart} onDragEnd={onDragEnd} onContextMenu={(event) => { event.preventDefault(); onMenu(event.clientX, event.clientY, event.currentTarget); }}>
       <button className={`task-check ${task.status === "done" ? "completed" : ""}`} aria-label={`${task.status === "done" ? "重新打开" : "完成"} ${task.title}`} title={task.status === "done" ? "重新打开任务" : "标记为已完成"} disabled={busy} onClick={onComplete}>{busy ? <LoaderCircle className="spin" size={15} /> : task.status === "done" ? <RefreshCw size={15} /> : <Check size={15} />}</button>
       <button className="task-card-body" onClick={onEdit}>
         <strong>{task.title}</strong>
@@ -621,19 +692,21 @@ function TaskCard({ task, busy, compact, onComplete, onEdit, onMenu }: {
           {task.estimatedMinutes && <em><Clock3 size={12} />{formatTaskEstimate(task.estimatedMinutes)}</em>}
           {task.projectName && <em>{task.projectName}</em>}
           {task.areaName && <em>{task.areaName}</em>}
+          {task.assigneeDisplayName && <em>指派给 {task.assigneeDisplayName}</em>}
           {source && <em><Link2 size={12} />{source.label}</em>}
           {scheduledBlock && <em className="scheduled"><CalendarClock size={12} />{task.scheduledBlockCount > 1 ? `已安排 ${task.scheduledBlockCount} 个时间块 · ` : "已安排 "}{formatTaskBlockRange(scheduledBlock.start, scheduledBlock.end)}</em>}
           {task.status === "waiting" && <em>等待中</em>}
         </span>
       </button>
       <div className="task-card-flags">{scheduledBlock && <Link className="task-calendar-link" href={scheduledBlock.href} aria-label={`打开安排的日程：${scheduledBlock.title}`} title={`打开安排的日程：${formatTaskBlockRange(scheduledBlock.start, scheduledBlock.end)}`}><CalendarClock size={13} /></Link>}{mailSource && <Link className="task-source-link" href={taskSourceHref(mailSource) ?? "/inbox"} aria-label={`打开关联邮件：${mailSource.label}`} title={`打开关联邮件：${mailSource.label}`}><Mail size={13} /></Link>}{task.important && <Star size={13} fill="currentColor" />}{task.isUrgent && <span>急</span>}</div>
+      {draggable && <GripVertical className="task-drag-indicator" size={14} aria-hidden="true" />}
       <button className="task-menu-trigger" aria-label={`更多操作：${task.title}`} aria-expanded={false} onClick={(event) => { const bounds = event.currentTarget.getBoundingClientRect(); onMenu(bounds.right, bounds.bottom + 4, event.currentTarget); }}><MoreHorizontal size={15} /></button>
     </article>
   );
 }
 
 function createEmptyTaskDraft(status: TaskStatus): TaskDraft {
-  return { title: "", notes: "", status, important: false, urgencyMode: "auto", dueAt: "", estimatedMinutes: "", projectId: "", projectName: "", areaName: "", sourceReferences: [] };
+  return { title: "", notes: "", status, important: false, urgencyMode: "auto", dueAt: "", estimatedMinutes: "", projectId: "", projectName: "", areaName: "", assigneeUserId: "", sourceReferences: [] };
 }
 
 function taskToDraft(task: ClientTask): TaskDraft {
@@ -649,6 +722,7 @@ function taskToDraft(task: ClientTask): TaskDraft {
     projectId: task.projectId ?? "",
     projectName: task.projectName ?? "",
     areaName: task.areaName ?? "",
+    assigneeUserId: task.assigneeUserId ?? "",
     sourceReferences: task.sourceReferences,
   };
 }
@@ -665,6 +739,7 @@ function taskDraftPayload(draft: TaskDraft) {
     projectId: draft.projectId || undefined,
     projectName: draft.projectId ? undefined : draft.projectName || undefined,
     areaName: draft.areaName || undefined,
+    assigneeUserId: draft.assigneeUserId || undefined,
     sourceReferences: draft.sourceReferences.map(({ kind, sourceId, label, href }) => ({ kind, sourceId, label, href })),
   };
 }

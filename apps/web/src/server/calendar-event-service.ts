@@ -1,7 +1,15 @@
-import type { CalendarEvent, UpsertCalendarEventInput } from "../../../../src/mail/types";
+import type {
+  CalendarEvent,
+  CalendarRecurrenceEditScope,
+  UpsertCalendarEventInput,
+} from "../../../../src/mail/types";
 
 import { loadExchangeCalendarCredential, saveExchangeCalendarMutation } from "./calendar-account-repository";
-import { CalendarRepositoryError, getStoredCalendarEvent } from "./calendar-repository";
+import {
+  CalendarRepositoryError,
+  deleteStoredCalendarEvent,
+  getStoredCalendarEvent,
+} from "./calendar-repository";
 import { getDatabase } from "./database";
 import {
   createExchangeCalendarEvent,
@@ -23,12 +31,16 @@ interface ExchangeEventTargetRow {
   provider_change_key: string | null;
   is_meeting: boolean;
   is_recurring: boolean;
+  availability: NonNullable<CalendarEvent["availability"]>;
 }
 
 export async function upsertCalendarEvent(input: UpsertCalendarEventInput): Promise<CalendarEvent> {
   const target = await getCalendarWriteTarget(input.calendarId);
   if (target.provider_id === "local-calendar") {
     return localCalendarProvider.upsertEvent(localCalendarContext, input);
+  }
+  if (input.recurrence || input.recurrenceSeriesId) {
+    throw new CalendarRepositoryError("REMOTE_RECURRENCE_UNSUPPORTED", "当前版本仅支持在个人日历中创建和修改重复日程", 409);
   }
   if (target.provider_id !== "exchange" || !target.account_id) {
     throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "这个远程日历暂不支持写回", 409);
@@ -45,7 +57,7 @@ export async function upsertCalendarEvent(input: UpsertCalendarEventInput): Prom
       remoteEvent = await updateExchangeCalendarEvent(credential, {
         itemId: existing.provider_item_id!,
         changeKey: existing.provider_change_key ?? undefined,
-      }, input, controller.signal);
+      }, { ...input, availability: existing.availability }, controller.signal);
     } else {
       const folderId = target.provider_calendar_id.startsWith(`${target.account_id}:`)
         ? target.provider_calendar_id.slice(target.account_id.length + 1)
@@ -53,7 +65,7 @@ export async function upsertCalendarEvent(input: UpsertCalendarEventInput): Prom
       const folder: ExchangeCalendarFolder = { folderId, name: "Exchange 日历" };
       remoteEvent = await createExchangeCalendarEvent(credential, folder, input, controller.signal);
     }
-    const eventId = await saveExchangeCalendarMutation(input.calendarId, remoteEvent, input.id);
+    const eventId = await saveExchangeCalendarMutation(input.calendarId, remoteEvent, input.id, input.descriptionContent);
     const saved = await getStoredCalendarEvent(eventId);
     if (!saved) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "RWTH 已保存日程，但本地索引更新失败", 500);
     return saved;
@@ -62,10 +74,23 @@ export async function upsertCalendarEvent(input: UpsertCalendarEventInput): Prom
   }
 }
 
-export async function deleteCalendarEvent(calendarId: string, eventId: string): Promise<void> {
+export async function deleteCalendarEvent(
+  calendarId: string,
+  eventId: string,
+  recurrence?: {
+    readonly seriesId: string;
+    readonly recurrenceId: string;
+    readonly scope: CalendarRecurrenceEditScope;
+  },
+): Promise<void> {
   const target = await getCalendarWriteTarget(calendarId);
   if (target.provider_id === "local-calendar") {
-    return localCalendarProvider.deleteEvent(localCalendarContext, calendarId, eventId);
+    await deleteStoredCalendarEvent(calendarId, eventId, recurrence ? {
+      recurrenceSeriesId: recurrence.seriesId,
+      recurrenceId: recurrence.recurrenceId,
+      recurrenceScope: recurrence.scope,
+    } : undefined);
+    return;
   }
   if (target.provider_id !== "exchange" || !target.account_id) {
     throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "这个远程日历暂不支持删除", 409);
@@ -102,7 +127,7 @@ async function getCalendarWriteTarget(calendarId: string): Promise<CalendarWrite
 async function getExchangeEventTarget(eventId: string, calendarId: string): Promise<ExchangeEventTargetRow> {
   const database = await getDatabase();
   const result = await database.query<ExchangeEventTargetRow>(
-    `SELECT provider_item_id, provider_change_key, is_meeting, is_recurring
+    `SELECT provider_item_id, provider_change_key, is_meeting, is_recurring, availability
        FROM calendar_events
       WHERE id = $1 AND calendar_id = $2
       LIMIT 1`,

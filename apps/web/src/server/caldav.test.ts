@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -9,6 +9,7 @@ function assert(condition: unknown, message: string): asserts condition {
 async function main() {
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "kalender-caldav-test-"));
 process.env.KALENDER_DATA_DIR = temporaryRoot;
+process.env.KALENDER_MASTER_KEY = Buffer.alloc(32, 1).toString("base64");
 
 try {
   const {
@@ -104,8 +105,6 @@ try {
   assert((await listCalendarAccounts()).length === 1, "saved CalDAV account is listed");
   assert(await deleteCalendarAccount(account.id), "CalDAV account can be deleted with its local index");
 
-  const masterKey = await readFile(path.join(temporaryRoot, "master.key"));
-  assert(masterKey.length > 0, "credential key was created in the isolated test directory");
   console.log("CalDAV parser and storage tests passed");
   await database.close();
 } finally {

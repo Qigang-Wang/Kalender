@@ -1,29 +1,44 @@
-import { readFileSync, unlinkSync } from "node:fs";
-import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { PGlite } from "@electric-sql/pglite";
+import pg from "pg";
 
 import {
   getDatabaseMigrationStatus as inspectDatabaseMigrationStatus,
   runDatabaseMigrations,
   type DatabaseMigration,
-  type DatabaseMigrationContext,
   type DatabaseMigrationStatus,
 } from "./database-migrations";
 
-declare global {
-  var kalenderDatabase: Promise<PGlite> | undefined;
-  var kalenderDatabaseMigrations: Promise<void> | undefined;
-  var kalenderDatabaseProcessLock: DatabaseProcessLock | undefined;
-  var kalenderDatabaseExitHandlersRegistered: boolean | undefined;
+const { Pool, types } = pg;
+
+types.setTypeParser(1082, (value) => value);
+types.setTypeParser(1114, (value) => value);
+types.setTypeParser(1184, (value) => value);
+
+export interface DatabaseQueryResult<T> {
+  readonly rows: T[];
+  readonly affectedRows?: number;
 }
 
-interface DatabaseProcessLock {
-  readonly path: string;
-  readonly token: string;
-  readonly pid: number;
+export interface DatabaseExecutor {
+  query<T>(query: string, params?: readonly unknown[]): Promise<DatabaseQueryResult<T>>;
+  exec(query: string): Promise<unknown>;
+}
+
+export interface KalenderDatabase extends DatabaseExecutor {
+  readonly engine: "postgres";
+  readonly closed: boolean;
+  transaction<T>(callback: (transaction: DatabaseExecutor) => Promise<T>): Promise<T>;
+  close(): Promise<void>;
+}
+
+declare global {
+  var kalenderDatabase: Promise<KalenderDatabase> | undefined;
+  var kalenderDatabaseMigrations: Promise<void> | undefined;
+  var kalenderDatabaseExitHandlersRegistered: boolean | undefined;
+  var kalenderTestDatabase: { readonly adminUrl: string; readonly databaseName: string } | undefined;
 }
 
 export function workspaceRoot(): string {
@@ -37,7 +52,7 @@ export function dataRoot(): string {
     : path.join(workspaceRoot(), ".data");
 }
 
-export async function getDatabase(): Promise<PGlite> {
+export async function getDatabase(): Promise<KalenderDatabase> {
   try {
     globalThis.kalenderDatabase ??= initializeDatabase();
     const database = await globalThis.kalenderDatabase;
@@ -47,7 +62,6 @@ export async function getDatabase(): Promise<PGlite> {
   } catch (error) {
     globalThis.kalenderDatabase = undefined;
     globalThis.kalenderDatabaseMigrations = undefined;
-    await releaseDatabaseProcessLock();
     throw error;
   }
 }
@@ -62,7 +76,7 @@ export async function closeDatabaseForRestore(): Promise<void> {
   } finally {
     globalThis.kalenderDatabase = undefined;
     globalThis.kalenderDatabaseMigrations = undefined;
-    await releaseDatabaseProcessLock();
+    await dropTestDatabaseIfNeeded();
   }
 }
 
@@ -787,6 +801,489 @@ const WORKSPACE_QUERY_PERFORMANCE_SCHEMA_SQL = String.raw`
     ON mail_messages (account_id, provider_message_id);
 `;
 
+const APP_AUTH_SCHEMA_SQL = String.raw`
+  CREATE TABLE IF NOT EXISTS app_users (
+    id text PRIMARY KEY,
+    display_name text NOT NULL,
+    email text NOT NULL,
+    password_hash text NOT NULL,
+    role text NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    disabled_at timestamptz
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS app_users_email_unique_idx ON app_users (lower(email));
+`;
+
+const USER_DATA_ISOLATION_SCHEMA_SQL = String.raw`
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS user_id text REFERENCES app_users(id) ON DELETE CASCADE;
+  ALTER TABLE calendar_accounts ADD COLUMN IF NOT EXISTS user_id text REFERENCES app_users(id) ON DELETE CASCADE;
+  ALTER TABLE exchange_connections ADD COLUMN IF NOT EXISTS user_id text REFERENCES app_users(id) ON DELETE CASCADE;
+  ALTER TABLE calendars ADD COLUMN IF NOT EXISTS user_id text REFERENCES app_users(id) ON DELETE CASCADE;
+  ALTER TABLE projects ADD COLUMN IF NOT EXISTS user_id text REFERENCES app_users(id) ON DELETE CASCADE;
+  ALTER TABLE notes ADD COLUMN IF NOT EXISTS user_id text REFERENCES app_users(id) ON DELETE CASCADE;
+  ALTER TABLE tasks ADD COLUMN IF NOT EXISTS user_id text REFERENCES app_users(id) ON DELETE CASCADE;
+  ALTER TABLE entity_links ADD COLUMN IF NOT EXISTS user_id text REFERENCES app_users(id) ON DELETE CASCADE;
+  ALTER TABLE mail_drafts ADD COLUMN IF NOT EXISTS user_id text REFERENCES app_users(id) ON DELETE CASCADE;
+  ALTER TABLE ai_providers ADD COLUMN IF NOT EXISTS user_id text REFERENCES app_users(id) ON DELETE CASCADE;
+  ALTER TABLE ai_conversations ADD COLUMN IF NOT EXISTS user_id text REFERENCES app_users(id) ON DELETE CASCADE;
+  ALTER TABLE ai_feature_bindings ADD COLUMN IF NOT EXISTS user_id text REFERENCES app_users(id) ON DELETE CASCADE;
+
+  WITH first_admin AS (
+    SELECT id FROM app_users ORDER BY (role = 'admin') DESC, created_at, id LIMIT 1
+  )
+  UPDATE accounts SET user_id = (SELECT id FROM first_admin)
+   WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM first_admin);
+
+  WITH first_admin AS (
+    SELECT id FROM app_users ORDER BY (role = 'admin') DESC, created_at, id LIMIT 1
+  )
+  UPDATE calendar_accounts SET user_id = (SELECT id FROM first_admin)
+   WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM first_admin);
+
+  UPDATE exchange_connections ec
+     SET user_id = COALESCE(ca.user_id, a.user_id)
+    FROM calendar_accounts ca
+    FULL JOIN accounts a ON a.exchange_connection_id = ca.exchange_connection_id
+   WHERE ec.user_id IS NULL AND ec.id = COALESCE(ca.exchange_connection_id, a.exchange_connection_id);
+
+  WITH first_admin AS (
+    SELECT id FROM app_users ORDER BY (role = 'admin') DESC, created_at, id LIMIT 1
+  )
+  UPDATE exchange_connections SET user_id = (SELECT id FROM first_admin)
+   WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM first_admin);
+
+  UPDATE calendars c
+     SET user_id = ca.user_id
+    FROM calendar_accounts ca
+   WHERE c.user_id IS NULL AND c.account_id = ca.id AND ca.user_id IS NOT NULL;
+
+  WITH first_admin AS (
+    SELECT id FROM app_users ORDER BY (role = 'admin') DESC, created_at, id LIMIT 1
+  )
+  UPDATE calendars SET user_id = (SELECT id FROM first_admin)
+   WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM first_admin);
+
+  WITH first_admin AS (
+    SELECT id FROM app_users ORDER BY (role = 'admin') DESC, created_at, id LIMIT 1
+  )
+  UPDATE projects SET user_id = (SELECT id FROM first_admin)
+   WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM first_admin);
+
+  UPDATE notes n SET user_id = p.user_id
+    FROM projects p
+   WHERE n.user_id IS NULL AND n.project_id = p.id AND p.user_id IS NOT NULL;
+
+  WITH first_admin AS (
+    SELECT id FROM app_users ORDER BY (role = 'admin') DESC, created_at, id LIMIT 1
+  )
+  UPDATE notes SET user_id = (SELECT id FROM first_admin)
+   WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM first_admin);
+
+  UPDATE tasks t SET user_id = p.user_id
+    FROM projects p
+   WHERE t.user_id IS NULL AND t.project_id = p.id AND p.user_id IS NOT NULL;
+
+  WITH first_admin AS (
+    SELECT id FROM app_users ORDER BY (role = 'admin') DESC, created_at, id LIMIT 1
+  )
+  UPDATE tasks SET user_id = (SELECT id FROM first_admin)
+   WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM first_admin);
+
+  UPDATE mail_drafts d SET user_id = a.user_id
+    FROM accounts a
+   WHERE d.user_id IS NULL AND d.account_id = a.id AND a.user_id IS NOT NULL;
+
+  WITH first_admin AS (
+    SELECT id FROM app_users ORDER BY (role = 'admin') DESC, created_at, id LIMIT 1
+  )
+  UPDATE ai_providers SET user_id = (SELECT id FROM first_admin)
+   WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM first_admin);
+
+  WITH first_admin AS (
+    SELECT id FROM app_users ORDER BY (role = 'admin') DESC, created_at, id LIMIT 1
+  )
+  UPDATE ai_conversations SET user_id = (SELECT id FROM first_admin)
+   WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM first_admin);
+
+  WITH first_admin AS (
+    SELECT id FROM app_users ORDER BY (role = 'admin') DESC, created_at, id LIMIT 1
+  )
+  UPDATE ai_feature_bindings SET user_id = (SELECT id FROM first_admin)
+   WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM first_admin);
+
+  UPDATE entity_links l
+     SET user_id = COALESCE(t.user_id, n.user_id, p.user_id, c.user_id, m.user_id)
+    FROM entity_links source
+    LEFT JOIN tasks t ON (source.source_kind = 'task' AND t.id = source.source_id) OR (source.target_kind = 'task' AND t.id = source.target_id)
+    LEFT JOIN notes n ON (source.source_kind = 'note' AND n.id = source.source_id) OR (source.target_kind = 'note' AND n.id = source.target_id)
+    LEFT JOIN projects p ON (source.source_kind = 'project' AND p.id = source.source_id) OR (source.target_kind = 'project' AND p.id = source.target_id)
+    LEFT JOIN calendar_events ce ON (source.source_kind = 'calendar' AND ce.id = source.source_id) OR (source.target_kind = 'calendar' AND ce.id = source.target_id)
+    LEFT JOIN calendars c ON c.id = ce.calendar_id
+    LEFT JOIN mail_messages mm ON (source.source_kind = 'mail' AND mm.id = source.source_id) OR (source.target_kind = 'mail' AND mm.id = source.target_id)
+    LEFT JOIN accounts m ON m.id = mm.account_id
+   WHERE l.id = source.id AND l.user_id IS NULL;
+
+  WITH first_admin AS (
+    SELECT id FROM app_users ORDER BY (role = 'admin') DESC, created_at, id LIMIT 1
+  )
+  UPDATE entity_links SET user_id = (SELECT id FROM first_admin)
+   WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM first_admin);
+
+  ALTER TABLE accounts DROP CONSTRAINT IF EXISTS accounts_provider_id_email_address_key;
+  ALTER TABLE calendar_accounts DROP CONSTRAINT IF EXISTS calendar_accounts_provider_id_server_url_username_key;
+  ALTER TABLE exchange_connections DROP CONSTRAINT IF EXISTS exchange_connections_server_url_username_key;
+  ALTER TABLE calendars DROP CONSTRAINT IF EXISTS calendars_provider_id_provider_calendar_id_key;
+  DROP INDEX IF EXISTS projects_name_unique_idx;
+  DROP INDEX IF EXISTS ai_providers_display_name_unique_idx;
+  ALTER TABLE ai_feature_bindings DROP CONSTRAINT IF EXISTS ai_feature_bindings_pkey;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS accounts_user_provider_email_unique_idx
+    ON accounts (user_id, provider_id, email_address) WHERE user_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS calendar_accounts_user_provider_server_username_unique_idx
+    ON calendar_accounts (user_id, provider_id, server_url, username) WHERE user_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS exchange_connections_user_server_username_unique_idx
+    ON exchange_connections (user_id, server_url, username) WHERE user_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS calendars_user_provider_calendar_unique_idx
+    ON calendars (user_id, provider_id, provider_calendar_id) WHERE user_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS projects_user_name_unique_idx
+    ON projects (user_id, lower(name)) WHERE user_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS projects_legacy_name_unique_idx
+    ON projects (lower(name)) WHERE user_id IS NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS ai_providers_user_display_name_unique_idx
+    ON ai_providers (user_id, lower(display_name)) WHERE user_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS ai_feature_bindings_user_feature_unique_idx
+    ON ai_feature_bindings (user_id, feature_key);
+
+  CREATE INDEX IF NOT EXISTS accounts_user_idx ON accounts (user_id, created_at);
+  CREATE INDEX IF NOT EXISTS calendar_accounts_user_idx ON calendar_accounts (user_id, created_at);
+  CREATE INDEX IF NOT EXISTS calendars_user_idx ON calendars (user_id, is_primary DESC, created_at);
+  CREATE INDEX IF NOT EXISTS projects_user_status_updated_idx ON projects (user_id, status, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS notes_user_project_updated_idx ON notes (user_id, project_id, pinned DESC, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS tasks_user_status_due_idx ON tasks (user_id, status, due_at, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS mail_drafts_user_status_updated_idx ON mail_drafts (user_id, status, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS ai_conversations_user_updated_idx ON ai_conversations (user_id, updated_at DESC);
+`;
+
+const AUTH_SECURITY_SCHEMA_SQL = String.raw`
+  ALTER TABLE app_users ADD COLUMN IF NOT EXISTS session_version integer NOT NULL DEFAULT 1;
+  ALTER TABLE app_users ADD COLUMN IF NOT EXISTS last_login_at timestamptz;
+
+  CREATE TABLE IF NOT EXISTS app_login_attempts (
+    id text PRIMARY KEY,
+    email text NOT NULL,
+    ip_address text,
+    user_agent text,
+    succeeded boolean NOT NULL DEFAULT false,
+    attempted_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  CREATE INDEX IF NOT EXISTS app_login_attempts_email_time_idx
+    ON app_login_attempts (lower(email), attempted_at DESC);
+  CREATE INDEX IF NOT EXISTS app_login_attempts_ip_time_idx
+    ON app_login_attempts (ip_address, attempted_at DESC)
+    WHERE ip_address IS NOT NULL;
+
+  CREATE TABLE IF NOT EXISTS app_audit_events (
+    id text PRIMARY KEY,
+    actor_user_id text REFERENCES app_users(id) ON DELETE SET NULL,
+    target_user_id text REFERENCES app_users(id) ON DELETE SET NULL,
+    action text NOT NULL,
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    ip_address text,
+    user_agent text,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  CREATE INDEX IF NOT EXISTS app_audit_events_created_idx
+    ON app_audit_events (created_at DESC);
+  CREATE INDEX IF NOT EXISTS app_audit_events_actor_created_idx
+    ON app_audit_events (actor_user_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS app_audit_events_target_created_idx
+    ON app_audit_events (target_user_id, created_at DESC);
+`;
+
+const COLLABORATION_SCHEMA_SQL = String.raw`
+  ALTER TABLE app_users ADD COLUMN IF NOT EXISTS must_change_password boolean NOT NULL DEFAULT false;
+  ALTER TABLE app_users DROP CONSTRAINT IF EXISTS app_users_role_check;
+  ALTER TABLE app_users ADD CONSTRAINT app_users_role_check CHECK (role IN ('admin', 'user', 'viewer'));
+
+  CREATE TABLE IF NOT EXISTS app_invitations (
+    id text PRIMARY KEY,
+    email text NOT NULL,
+    display_name text,
+    role text NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user', 'viewer')),
+    token_hash text NOT NULL UNIQUE,
+    invited_by_user_id text REFERENCES app_users(id) ON DELETE SET NULL,
+    accepted_by_user_id text REFERENCES app_users(id) ON DELETE SET NULL,
+    expires_at timestamptz NOT NULL,
+    accepted_at timestamptz,
+    revoked_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  CREATE INDEX IF NOT EXISTS app_invitations_email_created_idx
+    ON app_invitations (lower(email), created_at DESC);
+  CREATE INDEX IF NOT EXISTS app_invitations_active_idx
+    ON app_invitations (expires_at, accepted_at, revoked_at);
+
+  CREATE TABLE IF NOT EXISTS project_members (
+    project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id text NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+    access_level text NOT NULL DEFAULT 'viewer' CHECK (access_level IN ('viewer', 'editor')),
+    invited_by_user_id text REFERENCES app_users(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (project_id, user_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS project_members_user_idx
+    ON project_members (user_id, access_level, updated_at DESC);
+  CREATE INDEX IF NOT EXISTS project_members_project_idx
+    ON project_members (project_id, access_level, updated_at DESC);
+
+  ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee_user_id text REFERENCES app_users(id) ON DELETE SET NULL;
+  CREATE INDEX IF NOT EXISTS tasks_assignee_status_due_idx
+    ON tasks (assignee_user_id, status, due_at, updated_at DESC)
+    WHERE assignee_user_id IS NOT NULL;
+`;
+
+const OPERATIONS_BACKUP_AI_SEARCH_SCHEMA_SQL = String.raw`
+  CREATE TABLE IF NOT EXISTS app_jobs (
+    id text PRIMARY KEY,
+    kind text NOT NULL CHECK (kind IN (
+      'backup.create', 'backup.restore', 'mail.sync', 'calendar.sync', 'ai.action', 'maintenance'
+    )),
+    status text NOT NULL DEFAULT 'queued' CHECK (status IN (
+      'queued', 'running', 'succeeded', 'failed', 'cancelled'
+    )),
+    user_id text REFERENCES app_users(id) ON DELETE SET NULL,
+    title text NOT NULL,
+    progress integer NOT NULL DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
+    payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+    result jsonb NOT NULL DEFAULT '{}'::jsonb,
+    error_message text,
+    log_lines jsonb NOT NULL DEFAULT '[]'::jsonb,
+    idempotency_key text,
+    attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    max_attempts integer NOT NULL DEFAULT 1 CHECK (max_attempts > 0),
+    run_after timestamptz NOT NULL DEFAULT now(),
+    started_at timestamptz,
+    finished_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS app_jobs_user_idempotency_unique_idx
+    ON app_jobs (user_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS app_jobs_status_run_after_idx
+    ON app_jobs (status, run_after, created_at);
+  CREATE INDEX IF NOT EXISTS app_jobs_user_created_idx
+    ON app_jobs (user_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS app_jobs_kind_created_idx
+    ON app_jobs (kind, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS backup_artifacts (
+    id text PRIMARY KEY,
+    job_id text REFERENCES app_jobs(id) ON DELETE SET NULL,
+    created_by_user_id text REFERENCES app_users(id) ON DELETE SET NULL,
+    filename text NOT NULL,
+    file_path text NOT NULL,
+    size_bytes bigint NOT NULL DEFAULT 0 CHECK (size_bytes >= 0),
+    checksum_sha256 text NOT NULL DEFAULT '',
+    encrypted boolean NOT NULL DEFAULT false,
+    mail_policy text NOT NULL DEFAULT 'lightweight' CHECK (mail_policy IN ('lightweight', 'full-archive', 'configuration-only')),
+    manifest jsonb NOT NULL DEFAULT '{}'::jsonb,
+    source text NOT NULL DEFAULT 'server' CHECK (source IN ('server', 'upload', 'safety')),
+    restored_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  CREATE INDEX IF NOT EXISTS backup_artifacts_created_idx
+    ON backup_artifacts (created_at DESC);
+  CREATE INDEX IF NOT EXISTS backup_artifacts_user_created_idx
+    ON backup_artifacts (created_by_user_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS ai_action_settings (
+    user_id text PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
+    auto_execution_enabled boolean NOT NULL DEFAULT false,
+    high_risk_auto_enabled boolean NOT NULL DEFAULT false,
+    updated_by_user_id text REFERENCES app_users(id) ON DELETE SET NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  CREATE TABLE IF NOT EXISTS ai_action_events (
+    id text PRIMARY KEY,
+    job_id text REFERENCES app_jobs(id) ON DELETE SET NULL,
+    actor_user_id text REFERENCES app_users(id) ON DELETE SET NULL,
+    action text NOT NULL,
+    status text NOT NULL CHECK (status IN ('planned', 'running', 'succeeded', 'failed', 'cancelled')),
+    risk text NOT NULL CHECK (risk IN ('read', 'local-write', 'external-write', 'destructive')),
+    target_kind text,
+    target_id text,
+    idempotency_key text,
+    input jsonb NOT NULL DEFAULT '{}'::jsonb,
+    result jsonb NOT NULL DEFAULT '{}'::jsonb,
+    error_message text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    finished_at timestamptz
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS ai_action_events_actor_idempotency_unique_idx
+    ON ai_action_events (actor_user_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS ai_action_events_actor_created_idx
+    ON ai_action_events (actor_user_id, created_at DESC);
+
+  CREATE INDEX IF NOT EXISTS mail_messages_search_idx ON mail_messages USING gin (
+    to_tsvector('simple',
+      coalesce(subject, '') || ' ' ||
+      coalesce(snippet, '') || ' ' ||
+      coalesce(text_body, '') || ' ' ||
+      coalesce(html_body, '') || ' ' ||
+      coalesce(from_address->>'name', '') || ' ' ||
+      coalesce(from_address->>'address', '') || ' ' ||
+      coalesce(attachments::text, '')
+    )
+  );
+  CREATE INDEX IF NOT EXISTS tasks_search_idx ON tasks USING gin (
+    to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(notes, '') || ' ' || coalesce(project_name, ''))
+  );
+  CREATE INDEX IF NOT EXISTS notes_search_idx ON notes USING gin (
+    to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content, ''))
+  );
+  CREATE INDEX IF NOT EXISTS projects_search_idx ON projects USING gin (
+    to_tsvector('simple', coalesce(name, '') || ' ' || coalesce(description, '') || ' ' || coalesce(area_name, ''))
+  );
+  CREATE INDEX IF NOT EXISTS calendar_events_search_idx ON calendar_events USING gin (
+    to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(description, '') || ' ' || coalesce(location, ''))
+  );
+  CREATE INDEX IF NOT EXISTS ai_conversations_search_idx ON ai_conversations USING gin (
+    to_tsvector('simple', coalesce(title, ''))
+  );
+  CREATE INDEX IF NOT EXISTS ai_messages_search_idx ON ai_messages USING gin (
+    to_tsvector('simple', coalesce(content->>'text', ''))
+  );
+`;
+
+const AUTOMATIC_BACKUP_SETTINGS_SCHEMA_SQL = String.raw`
+  CREATE TABLE IF NOT EXISTS backup_settings (
+    id text PRIMARY KEY DEFAULT 'workspace' CHECK (id = 'workspace'),
+    enabled boolean NOT NULL DEFAULT false,
+    interval_hours integer NOT NULL DEFAULT 24 CHECK (interval_hours BETWEEN 1 AND 720),
+    retention_count integer NOT NULL DEFAULT 14 CHECK (retention_count BETWEEN 1 AND 365),
+    encrypt_automatic boolean NOT NULL DEFAULT true,
+    next_run_at timestamptz,
+    last_enqueued_at timestamptz,
+    last_completed_at timestamptz,
+    updated_by_user_id text REFERENCES app_users(id) ON DELETE SET NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  INSERT INTO backup_settings (id, enabled, interval_hours, retention_count, encrypt_automatic, next_run_at)
+  VALUES ('workspace', false, 24, 14, true, now() + interval '24 hours')
+  ON CONFLICT (id) DO NOTHING;
+
+  CREATE INDEX IF NOT EXISTS backup_artifacts_source_created_idx
+    ON backup_artifacts (source, created_at DESC);
+  CREATE INDEX IF NOT EXISTS app_jobs_finished_created_idx
+    ON app_jobs (finished_at DESC, created_at DESC);
+`;
+
+const CALENDAR_RECURRENCE_SCHEMA_SQL = String.raw`
+  ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS recurrence_rule jsonb;
+  ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS recurrence_series_id text;
+  ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS recurrence_id timestamptz;
+  ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS recurrence_cancelled boolean NOT NULL DEFAULT false;
+
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint WHERE conname = 'calendar_events_recurrence_series_fk'
+    ) THEN
+      ALTER TABLE calendar_events
+        ADD CONSTRAINT calendar_events_recurrence_series_fk
+        FOREIGN KEY (recurrence_series_id) REFERENCES calendar_events(id) ON DELETE CASCADE;
+    END IF;
+  END $$;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS calendar_events_recurrence_exception_idx
+    ON calendar_events (recurrence_series_id, recurrence_id)
+    WHERE recurrence_series_id IS NOT NULL AND recurrence_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS calendar_events_recurrence_master_idx
+    ON calendar_events (calendar_id, starts_at)
+    WHERE recurrence_rule IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS calendar_events_recurrence_series_idx
+    ON calendar_events (recurrence_series_id, recurrence_id)
+    WHERE recurrence_series_id IS NOT NULL;
+`;
+
+const CALENDAR_RICH_DESCRIPTION_SCHEMA_SQL = String.raw`
+  ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS description_content jsonb;
+`;
+
+const WORKSPACE_SYNC_SETTINGS_SCHEMA_SQL = String.raw`
+  CREATE TABLE IF NOT EXISTS sync_settings (
+    id text PRIMARY KEY DEFAULT 'workspace' CHECK (id = 'workspace'),
+    mail_sync_enabled boolean NOT NULL DEFAULT true,
+    mail_sync_interval_seconds integer NOT NULL DEFAULT 180
+      CHECK (mail_sync_interval_seconds IN (60, 180, 300, 600, 900, 1800)),
+    calendar_sync_enabled boolean NOT NULL DEFAULT true,
+    calendar_sync_interval_seconds integer NOT NULL DEFAULT 180
+      CHECK (calendar_sync_interval_seconds IN (60, 180, 300, 600, 900, 1800)),
+    client_refresh_enabled boolean NOT NULL DEFAULT true,
+    client_refresh_interval_seconds integer NOT NULL DEFAULT 15
+      CHECK (client_refresh_interval_seconds IN (15, 30, 60, 120)),
+    updated_by_user_id text REFERENCES app_users(id) ON DELETE SET NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+
+`;
+
+const MAIL_SIGNATURES_SCHEMA_SQL = String.raw`
+  CREATE TABLE IF NOT EXISTS mail_signatures (
+    id text PRIMARY KEY,
+    account_id text NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    user_id text REFERENCES app_users(id) ON DELETE CASCADE,
+    name text NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 100),
+    full_text text NOT NULL DEFAULT '' CHECK (length(full_text) <= 20000),
+    short_text text NOT NULL DEFAULT '' CHECK (length(short_text) <= 10000),
+    is_default boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS mail_signatures_account_name_idx
+    ON mail_signatures (account_id, lower(name));
+  CREATE UNIQUE INDEX IF NOT EXISTS mail_signatures_account_default_idx
+    ON mail_signatures (account_id) WHERE is_default = true;
+  CREATE INDEX IF NOT EXISTS mail_signatures_user_account_idx
+    ON mail_signatures (user_id, account_id, created_at);
+
+  ALTER TABLE mail_drafts ADD COLUMN IF NOT EXISTS signature_id text;
+  ALTER TABLE mail_drafts ADD COLUMN IF NOT EXISTS signature_variant text
+    CHECK (signature_variant IS NULL OR signature_variant IN ('full', 'short'));
+
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint WHERE conname = 'mail_drafts_signature_fk'
+    ) THEN
+      ALTER TABLE mail_drafts
+        ADD CONSTRAINT mail_drafts_signature_fk
+        FOREIGN KEY (signature_id) REFERENCES mail_signatures(id) ON DELETE SET NULL;
+    END IF;
+  END $$;
+`;
+
+const CALENDAR_AVAILABILITY_SCHEMA_SQL = String.raw`
+  ALTER TABLE calendar_events
+    ADD COLUMN IF NOT EXISTS availability text NOT NULL DEFAULT 'busy'
+    CHECK (availability IN ('free', 'tentative', 'busy', 'oof', 'working_elsewhere'));
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -798,6 +1295,17 @@ export const DATABASE_MIGRATIONS = [
   { version: 8, name: "project-phases-and-auto-schedule", sql: PROJECT_PHASES_AND_AUTO_SCHEDULE_SCHEMA_SQL },
   { version: 9, name: "mail-query-performance", sql: MAIL_QUERY_PERFORMANCE_SCHEMA_SQL },
   { version: 10, name: "workspace-query-performance", sql: WORKSPACE_QUERY_PERFORMANCE_SCHEMA_SQL },
+  { version: 11, name: "app-auth-users", sql: APP_AUTH_SCHEMA_SQL },
+  { version: 12, name: "user-data-isolation", sql: USER_DATA_ISOLATION_SCHEMA_SQL },
+  { version: 13, name: "auth-security-and-audit", sql: AUTH_SECURITY_SCHEMA_SQL },
+  { version: 14, name: "roles-invitations-and-project-collaboration", sql: COLLABORATION_SCHEMA_SQL },
+  { version: 15, name: "operations-backup-ai-search", sql: OPERATIONS_BACKUP_AI_SEARCH_SCHEMA_SQL },
+  { version: 16, name: "automatic-backup-settings", sql: AUTOMATIC_BACKUP_SETTINGS_SCHEMA_SQL },
+  { version: 17, name: "local-calendar-recurrence", sql: CALENDAR_RECURRENCE_SCHEMA_SQL },
+  { version: 18, name: "calendar-rich-description", sql: CALENDAR_RICH_DESCRIPTION_SCHEMA_SQL },
+  { version: 19, name: "workspace-sync-settings", sql: WORKSPACE_SYNC_SETTINGS_SCHEMA_SQL },
+  { version: 20, name: "mail-signature-versions", sql: MAIL_SIGNATURES_SCHEMA_SQL },
+  { version: 21, name: "calendar-event-availability", sql: CALENDAR_AVAILABILITY_SCHEMA_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;
@@ -806,104 +1314,155 @@ export async function getSchemaMigrationStatus(): Promise<DatabaseMigrationStatu
   return inspectDatabaseMigrationStatus(await getDatabase(), DATABASE_MIGRATIONS);
 }
 
-async function ensureLatestSchema(database: PGlite): Promise<void> {
-  await runDatabaseMigrations(database, DATABASE_MIGRATIONS, {
-    beforeMigrate: async (context) => createMigrationRecoveryPoint(database, context),
+async function ensureLatestSchema(database: KalenderDatabase): Promise<void> {
+  await runDatabaseMigrations(database, DATABASE_MIGRATIONS);
+}
+
+async function initializeDatabase(): Promise<KalenderDatabase> {
+  loadLocalEnvFile();
+  await configureTestDatabase();
+  const connectionString = process.env.DATABASE_URL?.trim();
+  if (!connectionString) throw new Error("DATABASE_URL is required. Kalender now uses PostgreSQL only.");
+  return initializePostgresDatabase(connectionString);
+}
+
+async function configureTestDatabase(): Promise<void> {
+  if (globalThis.kalenderTestDatabase) return;
+  const root = process.env.KALENDER_DATA_DIR;
+  if (!root) return;
+  const basename = path.basename(root);
+  if (!basename.startsWith("kalender-") || !basename.includes("-test-")) return;
+  const templateUrl = process.env.DATABASE_URL?.trim();
+  if (!templateUrl) return;
+  const databaseName = `kalender_test_${createHash("sha1").update(path.resolve(root)).digest("hex")}`;
+  const adminUrl = databaseUrlWithName(templateUrl, "postgres");
+  const admin = new Pool({ connectionString: adminUrl });
+  try {
+    await admin.query(`CREATE DATABASE ${quoteIdentifier(databaseName)}`);
+  } catch (error) {
+    if (!isDuplicateDatabaseError(error)) throw error;
+  } finally {
+    await admin.end();
+  }
+  process.env.DATABASE_URL = databaseUrlWithName(templateUrl, databaseName);
+  globalThis.kalenderTestDatabase = { adminUrl, databaseName };
+}
+
+async function dropTestDatabaseIfNeeded(): Promise<void> {
+  const testDatabase = globalThis.kalenderTestDatabase;
+  if (!testDatabase) return;
+  globalThis.kalenderTestDatabase = undefined;
+  const admin = new Pool({ connectionString: testDatabase.adminUrl });
+  try {
+    await admin.query(`DROP DATABASE IF EXISTS ${quoteIdentifier(testDatabase.databaseName)} WITH (FORCE)`);
+  } finally {
+    await admin.end();
+  }
+}
+
+function databaseUrlWithName(value: string, databaseName: string): string {
+  const url = new URL(value);
+  url.pathname = `/${databaseName}`;
+  return url.toString();
+}
+
+function quoteIdentifier(value: string): string {
+  return `"${value.replaceAll("\"", "\"\"")}"`;
+}
+
+function isDuplicateDatabaseError(error: unknown): boolean {
+  return (error as { readonly code?: unknown }).code === "42P04";
+}
+
+function loadLocalEnvFile(): void {
+  const envPath = path.join(workspaceRoot(), ".env");
+  let content: string;
+  try {
+    content = readFileSync(envPath, "utf8");
+  } catch {
+    return;
+  }
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separator = trimmed.indexOf("=");
+    if (separator <= 0) continue;
+    const key = trimmed.slice(0, separator).trim();
+    if (process.env[key] !== undefined) continue;
+    let value = trimmed.slice(separator + 1).trim();
+    if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  }
+}
+
+async function initializePostgresDatabase(connectionString: string): Promise<KalenderDatabase> {
+  const pool = new Pool({
+    connectionString,
+    max: Number(process.env.KALENDER_DATABASE_POOL_MAX ?? 10),
   });
-}
-
-async function createMigrationRecoveryPoint(
-  database: PGlite,
-  context: DatabaseMigrationContext,
-): Promise<void> {
-  if (!context.hadExistingSchema) return;
-  const createdAt = new Date().toISOString();
-  const stamp = createdAt.replace(/[:.]/g, "-");
-  const directory = path.join(dataRoot(), "automatic-backups");
-  const basename = `pre-migration-v${context.currentVersion}-to-v${context.latestVersion}-${stamp}`;
-  const archivePath = path.join(directory, `${basename}.tgz`);
-  const manifestPath = path.join(directory, `${basename}.json`);
-  await mkdir(directory, { recursive: true });
+  const database = new PostgresKalenderDatabase(pool);
   try {
-    const dump = await database.dumpDataDir("gzip");
-    const bytes = Buffer.from(await dump.arrayBuffer());
-    await writeFile(archivePath, bytes, { flag: "wx", mode: 0o600 });
-    await writeFile(
-      manifestPath,
-      `${JSON.stringify({
-        format: "kalender-database-migration-recovery",
-        createdAt,
-        fromVersion: context.currentVersion,
-        toVersion: context.latestVersion,
-        pendingVersions: context.pending.map((migration) => migration.version),
-        databaseArchive: `${basename}.tgz`,
-      }, null, 2)}\n`,
-      { flag: "wx", mode: 0o600 },
-    );
+    await database.query("SELECT 1");
+    return database;
   } catch (error) {
-    await Promise.all([
-      rm(archivePath, { force: true }),
-      rm(manifestPath, { force: true }),
-    ]);
+    await database.close().catch(() => undefined);
     throw error;
   }
 }
 
-async function initializeDatabase(): Promise<PGlite> {
-  const root = dataRoot();
-  await mkdir(root, { recursive: true });
-  await acquireDatabaseProcessLock(root);
-  try {
-    return await PGlite.create(path.join(root, "postgres"));
-  } catch (error) {
-    await releaseDatabaseProcessLock();
-    throw error;
+class PostgresKalenderDatabase implements KalenderDatabase {
+  readonly engine = "postgres" as const;
+  #closed = false;
+
+  constructor(private readonly pool: pg.Pool) {}
+
+  get closed(): boolean {
+    return this.#closed;
   }
-}
 
-async function acquireDatabaseProcessLock(root: string): Promise<void> {
-  if (globalThis.kalenderDatabaseProcessLock) return;
-  const lockPath = path.join(root, "kalender-database.lock");
-  const token = randomUUID();
-  const lock = { path: lockPath, token, pid: process.pid } satisfies DatabaseProcessLock;
+  async query<T>(query: string, params: readonly unknown[] = []): Promise<DatabaseQueryResult<T>> {
+    const result = await this.pool.query(query, [...params]);
+    return { rows: result.rows as T[], affectedRows: result.rowCount ?? undefined };
+  }
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  async exec(query: string): Promise<unknown> {
+    return this.pool.query(query);
+  }
+
+  async transaction<T>(callback: (transaction: DatabaseExecutor) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
     try {
-      const handle = await open(lockPath, "wx", 0o600);
-      try {
-        await handle.writeFile(`${JSON.stringify({
-          pid: lock.pid,
-          token: lock.token,
-          createdAt: new Date().toISOString(),
-          workspace: workspaceRoot(),
-        })}\n`);
-      } finally {
-        await handle.close();
-      }
-      globalThis.kalenderDatabaseProcessLock = lock;
-      registerDatabaseExitHandlers();
-      return;
+      await client.query("BEGIN");
+      const result = await callback(new PostgresTransaction(client));
+      await client.query("COMMIT");
+      return result;
     } catch (error) {
-      if (!isFileAlreadyExistsError(error)) throw error;
-      const existing = await readDatabaseProcessLock(lockPath);
-      if (existing?.pid && isProcessAlive(existing.pid)) {
-        throw new Error(`数据库正在被另一个 Kalender 进程使用（PID ${existing.pid}）`);
-      }
-      await rm(lockPath, { force: true });
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
     }
   }
-  throw new Error("无法获取 Kalender 数据库单实例锁");
+
+  async close(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    await this.pool.end();
+  }
 }
 
-async function releaseDatabaseProcessLock(): Promise<void> {
-  const lock = globalThis.kalenderDatabaseProcessLock;
-  if (!lock) return;
-  globalThis.kalenderDatabaseProcessLock = undefined;
-  try {
-    const existing = await readDatabaseProcessLock(lock.path);
-    if (existing?.token === lock.token) await rm(lock.path, { force: true });
-  } catch {
-    // The process is shutting down; a stale lock is safely reclaimed on the next start.
+class PostgresTransaction implements DatabaseExecutor {
+  constructor(private readonly client: pg.PoolClient) {}
+
+  async query<T>(query: string, params: readonly unknown[] = []): Promise<DatabaseQueryResult<T>> {
+    const result = await this.client.query(query, [...params]);
+    return { rows: result.rows as T[], affectedRows: result.rowCount ?? undefined };
+  }
+
+  async exec(query: string): Promise<unknown> {
+    return this.client.query(query);
   }
 }
 
@@ -917,43 +1476,4 @@ function registerDatabaseExitHandlers(): void {
   };
   process.once("SIGINT", () => shutdown("SIGINT"));
   process.once("SIGTERM", () => shutdown("SIGTERM"));
-  process.once("exit", releaseDatabaseProcessLockSync);
-}
-
-function releaseDatabaseProcessLockSync(): void {
-  const lock = globalThis.kalenderDatabaseProcessLock;
-  if (!lock) return;
-  try {
-    const existing = JSON.parse(readFileSync(lock.path, "utf8")) as { token?: unknown };
-    if (existing.token === lock.token) unlinkSync(lock.path);
-  } catch {
-    // The lock may already be gone after a graceful shutdown.
-  }
-  globalThis.kalenderDatabaseProcessLock = undefined;
-}
-
-async function readDatabaseProcessLock(lockPath: string): Promise<{ readonly pid?: number; readonly token?: string } | undefined> {
-  try {
-    const parsed = JSON.parse(await readFile(lockPath, "utf8")) as { readonly pid?: unknown; readonly token?: unknown };
-    return {
-      pid: typeof parsed.pid === "number" && Number.isInteger(parsed.pid) ? parsed.pid : undefined,
-      token: typeof parsed.token === "string" ? parsed.token : undefined,
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-function isProcessAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-function isFileAlreadyExistsError(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException).code === "EEXIST";
 }

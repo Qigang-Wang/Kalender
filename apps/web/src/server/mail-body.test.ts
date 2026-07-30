@@ -1,4 +1,5 @@
 import {
+  countCidImageReferences,
   resolveCidImages,
   resolveExchangeInlineImages,
   sanitizeEmailHtml,
@@ -52,6 +53,7 @@ const cidResolved = resolveCidImages('<p>Logo</p><img src="cid:logo@example.test
 const cidSanitized = sanitizeEmailHtml(cidResolved);
 assert(cidSanitized.includes('src="data:image/png;base64,iVBORw=="'), "CID images are embedded without a remote request");
 assert(!cidSanitized.includes("cid:"), "resolved CID references are removed");
+assert(countCidImageReferences('<img src="cid:first"><img src="https://example.test/image.png"><IMG SRC="cid:second">') === 2, "CID image references are counted before sanitization");
 
 const exchangeCidResolved = resolveExchangeInlineImages('<p>Exchange logo</p><img src="cid:logo@exchange.test">', [{
   id: "attachment-1",

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { mailDraftErrorResponse } from "@/server/mail-draft-api";
 import { MailDraftValidationError } from "@/server/mail-draft-validation";
 import { sendMailDraft } from "@/server/mail-send-service";
+import { getCurrentAppUser, recordAuditEvent } from "@/server/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -24,7 +25,17 @@ export async function POST(request: Request, context: SendRouteContext) {
     if (typeof body.idempotencyKey !== "string" || !/^[a-zA-Z0-9._:-]{16,160}$/.test(body.idempotencyKey)) {
       throw new MailDraftValidationError("发送确认标识无效");
     }
-    return NextResponse.json({ ok: true, result: await sendMailDraft(draftId, body.accountId, body.idempotencyKey) });
+    const result = await sendMailDraft(draftId, body.accountId, body.idempotencyKey);
+    const actor = await getCurrentAppUser();
+    if (actor) {
+      await recordAuditEvent({
+        actorUserId: actor.id,
+        targetUserId: actor.id,
+        action: "mail.draft.send",
+        metadata: { draftId, accountId: body.accountId },
+      }).catch(() => undefined);
+    }
+    return NextResponse.json({ ok: true, result });
   } catch (error) {
     return mailDraftErrorResponse(error);
   }

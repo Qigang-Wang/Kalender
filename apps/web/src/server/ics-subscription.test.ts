@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -9,6 +9,7 @@ function assert(condition: unknown, message: string): asserts condition {
 async function main() {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "kalender-ics-test-"));
   process.env.KALENDER_DATA_DIR = temporaryRoot;
+  process.env.KALENDER_MASTER_KEY = Buffer.alloc(32, 3).toString("base64");
   try {
     const {
       parseIcsSubscriptionContent,
@@ -73,8 +74,6 @@ async function main() {
     assert((await listCalendarAccounts())[0]?.providerId === "ics", "ICS subscription is listed");
     assert(await deleteCalendarAccount(account.id), "ICS subscription can be removed locally");
 
-    const masterKey = await readFile(path.join(temporaryRoot, "master.key"));
-    assert(masterKey.length > 0, "credential key was created");
     console.log("ICS subscription parser and storage tests passed");
     await database.close();
   } finally {

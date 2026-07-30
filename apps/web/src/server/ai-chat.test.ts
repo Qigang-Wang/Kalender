@@ -94,10 +94,17 @@ async function main() {
     assert(runs.rows.length === 2 && runs.rows.every((run) => run.status === "succeeded"), "both runs finish successfully");
     assert(runs.rows[1]?.attempt_count === 2 && runs.rows[1]?.used_fallback, "fallback run records exactly two attempts");
 
-    const backup = await (await import("./backup-service")).exportWorkspaceBackup();
-    assert(backup.manifest.counts.ai_conversations === 2, "backup includes AI conversations");
-    assert(backup.manifest.counts.ai_messages === 4, "backup includes AI messages");
-    assert(backup.manifest.counts.ai_runs === 2, "backup includes AI runs");
+    const backupService = await import("./backup-service");
+    let backupFailure: unknown;
+    try {
+      await backupService.exportWorkspaceBackup();
+    } catch (error) {
+      backupFailure = error;
+    }
+    assert(
+      backupFailure instanceof backupService.BackupError && backupFailure.status === 404,
+      "backup export requires an artifact created by the PostgreSQL backup job",
+    );
     console.log("AI chat streaming, persistence and fallback tests passed");
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

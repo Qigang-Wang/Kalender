@@ -29,10 +29,19 @@ export async function PATCH(request: Request, context: CalendarEventRouteContext
 
 export async function DELETE(request: Request, context: CalendarEventRouteContext) {
   const { eventId } = await context.params;
-  const calendarId = new URL(request.url).searchParams.get("calendarId");
+  const searchParams = new URL(request.url).searchParams;
+  const calendarId = searchParams.get("calendarId");
   if (!calendarId) return NextResponse.json({ ok: false, message: "缺少日历标识" }, { status: 400 });
   try {
-    await deleteCalendarEvent(calendarId, eventId);
+    const seriesId = searchParams.get("recurrenceSeriesId");
+    const recurrenceId = searchParams.get("recurrenceId");
+    const requestedScope = searchParams.get("scope");
+    const scope = requestedScope === "following" || requestedScope === "series" ? requestedScope : "occurrence";
+    await deleteCalendarEvent(
+      calendarId,
+      eventId,
+      seriesId && recurrenceId ? { seriesId, recurrenceId, scope } : undefined,
+    );
     return NextResponse.json({ ok: true });
   } catch (error) {
     return calendarErrorResponse(error);

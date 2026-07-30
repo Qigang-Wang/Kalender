@@ -2,28 +2,34 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
-  AlertCircle, Archive, Award, CalendarDays, Check, CheckCircle2, ChevronDown,
-  ChevronLeft, ChevronRight, Circle, Download, FileArchive, FileText, Folder,
+  AlertCircle, Archive, Award, CalendarDays, Check, CheckCircle2, CheckSquare2,
+  ChevronDown, ChevronLeft, ChevronRight, Circle, Copy, Download, FileArchive, FileText, Folder,
   Forward, ImageIcon, Link2, ListChecks, LoaderCircle, Mail, MoreHorizontal,
-  Paperclip, Pencil, RefreshCw, Reply, ReplyAll, Search, Send, ShieldCheck,
+  MailOpen, Paperclip, Pencil, RefreshCw, Reply, ReplyAll, Search, Send, ShieldCheck,
   Sparkles, Star, Trash2, Upload, WandSparkles, X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { replaceMailSignatureContent, type MailSignatureVariant } from "@/lib/mail-signature-content";
 import { decodeNoteContent, EMPTY_PLATE_NOTE_CONTENT, encodeNoteContent, noteContentToPlainText } from "@/lib/note-content";
 import { groupMailByDate, type MailDateGroupId } from "@/lib/mail-date-groups";
 import { resolveReplyRecipients } from "@/lib/mail-reply-recipients";
 import { isSmimeSignatureAttachment } from "@/lib/mail-smime";
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
+import { useVisiblePageRefresh } from "@/hooks/use-visible-page-refresh";
+import { AppSelect } from "../app-select";
 import { ContextMenu } from "../context-menu";
 import { resolveContextCommands, type ContextCommandId, type MailMessageCommandId } from "../context-commands";
+import { useWorkspaceAssistant, type MailAssistantAction } from "../workspace-assistant-context";
 import { TransientToast } from "../workspace-shared";
 import { MailProjectChip, ProjectAssociationControl, RelatedContentPanel } from "./related-content";
 
 const MAIL_MESSAGE_DRAG_TYPE = "application/x-kalender-mail-message";
 const MAIL_MESSAGE_MOVED_EVENT = "kalender:mail-message-moved";
+const MAIL_SYNCED_EVENT = "kalender:mail-synced";
 
 interface MailMessageDragPayload {
   readonly messageId: string;
@@ -102,6 +108,10 @@ interface InboxDisplayItem {
   readonly isStarred: boolean;
   readonly canArchive: boolean;
   readonly attachments: readonly InboxAttachment[];
+  readonly direction?: "incoming" | "outgoing";
+  readonly folderRole?: string;
+  readonly correspondentName?: string;
+  readonly correspondentAddress?: string;
 }
 
 interface InboxApiItem {
@@ -121,6 +131,20 @@ interface InboxApiItem {
   readonly isStarred: boolean;
   readonly canArchive: boolean;
   readonly attachments: readonly InboxAttachment[];
+  readonly direction?: "incoming" | "outgoing";
+  readonly folderRole?: string;
+  readonly correspondentName?: string;
+  readonly correspondentAddress?: string;
+}
+
+interface MailCorrespondenceSummary {
+  readonly name: string;
+  readonly address: string;
+  readonly totalCount: number;
+  readonly unreadCount: number;
+  readonly incomingCount: number;
+  readonly outgoingCount: number;
+  readonly lastContactAt?: string;
 }
 
 interface InboxPageCursor {
@@ -160,7 +184,7 @@ interface MailContextMenuState {
   readonly y: number;
 }
 
-type MailAiAction = "summarize" | "extract-actions" | "draft-reply";
+type MailAiAction = MailAssistantAction;
 
 interface MailAiViewResult {
   readonly messageId: string;
@@ -171,6 +195,7 @@ interface MailAiViewResult {
 }
 
 type MailUiAction = "mark-read" | "mark-unread" | "star" | "unstar" | "archive" | "delete";
+type MailFilter = "all" | "unread" | "starred" | "incoming" | "outgoing" | "attachments";
 
 const mailUiActionByCommand: Partial<Record<MailMessageCommandId, MailUiAction>> = {
   "mail.toggle-read": "mark-read",
@@ -192,6 +217,7 @@ type InboxBodyState =
 
 interface ClientMailDraft {
   readonly id: string;
+  readonly localOnly?: boolean;
   readonly accountId: string;
   readonly replyToMessageId?: string;
   readonly to: readonly string[];
@@ -200,14 +226,26 @@ interface ClientMailDraft {
   readonly subject: string;
   readonly textBody: string;
   readonly bodyContent: string;
+  readonly signatureId?: string;
+  readonly signatureVariant?: MailSignatureVariant;
   readonly attachments: readonly ClientMailAttachment[];
   readonly status: "draft" | "sending" | "sent" | "failed";
   readonly errorMessage?: string;
   readonly updatedAt: string;
 }
 
+interface ClientMailSignature {
+  readonly id: string;
+  readonly accountId: string;
+  readonly name: string;
+  readonly fullText: string;
+  readonly shortText: string;
+  readonly isDefault: boolean;
+}
+
 interface ClientMailAttachment {
   readonly id: string;
+  readonly draftId?: string;
   readonly filename: string;
   readonly contentType: string;
   readonly sizeBytes: number;
@@ -216,7 +254,7 @@ interface ClientMailAttachment {
   readonly createdAt: string;
 }
 
-type ComposerSaveState = "saved" | "saving" | "error";
+type ComposerSaveState = "idle" | "saved" | "saving" | "error";
 
 function splitMailAddresses(value: string): readonly string[] {
   return value.split(/[;,]/).map((address) => address.trim()).filter(Boolean);
@@ -232,7 +270,23 @@ function mailDraftPayload(draft: ClientMailDraft) {
     subject: draft.subject,
     textBody: draft.textBody,
     bodyContent: draft.bodyContent,
+    signatureId: draft.signatureId,
+    signatureVariant: draft.signatureVariant,
   };
+}
+
+function mailDraftHasContent(draft: ClientMailDraft): boolean {
+  const bodyWithoutSignature = noteContentToPlainText(replaceMailSignatureContent(draft.bodyContent)).trim();
+  if (bodyWithoutSignature || draft.attachments.length > 0) return true;
+  if (draft.replyToMessageId) return false;
+  return draft.to.length + draft.cc.length + draft.bcc.length > 0 || Boolean(draft.subject.trim());
+}
+
+function composerSaveLabel(state: ComposerSaveState, inline = false): string {
+  if (state === "idle") return "尚未保存";
+  if (state === "saving") return "正在保存…";
+  if (state === "error") return "保存失败";
+  return inline ? "草稿自动保存" : "已保存草稿";
 }
 
 function formatFileSize(bytes: number): string {
@@ -265,16 +319,51 @@ function mapInboxApiItems(items: readonly InboxApiItem[]): readonly InboxDisplay
     isStarred: item.isStarred,
     canArchive: item.canArchive,
     attachments: item.attachments ?? [],
+    direction: item.direction,
+    folderRole: item.folderRole,
+    correspondentName: item.correspondentName,
+    correspondentAddress: item.correspondentAddress,
   }));
 }
 
-export function InboxPage({ initialMessageId, initialFolderId }: { readonly initialMessageId?: string; readonly initialFolderId?: string }) {
+function mergeRefreshedInboxPage(
+  current: readonly InboxDisplayItem[] | null,
+  refreshed: readonly InboxDisplayItem[],
+): readonly InboxDisplayItem[] {
+  if (!current || current.length <= refreshed.length || refreshed.length === 0) return refreshed;
+  const refreshedIds = new Set(refreshed.map((item) => item.id));
+  const refreshedThreads = new Set(refreshed.map((item) => item.threadId));
+  const oldestRefreshedAt = Date.parse(refreshed.at(-1)!.receivedAt);
+  const olderLoadedItems = current.filter((item) =>
+    !refreshedIds.has(item.id)
+    && !refreshedThreads.has(item.threadId)
+    && Date.parse(item.receivedAt) < oldestRefreshedAt
+  );
+  return [...refreshed, ...olderLoadedItems];
+}
+
+export function InboxPage({
+  initialMessageId,
+  initialFolderId,
+  initialCorrespondent,
+  initialComposeTo,
+  onOpenAssistant,
+}: {
+  readonly initialMessageId?: string;
+  readonly initialFolderId?: string;
+  readonly initialCorrespondent?: string;
+  readonly initialComposeTo?: string;
+  readonly onOpenAssistant?: () => void;
+}) {
+  const router = useRouter();
+  const { publish, registerCommandHandler } = useWorkspaceAssistant();
   const [remoteItems, setRemoteItems] = useState<readonly InboxDisplayItem[] | null>(null);
   const [nextInboxCursor, setNextInboxCursor] = useState<InboxPageCursor>();
   const [mailPageLoading, setMailPageLoading] = useState(false);
   const [hasAccounts, setHasAccounts] = useState(false);
   const [mailLoadError, setMailLoadError] = useState<string>();
   const [mailboxLabel, setMailboxLabel] = useState("收件箱");
+  const [correspondenceSummary, setCorrespondenceSummary] = useState<MailCorrespondenceSummary>();
   const [selectedId, setSelectedId] = useState(initialMessageId ?? "");
   const [bodies, setBodies] = useState<Readonly<Record<string, InboxBodyState>>>({});
   const [threadMessages, setThreadMessages] = useState<readonly MailThreadDisplayMessage[]>([]);
@@ -284,6 +373,7 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
   const [bodyRefreshBusyId, setBodyRefreshBusyId] = useState<string>();
   const [remoteImagesAllowed, setRemoteImagesAllowed] = useState<ReadonlySet<string>>(() => new Set());
   const [mailAccounts, setMailAccounts] = useState<readonly SavedMailAccount[]>([]);
+  const [mailSignatures, setMailSignatures] = useState<readonly ClientMailSignature[]>([]);
   const [mailDrafts, setMailDrafts] = useState<readonly ClientMailDraft[]>([]);
   const [composer, setComposer] = useState<ClientMailDraft>();
   const [composerSaveState, setComposerSaveState] = useState<ComposerSaveState>("saved");
@@ -298,15 +388,29 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
   const [mailNotice, setMailNotice] = useState<string | null>(null);
   const [mailRelatedVersion, setMailRelatedVersion] = useState(0);
   const [mailProjectTargetId, setMailProjectTargetId] = useState<string>();
-  const [mailFilter, setMailFilter] = useState<"all" | "unread" | "starred">("all");
+  const [mailFilter, setMailFilter] = useState<MailFilter>("all");
   const [mailAccountFilter, setMailAccountFilter] = useState("all");
   const [mailQuery, setMailQuery] = useState("");
   const [mobileMailDetail, setMobileMailDetail] = useState(Boolean(initialMessageId));
   const [draggedMessageId, setDraggedMessageId] = useState<string>();
   const [collapsedDateGroups, setCollapsedDateGroups] = useState<ReadonlySet<MailDateGroupId>>(() => new Set());
+  const [selectedMessageIds, setSelectedMessageIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [selectionAnchorId, setSelectionAnchorId] = useState<string>();
+  const [batchActionBusy, setBatchActionBusy] = useState<MailUiAction>();
+  const [batchDeletePending, setBatchDeletePending] = useState(false);
+  const [senderCardOpen, setSenderCardOpen] = useState(false);
+  const [senderCardSummary, setSenderCardSummary] = useState<MailCorrespondenceSummary>();
+  const [senderCardLoading, setSenderCardLoading] = useState(false);
   const menuReturnFocusRef = useRef<HTMLElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const messageDetailRef = useRef<HTMLElement | null>(null);
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
+  const senderCardCloseTimerRef = useRef<number | undefined>(undefined);
+  const initialComposerRecipientRef = useRef("");
+
+  useEffect(() => () => {
+    if (senderCardCloseTimerRef.current) window.clearTimeout(senderCardCloseTimerRef.current);
+  }, []);
 
   const refreshMailDrafts = useCallback(async () => {
     const response = await fetch("/api/mail-drafts", { cache: "no-store" });
@@ -315,17 +419,34 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
     setMailDrafts(payload.drafts ?? []);
   }, []);
 
-  const persistComposer = useCallback(async (draft: ClientMailDraft): Promise<ClientMailDraft> => {
+  const persistComposer = useCallback(async (draft: ClientMailDraft, force = false): Promise<ClientMailDraft> => {
+    if (!force && !mailDraftHasContent(draft)) {
+      setComposerSaveState("idle");
+      return draft;
+    }
     setComposerSaveState("saving");
     try {
-      const response = await fetch(`/api/mail-drafts/${encodeURIComponent(draft.id)}`, {
-        method: "PATCH",
+      const response = await fetch(draft.localOnly ? "/api/mail-drafts" : `/api/mail-drafts/${encodeURIComponent(draft.id)}`, {
+        method: draft.localOnly ? "POST" : "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(mailDraftPayload(draft)),
       });
       const payload = await response.json() as { readonly draft?: ClientMailDraft; readonly message?: string };
       if (!response.ok || !payload.draft) throw new Error(payload.message || "草稿保存失败");
       setMailDrafts((current) => [payload.draft!, ...current.filter((item) => item.id !== payload.draft!.id)]);
+      if (draft.localOnly) {
+        setComposer((current) => {
+          if (!current || current.id !== draft.id) return current;
+          const unchanged = JSON.stringify(mailDraftPayload(current)) === JSON.stringify(mailDraftPayload(draft));
+          if (unchanged) return payload.draft;
+          return {
+            ...current,
+            id: payload.draft!.id,
+            localOnly: false,
+            updatedAt: payload.draft!.updatedAt,
+          };
+        });
+      }
       setComposerSaveState("saved");
       return payload.draft;
     } catch (error) {
@@ -347,15 +468,71 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
         if (!response.ok) throw new Error(payload.message || "无法读取邮件草稿");
         return payload.drafts ?? [];
       }),
-    ]).then(([accounts, drafts]) => {
+      fetch("/api/mail-signatures", { cache: "no-store" }).then(async (response) => {
+        const payload = await response.json() as { readonly signatures?: readonly ClientMailSignature[]; readonly message?: string };
+        if (!response.ok) throw new Error(payload.message || "无法读取邮件签名");
+        return payload.signatures ?? [];
+      }),
+    ]).then(([accounts, drafts, signatures]) => {
       if (cancelled) return;
       setMailAccounts(accounts);
       setMailDrafts(drafts);
+      setMailSignatures(signatures);
     }).catch((error: unknown) => {
       if (!cancelled) setMailNotice(error instanceof Error ? error.message : "无法读取邮件写作数据");
     });
     return () => { cancelled = true; };
   }, []);
+
+  const applyComposerSignature = useCallback((selection: string) => {
+    setComposer((current) => {
+      if (!current) return current;
+      if (selection === "none") {
+        const bodyContent = replaceMailSignatureContent(current.bodyContent);
+        return {
+          ...current,
+          bodyContent,
+          textBody: noteContentToPlainText(bodyContent),
+          signatureId: undefined,
+          signatureVariant: undefined,
+        };
+      }
+      const [signatureId, variantValue] = selection.split(":");
+      const variant: MailSignatureVariant = variantValue === "short" ? "short" : "full";
+      const signature = mailSignatures.find((item) => item.id === signatureId && item.accountId === current.accountId);
+      if (!signature) return current;
+      const bodyContent = replaceMailSignatureContent(current.bodyContent, {
+        id: signature.id,
+        variant,
+        text: variant === "full" ? signature.fullText : signature.shortText,
+      });
+      return {
+        ...current,
+        bodyContent,
+        textBody: noteContentToPlainText(bodyContent),
+        signatureId: signature.id,
+        signatureVariant: variant,
+      };
+    });
+  }, [mailSignatures]);
+
+  const changeComposerAccount = useCallback((accountId: string) => {
+    setComposer((current) => {
+      if (!current) return current;
+      const signature = mailSignatures.find((item) => item.accountId === accountId && item.isDefault);
+      const bodyContent = signature
+        ? replaceMailSignatureContent(current.bodyContent, { id: signature.id, variant: "full", text: signature.fullText })
+        : replaceMailSignatureContent(current.bodyContent);
+      return {
+        ...current,
+        accountId,
+        bodyContent,
+        textBody: noteContentToPlainText(bodyContent),
+        signatureId: signature?.id,
+        signatureVariant: signature ? "full" : undefined,
+      };
+    });
+  }, [mailSignatures]);
 
   useEffect(() => {
     const handleMovedMessage = (event: Event) => {
@@ -375,25 +552,34 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
 
   useEffect(() => {
     if (!composer || composer.status === "sending" || composer.status === "sent") return;
+    if (!mailDraftHasContent(composer)) {
+      setComposerSaveState("idle");
+      return;
+    }
     setComposerSaveState("saving");
     const timer = window.setTimeout(() => {
       void persistComposer(composer).catch(() => undefined);
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [composer?.accountId, composer?.bcc, composer?.bodyContent, composer?.cc, composer?.subject, composer?.textBody, composer?.to, persistComposer]);
+  }, [composer?.accountId, composer?.attachments.length, composer?.bcc, composer?.bodyContent, composer?.cc, composer?.localOnly, composer?.signatureId, composer?.signatureVariant, composer?.subject, composer?.textBody, composer?.to, persistComposer]);
 
   useEffect(() => {
     setInlineCopyFieldsOpen(Boolean(composer?.cc.length || composer?.bcc.length));
   }, [composer?.id]);
 
-  const openComposer = async (message?: InboxDisplayItem, mode: "reply" | "forward" = "reply", initialText = "") => {
+  const openComposer = async (
+    message?: InboxDisplayItem,
+    mode: "reply" | "forward" = "reply",
+    initialText = "",
+    recipient?: { readonly address: string; readonly accountId?: string },
+  ) => {
     if (mailAccounts.length === 0) {
       setMailNotice("请先在设置中连接一个可发送邮件的账户");
       return;
     }
     const account = message
       ? mailAccounts.find((item) => item.id === message.accountId)
-      : mailAccounts[0];
+      : mailAccounts.find((item) => item.id === recipient?.accountId) ?? mailAccounts[0];
     if (!account) {
       setMailNotice("找不到这封邮件对应的发件账户，请检查账户连接");
       return;
@@ -420,35 +606,74 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
         cc: replySource.cc,
         selfAddresses,
       })
-      : { to: message && mode === "reply" ? [message.senderAddress] : [], cc: [] };
-    try {
-      const response = await fetch("/api/mail-drafts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          accountId: account.id,
-          replyToMessageId: message && mode === "reply" ? message.id : undefined,
-          to: replyRecipients.to.length || mode !== "reply" ? replyRecipients.to : message ? [message.senderAddress] : [],
-          cc: replyRecipients.cc,
-          bcc: [],
-          subject: message ? prefixedMailSubject(message.subject, mode === "reply" ? "Re" : "Fwd") : "",
-          textBody: forwardText,
-          bodyContent,
-        }),
-      });
-      const payload = await response.json() as { readonly draft?: ClientMailDraft; readonly message?: string };
-      if (!response.ok || !payload.draft) throw new Error(payload.message || "无法创建草稿");
-      setMailDrafts((current) => [payload.draft!, ...current.filter((item) => item.id !== payload.draft!.id)]);
-      setComposer(payload.draft);
-      setComposerSaveState("saved");
-      setSendConfirmationKey(undefined);
-    } catch (error) {
-      setMailNotice(error instanceof Error ? error.message : "无法创建草稿");
-    }
+      : {
+          to: message && mode === "reply"
+            ? [message.senderAddress]
+            : recipient?.address ? [recipient.address] : [],
+          cc: [],
+        };
+    const signature = mailSignatures.find((item) => item.accountId === account.id && item.isDefault);
+    const hasSentInThread = Boolean(message && mode === "reply" && threadMessages.some((threadMessage) =>
+      threadMessage.threadId === message.threadId
+      && threadMessage.accountId === account.id
+      && threadMessage.folderRole === "sent",
+    ));
+    const signatureVariant: MailSignatureVariant = hasSentInThread ? "short" : "full";
+    const signedBodyContent = signature
+      ? replaceMailSignatureContent(bodyContent, {
+          id: signature.id,
+          variant: signatureVariant,
+          text: signatureVariant === "full" ? signature.fullText : signature.shortText,
+        })
+      : bodyContent;
+    const localDraft: ClientMailDraft = {
+      id: `local:${crypto.randomUUID()}`,
+      localOnly: true,
+      accountId: account.id,
+      replyToMessageId: message && mode === "reply" ? message.id : undefined,
+      to: replyRecipients.to.length || mode !== "reply" ? replyRecipients.to : message ? [message.senderAddress] : [],
+      cc: replyRecipients.cc,
+      bcc: [],
+      subject: message ? prefixedMailSubject(message.subject, mode === "reply" ? "Re" : "Fwd") : "",
+      textBody: noteContentToPlainText(signedBodyContent),
+      bodyContent: signedBodyContent,
+      signatureId: signature?.id,
+      signatureVariant: signature ? signatureVariant : undefined,
+      attachments: [],
+      status: "draft",
+      updatedAt: new Date().toISOString(),
+    };
+    setComposer(localDraft);
+    setComposerSaveState(mailDraftHasContent(localDraft) ? "saving" : "idle");
+    setSendConfirmationKey(undefined);
   };
+
+  useEffect(() => {
+    const recipient = initialComposeTo?.trim();
+    if (!recipient || mailAccounts.length === 0 || initialComposerRecipientRef.current === recipient) return;
+    initialComposerRecipientRef.current = recipient;
+    void openComposer(undefined, "reply", "", { address: recipient });
+  }, [initialComposeTo, mailAccounts.length]);
 
   const closeComposer = async () => {
     if (!composer || sendBusy || attachmentBusy) return;
+    if (!mailDraftHasContent(composer)) {
+      try {
+        if (!composer.localOnly) {
+          const response = await fetch(`/api/mail-drafts/${encodeURIComponent(composer.id)}`, { method: "DELETE" });
+          if (!response.ok && response.status !== 404) {
+            const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
+            throw new Error(payload?.message || "无法删除空草稿");
+          }
+          setMailDrafts((current) => current.filter((item) => item.id !== composer.id));
+        }
+        setComposer(undefined);
+        setSendConfirmationKey(undefined);
+      } catch (error) {
+        setMailNotice(error instanceof Error ? error.message : "无法关闭空草稿");
+      }
+      return;
+    }
     try {
       await persistComposer(composer);
       setComposer(undefined);
@@ -460,6 +685,11 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
 
   const discardComposer = async () => {
     if (!composer || sendBusy || attachmentBusy) return;
+    if (composer.localOnly) {
+      setComposer(undefined);
+      setSendConfirmationKey(undefined);
+      return;
+    }
     try {
       const response = await fetch(`/api/mail-drafts/${encodeURIComponent(composer.id)}`, { method: "DELETE" });
       const payload = await response.json() as { readonly message?: string };
@@ -477,7 +707,7 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
     if (!composer || files.length === 0 || attachmentBusy || sendBusy) return [];
     setAttachmentBusy(true);
     try {
-      const saved = await persistComposer(composer);
+      const saved = await persistComposer(composer, true);
       const formData = new FormData();
       files.forEach((file) => formData.append("files", file));
       if (inline) formData.set("inline", "true");
@@ -490,7 +720,7 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
       setComposer(payload.draft);
       setMailDrafts((current) => [payload.draft!, ...current.filter((item) => item.id !== payload.draft!.id)]);
       setMailNotice(inline ? `已在正文插入 ${files.length} 张图片` : `已添加 ${files.length} 个附件`);
-      return payload.attachments ?? [];
+      return (payload.attachments ?? []).map((attachment) => ({ ...attachment, draftId: saved.id }));
     } catch (error) {
       setMailNotice(error instanceof Error ? error.message : "无法添加附件");
       return [];
@@ -572,10 +802,15 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
     setRemoteItems(null);
     setMailLoadError(undefined);
     setNextInboxCursor(undefined);
+    setCorrespondenceSummary(undefined);
+    setSelectedMessageIds(new Set());
+    setSelectionAnchorId(undefined);
+    setMailFilter("all");
     setSelectedId(initialMessageId ?? "");
     setMobileMailDetail(Boolean(initialMessageId));
     const inboxParams = new URLSearchParams({ limit: "50" });
     if (initialFolderId) inboxParams.set("folder", initialFolderId);
+    if (initialCorrespondent) inboxParams.set("correspondent", initialCorrespondent);
     const inboxUrl = `/api/inbox?${inboxParams}`;
     void workspaceFetch(inboxUrl)
       .then(async (response) => {
@@ -584,6 +819,7 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
           readonly message?: string;
           readonly nextCursor?: InboxPageCursor;
           readonly folder?: { readonly name: string; readonly role: string; readonly accountName: string };
+          readonly correspondence?: MailCorrespondenceSummary;
           readonly items?: readonly InboxApiItem[];
         };
         if (!response.ok) throw new Error(payload.message || "Inbox request failed");
@@ -593,7 +829,10 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
         if (cancelled) return;
         const mapped = mapInboxApiItems(result.items ?? []);
         setHasAccounts(Boolean(result.hasAccounts));
-        setMailboxLabel(result.folder ? `${result.folder.accountName} / ${mailFolderLabel(result.folder)}` : "统一收件箱");
+        setCorrespondenceSummary(result.correspondence);
+        setMailboxLabel(result.correspondence
+          ? `与 ${result.correspondence.name} 的往来`
+          : result.folder ? `${result.folder.accountName} / ${mailFolderLabel(result.folder)}` : "统一收件箱");
         setMailLoadError(undefined);
         setRemoteItems(mapped);
         setNextInboxCursor(result.nextCursor);
@@ -623,7 +862,36 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
         }
       });
     return () => { cancelled = true; };
-  }, [initialFolderId, initialMessageId]);
+  }, [initialCorrespondent, initialFolderId, initialMessageId]);
+
+  const refreshVisibleInbox = useCallback(async () => {
+    const params = new URLSearchParams({ limit: "50" });
+    if (initialFolderId) params.set("folder", initialFolderId);
+    if (initialCorrespondent) params.set("correspondent", initialCorrespondent);
+    const response = await workspaceFetch(`/api/inbox?${params}`, {}, 0);
+    const payload = await response.json() as {
+      readonly hasAccounts?: boolean;
+      readonly folder?: { readonly name: string; readonly role: string; readonly accountName: string };
+      readonly correspondence?: MailCorrespondenceSummary;
+      readonly items?: readonly InboxApiItem[];
+      readonly message?: string;
+    };
+    if (!response.ok) throw new Error(payload.message || "无法刷新收件箱");
+    const refreshed = mapInboxApiItems(payload.items ?? []);
+    setHasAccounts(Boolean(payload.hasAccounts));
+    setCorrespondenceSummary(payload.correspondence);
+    setMailboxLabel(payload.correspondence
+      ? `与 ${payload.correspondence.name} 的往来`
+      : payload.folder ? `${payload.folder.accountName} / ${mailFolderLabel(payload.folder)}` : "统一收件箱");
+    setMailLoadError(undefined);
+    setRemoteItems((current) => mergeRefreshedInboxPage(current, refreshed));
+  }, [initialCorrespondent, initialFolderId]);
+  useVisiblePageRefresh(refreshVisibleInbox);
+  useEffect(() => {
+    const refreshAfterSync = () => { void refreshVisibleInbox().catch(() => undefined); };
+    window.addEventListener(MAIL_SYNCED_EVENT, refreshAfterSync);
+    return () => window.removeEventListener(MAIL_SYNCED_EVENT, refreshAfterSync);
+  }, [refreshVisibleInbox]);
 
   const loadMoreMail = async () => {
     if (!nextInboxCursor || mailPageLoading) return;
@@ -635,6 +903,7 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
         beforeId: nextInboxCursor.id,
       });
       if (initialFolderId) params.set("folder", initialFolderId);
+      if (initialCorrespondent) params.set("correspondent", initialCorrespondent);
       const response = await workspaceFetch(`/api/inbox?${params}`, {}, 0);
       const payload = await response.json() as {
         readonly items?: readonly InboxApiItem[];
@@ -758,18 +1027,98 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
     if (mailAccountFilter !== "all" && item.accountId !== mailAccountFilter) return false;
     if (mailFilter === "unread" && item.isRead) return false;
     if (mailFilter === "starred" && !item.isStarred) return false;
+    if (mailFilter === "incoming" && item.direction !== "incoming") return false;
+    if (mailFilter === "outgoing" && item.direction !== "outgoing") return false;
+    if (mailFilter === "attachments" && item.attachments.length === 0) return false;
     const normalized = mailQuery.trim().toLocaleLowerCase();
-    return !normalized || `${item.sender} ${item.senderAddress} ${item.subject} ${item.preview}`.toLocaleLowerCase().includes(normalized);
+    return !normalized || `${item.sender} ${item.senderAddress} ${item.correspondentName ?? ""} ${item.correspondentAddress ?? ""} ${item.subject} ${item.preview}`.toLocaleLowerCase().includes(normalized);
   });
   const dateGroups = groupMailByDate(items);
   useEffect(() => {
     if (items.length && !items.some((item) => item.id === selectedId)) setSelectedId(items[0]!.id);
   }, [items, selectedId]);
   const selected = items.find((item) => item.id === selectedId) ?? items[0];
+  const selectedSenderIsOwnAccount = Boolean(selected && mailAccounts.some((account) =>
+    [account.emailAddress, ...(account.aliases ?? [])].some((address) =>
+      address.trim().toLocaleLowerCase() === selected.senderAddress.trim().toLocaleLowerCase()
+    )
+  ));
+  const selectedBatchItems = items.filter((item) => selectedMessageIds.has(item.id));
+  const allVisibleSelected = items.length > 0 && selectedBatchItems.length === items.length;
+  const someVisibleSelected = selectedBatchItems.length > 0 && !allVisibleSelected;
+  useEffect(() => {
+    const visibleIds = new Set(items.map((item) => item.id));
+    setSelectedMessageIds((current) => {
+      const next = new Set([...current].filter((id) => visibleIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [items]);
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someVisibleSelected;
+  }, [someVisibleSelected]);
   useEffect(() => {
     if (messageDetailRef.current) messageDetailRef.current.scrollTop = 0;
   }, [selected?.id]);
+  useEffect(() => {
+    if (!senderCardOpen || !selected?.senderAddress) return;
+    if (selectedSenderIsOwnAccount) {
+      setSenderCardSummary(undefined);
+      setSenderCardLoading(false);
+      return;
+    }
+    const normalizedAddress = selected.senderAddress.trim().toLocaleLowerCase();
+    if (correspondenceSummary?.address.toLocaleLowerCase() === normalizedAddress) {
+      setSenderCardSummary(correspondenceSummary);
+      return;
+    }
+    let cancelled = false;
+    setSenderCardLoading(true);
+    setSenderCardSummary(undefined);
+    const params = new URLSearchParams({ limit: "20", correspondent: normalizedAddress });
+    void fetch(`/api/inbox?${params}`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as { readonly correspondence?: MailCorrespondenceSummary; readonly message?: string };
+        if (!response.ok) throw new Error(payload.message || "无法读取往来统计");
+        return payload.correspondence;
+      })
+      .then((summary) => {
+        if (!cancelled) setSenderCardSummary(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setSenderCardSummary(undefined);
+      })
+      .finally(() => {
+        if (!cancelled) setSenderCardLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [correspondenceSummary, selected?.senderAddress, selectedSenderIsOwnAccount, senderCardOpen]);
+
+  const showSenderCard = () => {
+    if (senderCardCloseTimerRef.current) window.clearTimeout(senderCardCloseTimerRef.current);
+    setSenderCardOpen(true);
+  };
+  const scheduleSenderCardClose = () => {
+    if (senderCardCloseTimerRef.current) window.clearTimeout(senderCardCloseTimerRef.current);
+    senderCardCloseTimerRef.current = window.setTimeout(() => setSenderCardOpen(false), 140);
+  };
+  const openCorrespondence = (address: string, messageId?: string) => {
+    const params = new URLSearchParams({ correspondent: address });
+    if (messageId) params.set("message", messageId);
+    router.push(`/inbox?${params}`);
+  };
+  const copyMailAddress = async (address: string) => {
+    try {
+      await navigator.clipboard.writeText(address);
+      setMailNotice("邮箱地址已复制");
+    } catch {
+      setMailNotice("无法复制邮箱地址");
+    }
+  };
   const displayedThreadMessages = [...threadMessages].reverse();
+  const selectedSenderDomain = selected?.senderAddress.split("@")[1]?.toLocaleLowerCase();
+  const selectedSenderSharesAccountDomain = Boolean(selectedSenderDomain && mailAccounts.some((account) =>
+    account.emailAddress.split("@")[1]?.toLocaleLowerCase() === selectedSenderDomain
+  ));
   const replyThreadMessage = displayedThreadMessages.find((message) => message.folderRole === "inbox");
   const replyTarget = selected && replyThreadMessage ? {
     ...selected,
@@ -781,6 +1130,18 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
     attachments: replyThreadMessage.attachments,
   } : selected;
   const composerAccount = composer ? mailAccounts.find((account) => account.id === composer.accountId) : undefined;
+  const composerSignatures = composer ? mailSignatures.filter((signature) => signature.accountId === composer.accountId) : [];
+  const composerSignatureValue = composer?.signatureId && composer.signatureVariant
+    ? `${composer.signatureId}:${composer.signatureVariant}`
+    : "none";
+  const composerSignatureOptions = [
+    { value: "none", label: "无签名" },
+    ...composerSignatures.flatMap((signature) => [
+      { value: `${signature.id}:full`, label: `${signature.name} · 完整` },
+      { value: `${signature.id}:short`, label: `${signature.name} · 简短` },
+    ]),
+  ];
+  const composerHasContent = Boolean(composer && mailDraftHasContent(composer));
   const isInlineReplyComposer = Boolean(composer?.replyToMessageId && selected && threadMessages.some((message) => message.id === composer.replyToMessageId));
   const composerFileAttachments = composer?.attachments.filter((attachment) => !attachment.inline) ?? [];
   const composerInlineImages = composer?.attachments.filter((attachment) => attachment.inline) ?? [];
@@ -836,14 +1197,27 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
           readonly isRead?: boolean;
           readonly isStarred?: boolean;
           readonly removedFromInbox: boolean;
+          readonly alreadyRemoved?: boolean;
         };
       };
       if (!response.ok || !payload.result) throw new Error(payload.message || "邮件操作失败");
       if (payload.result.removedFromInbox) {
         const remaining = (remoteItems ?? []).filter((item) => item.id !== message.id);
         setRemoteItems(remaining);
+        setSelectedMessageIds((current) => {
+          if (!current.has(message.id)) return current;
+          const next = new Set(current);
+          next.delete(message.id);
+          return next;
+        });
         if (selectedId === message.id) setSelectedId(remaining[0]?.id ?? "");
-        setMailNotice(action === "delete" ? "邮件已移至已删除邮件" : "邮件已归档");
+        setMailNotice(
+          action === "delete"
+            ? payload.result.alreadyRemoved
+              ? "邮件已从服务器删除，本地记录已清理"
+              : "邮件已移至已删除邮件"
+            : "邮件已归档",
+        );
       } else {
         setRemoteItems((current) => current?.map((item) => item.id === message.id ? {
           ...item,
@@ -859,6 +1233,116 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
     }
   };
 
+  const toggleMessageSelection = (message: InboxDisplayItem, event: ReactMouseEvent) => {
+    const targetIndex = items.findIndex((item) => item.id === message.id);
+    if (event.shiftKey && selectionAnchorId) {
+      const anchorIndex = items.findIndex((item) => item.id === selectionAnchorId);
+      if (anchorIndex >= 0 && targetIndex >= 0) {
+        const [start, end] = anchorIndex < targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex];
+        setSelectedMessageIds((current) => {
+          const next = new Set(current);
+          for (let index = start; index <= end; index += 1) next.add(items[index]!.id);
+          return next;
+        });
+        return;
+      }
+    }
+    setSelectionAnchorId(message.id);
+    setSelectedMessageIds((current) => {
+      const next = new Set(current);
+      if (next.has(message.id)) next.delete(message.id); else next.add(message.id);
+      return next;
+    });
+  };
+
+  const handleMessageOpen = (message: InboxDisplayItem, event: ReactMouseEvent) => {
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      toggleMessageSelection(message, event);
+      return;
+    }
+    setSelectedMessageIds(new Set());
+    setSelectionAnchorId(message.id);
+    openMessage(message);
+  };
+
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setSelectedMessageIds(new Set());
+      setSelectionAnchorId(undefined);
+      return;
+    }
+    setSelectedMessageIds(new Set(items.map((item) => item.id)));
+    setSelectionAnchorId(items[0]?.id);
+  };
+
+  const runBatchMessageAction = async (action: MailUiAction) => {
+    const targets = items.filter((item) => selectedMessageIds.has(item.id));
+    if (!hasAccounts || batchActionBusy || targets.length === 0) return;
+    setBatchDeletePending(false);
+    setBatchActionBusy(action);
+    setMailNotice(`正在处理 ${targets.length} 封邮件…`);
+    try {
+      const response = await fetch("/api/messages/actions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, messageIds: targets.map((item) => item.id) }),
+      });
+      const payload = await response.json() as {
+        readonly message?: string;
+        readonly results?: readonly {
+          readonly messageId: string;
+          readonly isRead?: boolean;
+          readonly isStarred?: boolean;
+          readonly removedFromInbox: boolean;
+          readonly alreadyRemoved?: boolean;
+        }[];
+        readonly failures?: readonly { readonly messageId: string; readonly message: string }[];
+      };
+      if (!payload.results || !payload.failures) throw new Error(payload.message || "批量邮件操作失败");
+      const results = new Map(payload.results.map((result) => [result.messageId, result]));
+      const removedIds = new Set(payload.results.filter((result) => result.removedFromInbox).map((result) => result.messageId));
+      setRemoteItems((current) => current?.flatMap((item) => {
+        if (removedIds.has(item.id)) return [];
+        const result = results.get(item.id);
+        return [{
+          ...item,
+          isRead: result?.isRead ?? item.isRead,
+          isStarred: result?.isStarred ?? item.isStarred,
+        }];
+      }) ?? current);
+      const failedIds = new Set(payload.failures.map((failure) => failure.messageId));
+      setSelectedMessageIds(failedIds);
+      if (removedIds.has(selectedId)) {
+        const remaining = items.filter((item) => !removedIds.has(item.id));
+        setSelectedId(remaining[0]?.id ?? "");
+      }
+      if (payload.failures.length > 0) {
+        setMailNotice(`${payload.results.length} 封操作成功，${payload.failures.length} 封失败；失败邮件仍保持选中`);
+      } else {
+        const alreadyRemovedCount = payload.results.filter((result) => result.alreadyRemoved).length;
+        if (action === "delete" && alreadyRemovedCount > 0) {
+          setMailNotice(
+            alreadyRemovedCount === payload.results.length
+              ? `已清理 ${alreadyRemovedCount} 封服务器中不存在的邮件记录`
+              : `已删除 ${payload.results.length} 封邮件，其中 ${alreadyRemovedCount} 封仅清理了本地记录`,
+          );
+          return;
+        }
+        const label = action === "delete" ? "移至已删除邮件"
+          : action === "archive" ? "归档"
+          : action === "mark-read" ? "标为已读"
+          : action === "mark-unread" ? "标为未读"
+          : action === "star" ? "添加星标" : "取消星标";
+        setMailNotice(`已将 ${payload.results.length} 封邮件${label}`);
+      }
+    } catch (error) {
+      setMailNotice(error instanceof Error ? error.message : "批量邮件操作失败");
+    } finally {
+      setBatchActionBusy(undefined);
+    }
+  };
+
   const openMessage = (message: InboxDisplayItem) => {
     closeContextMenu();
     setSelectedId(message.id);
@@ -868,10 +1352,22 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
 
   useEffect(() => {
     const handleInboxKeyboard = (event: globalThis.KeyboardEvent) => {
-      if (composer || sendConfirmationKey || contextMenu || messageActionBusy || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (composer || sendConfirmationKey || contextMenu || messageActionBusy || batchActionBusy || batchDeletePending || event.altKey) return;
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (target?.closest("input, textarea, select, [contenteditable='true'], [role='textbox']")) return;
       if (target && target !== document.body && !target.closest(".message-list")) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "a") {
+        event.preventDefault();
+        toggleSelectAll();
+        return;
+      }
+      if (event.ctrlKey || event.metaKey) return;
+      if (event.key === "Escape" && selectedMessageIds.size > 0) {
+        event.preventDefault();
+        setSelectedMessageIds(new Set());
+        setSelectionAnchorId(undefined);
+        return;
+      }
       if (!selected || items.length === 0) return;
 
       const selectedIndex = Math.max(0, items.findIndex((item) => item.id === selected.id));
@@ -879,7 +1375,15 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
         event.preventDefault();
         const offset = event.key === "ArrowDown" ? 1 : -1;
         const nextIndex = Math.min(items.length - 1, Math.max(0, selectedIndex + offset));
-        setSelectedId(items[nextIndex]!.id);
+        const nextItem = items[nextIndex]!;
+        setSelectedId(nextItem.id);
+        if (event.shiftKey) {
+          const anchorId = selectionAnchorId ?? selected.id;
+          const anchorIndex = Math.max(0, items.findIndex((item) => item.id === anchorId));
+          const [start, end] = anchorIndex < nextIndex ? [anchorIndex, nextIndex] : [nextIndex, anchorIndex];
+          setSelectionAnchorId(anchorId);
+          setSelectedMessageIds(new Set(items.slice(start, end + 1).map((item) => item.id)));
+        }
         return;
       }
       if (event.key === "Enter") {
@@ -889,13 +1393,14 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
       }
       if (event.key === "Delete") {
         event.preventDefault();
-        void runMessageAction(selected, "delete");
+        if (selectedMessageIds.size > 0) setBatchDeletePending(true);
+        else void runMessageAction(selected, "delete");
       }
     };
 
     window.addEventListener("keydown", handleInboxKeyboard);
     return () => window.removeEventListener("keydown", handleInboxKeyboard);
-  }, [composer, contextMenu, hasAccounts, items, messageActionBusy, selected, sendConfirmationKey]);
+  }, [batchActionBusy, batchDeletePending, composer, contextMenu, hasAccounts, items, messageActionBusy, selected, selectedMessageIds, selectionAnchorId, sendConfirmationKey]);
 
   const createTaskFromMessage = async (message: InboxDisplayItem) => {
     if (messageActionBusy) return;
@@ -934,6 +1439,7 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
 
   const runMailAi = async (message: InboxDisplayItem, action: MailAiAction) => {
     if (mailAiBusy) return;
+    onOpenAssistant?.();
     const replyInstruction = action === "draft-reply" && isInlineReplyComposer && composer
       ? composer.textBody.trim()
       : "";
@@ -952,11 +1458,19 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
       if (!response.ok || !payload.result) throw new Error(payload.message || "AI 邮件处理失败");
       if (action === "draft-reply") {
         if (isInlineReplyComposer && composer) {
-          const bodyContent = encodeNoteContent(decodeNoteContent(payload.result.text));
+          const generatedContent = encodeNoteContent(decodeNoteContent(payload.result.text));
+          const signature = mailSignatures.find((item) => item.id === composer.signatureId);
+          const bodyContent = signature && composer.signatureVariant
+            ? replaceMailSignatureContent(generatedContent, {
+                id: signature.id,
+                variant: composer.signatureVariant,
+                text: composer.signatureVariant === "full" ? signature.fullText : signature.shortText,
+              })
+            : generatedContent;
           setComposer((current) => current?.id === composer.id ? {
             ...current,
             bodyContent,
-            textBody: payload.result!.text,
+            textBody: noteContentToPlainText(bodyContent),
           } : current);
           setMailAiResult(undefined);
           setMailNotice(replyInstruction ? "AI 已根据您的要求替换回复正文" : "AI 已生成回复正文");
@@ -978,6 +1492,58 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
     }
   };
 
+  useEffect(() => {
+    publish({
+      kind: "mail",
+      hasAccounts,
+      loading: remoteItems === null && !mailLoadError,
+      message: selected ? {
+        id: selected.id,
+        subject: selected.subject,
+        sender: selected.sender,
+        senderAddress: selected.senderAddress,
+        accountName: selected.accountName,
+        receivedAt: selected.receivedAt,
+        preview: selected.preview,
+      } : undefined,
+      aiBusy: mailAiBusy,
+      actionBusy: messageActionBusy,
+      result: mailAiResult?.messageId === selected?.id ? mailAiResult : undefined,
+      notice: mailNotice ?? undefined,
+    });
+  }, [
+    hasAccounts,
+    mailAiBusy,
+    mailAiResult,
+    mailLoadError,
+    mailNotice,
+    messageActionBusy,
+    publish,
+    remoteItems,
+    selected?.accountName,
+    selected?.id,
+    selected?.preview,
+    selected?.receivedAt,
+    selected?.sender,
+    selected?.senderAddress,
+    selected?.subject,
+  ]);
+
+  useEffect(() => () => publish(undefined), [publish]);
+
+  useEffect(() => registerCommandHandler((command) => {
+    if (command.type === "mail.clear-result") {
+      setMailAiResult(undefined);
+      return;
+    }
+    if (!selected) return;
+    if (command.type === "mail.run-ai") {
+      void runMailAi(selected, command.action);
+      return;
+    }
+    if (command.type === "mail.create-task") void createTaskFromMessage(selected);
+  }));
+
   const handleContextCommand = (commandId: ContextCommandId) => {
     if (!contextMessage) return;
     if (!commandId.startsWith("mail.")) return;
@@ -993,31 +1559,86 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
   return (
     <>
     <div className={`mail-layout panel ${mobileMailDetail ? "mobile-detail-open" : ""}`}>
-      <section className="message-list" aria-keyshortcuts="ArrowUp ArrowDown Enter Delete">
+      <section className="message-list" aria-keyshortcuts="ArrowUp ArrowDown Shift+ArrowUp Shift+ArrowDown Control+A Meta+A Enter Delete Escape">
+        {correspondenceSummary && (
+          <div className="correspondence-header">
+            <button aria-label="返回收件箱" title="返回收件箱" onClick={() => router.push("/inbox")}><ChevronLeft size={18} /></button>
+            <span className="correspondence-avatar" style={{ background: mailSenderAvatarColor(correspondenceSummary.address, correspondenceSummary.name) }}>
+              {correspondenceSummary.name.slice(0, 1).toLocaleUpperCase()}
+            </span>
+            <div>
+              <strong>{correspondenceSummary.name}</strong>
+              <small>{correspondenceSummary.address}</small>
+              <em>{correspondenceSummary.totalCount} 封往来 · {correspondenceSummary.unreadCount} 封未读</em>
+            </div>
+            <button aria-label={`给 ${correspondenceSummary.name} 写邮件`} title="写邮件" onClick={() => void openComposer(undefined, "reply", "", { address: correspondenceSummary.address })}><Pencil size={16} /></button>
+          </div>
+        )}
         <div className="list-toolbar">
           <div className="mail-list-summary">
-            <span>{mailboxLabel} · {items.length}</span>
-            <small title="邮件列表键盘快捷键">↑↓ 选择 · Enter 打开 · Entf 归档</small>
+            <label className="mail-select-all" title={allVisibleSelected ? "取消全选" : "全选当前列表"}>
+              <input
+                ref={selectAllRef}
+                type="checkbox"
+                checked={allVisibleSelected}
+                aria-label={allVisibleSelected ? "取消全选当前列表" : "全选当前列表"}
+                onChange={toggleSelectAll}
+              />
+            </label>
+            <AppSelect
+              ariaLabel="筛选邮箱账户"
+              className="mail-account-select"
+              size="compact"
+              value={mailAccountFilter}
+              onValueChange={setMailAccountFilter}
+              options={[
+                { value: "all", label: "所有账户" },
+                ...Array.from(new Map(allItems.map((item) => [item.accountId, item])).values())
+                  .map((item) => ({ value: item.accountId, label: item.accountName })),
+              ]}
+            />
+            <span className="mail-list-title">{selectedBatchItems.length > 0 ? `已选 ${selectedBatchItems.length} 封` : mailboxLabel}</span>
+            {selectedBatchItems.length === 0 && <span className="mail-list-count" aria-label={`${items.length} 封邮件`}>{items.length}</span>}
           </div>
           <div className="mail-list-actions">
+            {selectedBatchItems.length > 0 ? <>
+              <button disabled={Boolean(batchActionBusy)} aria-label="批量归档" title="归档" onClick={() => void runBatchMessageAction("archive")}>{batchActionBusy === "archive" ? <LoaderCircle className="spin" size={15} /> : <Archive size={15} />}</button>
+              <button
+                disabled={Boolean(batchActionBusy)}
+                aria-label={selectedBatchItems.some((item) => !item.isRead) ? "批量标为已读" : "批量标为未读"}
+                title={selectedBatchItems.some((item) => !item.isRead) ? "标为已读" : "标为未读"}
+                onClick={() => void runBatchMessageAction(selectedBatchItems.some((item) => !item.isRead) ? "mark-read" : "mark-unread")}
+              >{batchActionBusy === "mark-read" || batchActionBusy === "mark-unread" ? <LoaderCircle className="spin" size={15} /> : <MailOpen size={15} />}</button>
+              <button
+                disabled={Boolean(batchActionBusy)}
+                aria-label={selectedBatchItems.some((item) => !item.isStarred) ? "批量添加星标" : "批量取消星标"}
+                title={selectedBatchItems.some((item) => !item.isStarred) ? "添加星标" : "取消星标"}
+                onClick={() => void runBatchMessageAction(selectedBatchItems.some((item) => !item.isStarred) ? "star" : "unstar")}
+              >{batchActionBusy === "star" || batchActionBusy === "unstar" ? <LoaderCircle className="spin" size={15} /> : <Star size={15} />}</button>
+              <button className="batch-danger" disabled={Boolean(batchActionBusy)} aria-label="批量删除" title="删除" onClick={() => setBatchDeletePending(true)}><Trash2 size={15} /></button>
+              <button disabled={Boolean(batchActionBusy)} aria-label="清除选择" title="清除选择" onClick={() => { setSelectedMessageIds(new Set()); setSelectionAnchorId(undefined); }}><X size={15} /></button>
+            </> : <>
             {mailDrafts.length > 0 && (
               <button className="mail-drafts-button" onClick={() => { setComposer(mailDrafts[0]); setComposerSaveState("saved"); }}>
                 草稿 {mailDrafts.length}
               </button>
             )}
             <button aria-label="撰写邮件" title="撰写邮件" onClick={() => void openComposer()}><Pencil size={15} /></button>
+            </>}
           </div>
         </div>
         <div className="mail-filter-bar">
-          <div>{(["all", "unread", "starred"] as const).map((filter) => <button className={mailFilter === filter ? "active" : ""} key={filter} onClick={() => setMailFilter(filter)}>{filter === "all" ? "全部" : filter === "unread" ? "未读" : "星标"}</button>)}</div>
-          <select aria-label="筛选邮箱账户" value={mailAccountFilter} onChange={(event) => setMailAccountFilter(event.target.value)}><option value="all">所有账户</option>{Array.from(new Map(allItems.map((item) => [item.accountId, item])).values()).map((item) => <option value={item.accountId} key={item.accountId}>{item.accountName}</option>)}</select>
-          <label><Search size={13} /><input aria-label="搜索当前邮件" value={mailQuery} onChange={(event) => setMailQuery(event.target.value)} placeholder="筛选邮件…" /></label>
+          <div className="mail-filter-tabs">{(initialCorrespondent
+            ? (["all", "incoming", "outgoing", "attachments"] as const)
+            : (["all", "unread", "starred"] as const)
+          ).map((filter) => <button className={mailFilter === filter ? "active" : ""} key={filter} onClick={() => setMailFilter(filter)}>{filter === "all" ? "全部" : filter === "unread" ? "未读" : filter === "starred" ? "星标" : filter === "incoming" ? "收件" : filter === "outgoing" ? "已发送" : "附件"}</button>)}</div>
+          <label className="mail-filter-search"><Search size={14} /><input aria-label="搜索当前邮件" value={mailQuery} onChange={(event) => setMailQuery(event.target.value)} placeholder="筛选邮件…" /></label>
         </div>
         <div className="message-list-scroll">
           {remoteItems === null && <div className="mail-empty"><LoaderCircle className="spin" size={18} />正在读取本地邮件…</div>}
           {remoteItems !== null && mailLoadError && <div className="mail-empty">{mailLoadError}</div>}
           {remoteItems !== null && !mailLoadError && !hasAccounts && <div className="mail-empty">尚未连接邮箱，请前往设置添加真实邮箱账户。</div>}
-          {remoteItems !== null && !mailLoadError && hasAccounts && items.length === 0 && <div className="mail-empty">当前文件夹没有已同步的邮件。</div>}
+          {remoteItems !== null && !mailLoadError && hasAccounts && items.length === 0 && <div className="mail-empty">{initialCorrespondent ? "没有找到符合当前筛选条件的往来邮件。" : "当前文件夹没有已同步的邮件。"}</div>}
           {dateGroups.map((group) => {
             const collapsed = collapsedDateGroups.has(group.id);
             return <section className={`mail-date-group ${collapsed ? "collapsed" : ""}`} aria-label={`${group.label}，${group.items.length} 封邮件`} key={group.id}>
@@ -1035,9 +1656,15 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
               </button>
               {!collapsed && group.items.map((message) => {
                 const digitallySigned = message.attachments.some(isSmimeSignatureAttachment);
+                const batchSelected = selectedMessageIds.has(message.id);
+                const listSender = initialCorrespondent
+                  ? message.direction === "outgoing"
+                    ? `我 → ${message.correspondentName || correspondenceSummary?.name || initialCorrespondent}`
+                    : message.correspondentName || message.sender
+                  : message.sender;
                 return (
                   <div
-                  className={`message-item ${message.id === selected?.id ? "active" : ""} ${message.isRead ? "read" : ""} ${draggedMessageId === message.id ? "dragging" : ""}`}
+                  className={`message-item ${message.id === selected?.id ? "active" : ""} ${batchSelected ? "batch-selected" : ""} ${message.isRead ? "read" : ""} ${draggedMessageId === message.id ? "dragging" : ""}`}
                   key={message.id}
                   draggable={!messageActionBusy}
                   title="拖到左侧文件夹移动"
@@ -1064,9 +1691,21 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
                     );
                   }}
                 >
+                  <label className="message-select" draggable={false} title={batchSelected ? "取消选择" : "选择邮件"} onClick={(event) => event.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={batchSelected}
+                      aria-label={`${batchSelected ? "取消选择" : "选择"}：${message.subject}`}
+                      onChange={() => undefined}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleMessageSelection(message, event);
+                      }}
+                    />
+                  </label>
                   <button
                     className="message-open"
-                    onClick={() => openMessage(message)}
+                    onClick={(event) => handleMessageOpen(message, event)}
                     onKeyDown={(event) => {
                       if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
                       event.preventDefault();
@@ -1074,7 +1713,7 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
                       openMessageContextMenu(message, bounds.right - 12, bounds.top + 28, event.currentTarget);
                     }}
                   >
-                    <span><strong>{message.sender}</strong><span className="message-meta">{message.threadCount > 1 && <em className="thread-count">{message.threadCount} 封</em>}{digitallySigned && <span className="smime-signature-badge" role="img" aria-label="数字签名邮件" title="数字签名邮件"><Award size={13} aria-hidden="true" /></span>}{message.isStarred && <Star size={12} fill="currentColor" aria-label="已星标" />}<time>{message.time}</time></span></span>
+                    <span><strong>{listSender}</strong><span className="message-meta">{message.threadCount > 1 && <em className="thread-count">{message.threadCount} 封</em>}{digitallySigned && <span className="smime-signature-badge" role="img" aria-label="数字签名邮件" title="数字签名邮件"><Award size={13} aria-hidden="true" /></span>}{message.isStarred && <Star size={12} fill="currentColor" aria-label="已星标" />}<time>{message.time}</time></span></span>
                     <b>{message.subject}</b><small>{message.preview}</small>
                   </button>
                   <button
@@ -1109,7 +1748,37 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
       {selected ? <article className="message-detail" ref={messageDetailRef}>
         <header>
           <button className="mobile-detail-back" aria-label="返回邮件列表" onClick={() => setMobileMailDetail(false)}><ChevronLeft size={20} /></button>
-          <div className="sender-avatar">{selected.sender.slice(0, 1).toLocaleUpperCase()}</div>
+          <div className="sender-card-anchor" onMouseEnter={showSenderCard} onMouseLeave={scheduleSenderCardClose}>
+            <button
+              className="sender-avatar"
+              aria-label={`查看发件人信息：${selected.sender}`}
+              aria-expanded={senderCardOpen}
+              onFocus={showSenderCard}
+              onBlur={scheduleSenderCardClose}
+              style={{ background: mailSenderAvatarColor(selected.senderAddress, selected.sender) }}
+            >{selected.sender.slice(0, 1).toLocaleUpperCase()}</button>
+            {senderCardOpen && (
+              <section className="sender-card" aria-label={`${selected.sender} 的联系信息`} onFocus={showSenderCard} onBlur={scheduleSenderCardClose}>
+                <header>
+                  <span className="sender-card-avatar" style={{ background: mailSenderAvatarColor(selected.senderAddress, selected.sender) }}>{selected.sender.slice(0, 1).toLocaleUpperCase()}</span>
+                  <div><strong>{selected.sender}</strong><small>{selected.senderAddress}</small></div>
+                  {selectedSenderIsOwnAccount ? <em>当前账户</em> : selectedSenderSharesAccountDomain && <em>同域</em>}
+                </header>
+                {!selectedSenderIsOwnAccount && <div className="sender-card-meta">
+                  <span><b>{senderCardSummary?.totalCount ?? (senderCardLoading ? "…" : "0")}</b>封往来</span>
+                  <span><b>{senderCardSummary?.unreadCount ?? (senderCardLoading ? "…" : "0")}</b>封未读</span>
+                  <span><b>{senderCardSummary?.lastContactAt ? formatMailTime(senderCardSummary.lastContactAt) : "—"}</b>最近联系</span>
+                </div>}
+                {selectedSenderDomain && <p>{selectedSenderDomain}</p>}
+                <footer>
+                  <button title="写邮件" onClick={() => void openComposer(undefined, "reply", "", { address: selected.senderAddress, accountId: selected.accountId })}><Pencil size={15} />写邮件</button>
+                  <button disabled={selectedSenderIsOwnAccount} title={selectedSenderIsOwnAccount ? "这是当前邮箱账户" : "查看往来"} onClick={() => openCorrespondence(selected.senderAddress, selected.id)}><MailOpen size={15} />查看往来</button>
+                  <button title="复制邮箱地址" onClick={() => void copyMailAddress(selected.senderAddress)}><Copy size={15} /></button>
+                  <button title="从邮件创建任务" onClick={() => void createTaskFromMessage(selected)}><CheckSquare2 size={15} /></button>
+                </footer>
+              </section>
+            )}
+          </div>
           <div><span className="sender-line"><i className="account-dot" style={{ background: selected.accountColor }} />{selected.accountName}</span><h2>{selected.subject}</h2><p>{selected.sender} &lt;{selected.senderAddress}&gt; · {selected.time}</p><MailProjectChip entityId={selected.id} refreshKey={mailRelatedVersion} onEdit={() => setMailProjectTargetId(selected.id)} /></div>
         </header>
         <div className="message-actions">
@@ -1146,7 +1815,7 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
                 ><ChevronDown size={15} /></button>
                 <span>回复给</span><strong>{inlineReplyRecipient}</strong>
               </div>
-              <button className="composer-icon-button" aria-label="关闭并保存回复草稿" title="关闭并保存草稿" disabled={sendBusy || attachmentBusy} onClick={() => void closeComposer()}><X size={18} /></button>
+              <button className="composer-icon-button" aria-label={composerHasContent ? "关闭并保存回复草稿" : "关闭空白回复"} title={composerHasContent ? "关闭并保存草稿" : "关闭"} disabled={sendBusy || attachmentBusy || composerSaveState === "saving"} onClick={() => void closeComposer()}><X size={18} /></button>
             </header>
             {inlineCopyFieldsOpen && <div className="inline-copy-fields">
               <label><span>抄送</span><input aria-label="抄送" value={composer.cc.join(", ")} disabled={sendBusy || attachmentBusy} placeholder="name@example.com" onChange={(event) => setComposer({ ...composer, cc: splitMailAddresses(event.target.value) })} /></label>
@@ -1171,7 +1840,7 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
                 onPasteImages={async (files) => (await uploadComposerAttachments(files, true)).map((attachment) => ({
                   attachmentId: attachment.id,
                   filename: attachment.filename,
-                  url: `/api/mail-drafts/${encodeURIComponent(composer.id)}/attachments/${encodeURIComponent(attachment.id)}`,
+                  url: `/api/mail-drafts/${encodeURIComponent(attachment.draftId ?? composer.id)}/attachments/${encodeURIComponent(attachment.id)}`,
                 }))}
                 onChange={(bodyContent) => setComposer((current) => current ? {
                   ...current,
@@ -1191,11 +1860,20 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
                   aria-label="选择邮件附件"
                   onChange={(event) => void uploadComposerAttachments(Array.from(event.target.files ?? []))}
                 />
-                <button className="composer-attach" disabled={sendBusy || attachmentBusy || composer.attachments.length >= 10} onClick={() => attachmentInputRef.current?.click()}>
+                <button className="composer-attach" disabled={sendBusy || attachmentBusy || composerSaveState === "saving" || composer.attachments.length >= 10} onClick={() => attachmentInputRef.current?.click()}>
                   {attachmentBusy ? <LoaderCircle className="spin" size={15} /> : <Paperclip size={15} />}添加附件
                 </button>
+                {composerSignatures.length > 0 && <AppSelect
+                  ariaLabel="回复签名"
+                  className="composer-signature-select"
+                  size="compact"
+                  value={composerSignatureValue}
+                  disabled={sendBusy || attachmentBusy}
+                  onValueChange={applyComposerSignature}
+                  options={composerSignatureOptions}
+                />}
                 <span className={`composer-save-state ${composerSaveState}`}>
-                  {composerSaveState === "saving" ? "正在保存…" : composerSaveState === "error" ? "保存失败" : "草稿自动保存"}
+                  {composerSaveLabel(composerSaveState, true)}
                 </span>
               </div>
               <div>
@@ -1203,13 +1881,6 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
                 <button className="primary-button" disabled={sendBusy || attachmentBusy || composerSaveState === "saving"} onClick={() => void requestSendConfirmation()}><Send size={15} />发送</button>
               </div>
             </footer>
-          </section>
-        )}
-        {mailAiResult?.messageId === selected.id && (
-          <section className="mail-ai-result" aria-live="polite">
-            <header><Sparkles size={15} /><strong>{mailAiResult.action === "summarize" ? "AI 摘要" : mailAiResult.action === "extract-actions" ? "AI 行动项" : "AI 回复草稿"}<small>{mailAiResult.modelName}{mailAiResult.usedFallback ? " · 已使用备用模型" : ""}</small></strong><button aria-label="关闭 AI 结果" onClick={() => setMailAiResult(undefined)}><X size={14} /></button></header>
-            <div>{mailAiResult.text}</div>
-            {mailAiResult.action === "draft-reply" && replyTarget && <button className="secondary-button" onClick={() => void openComposer(replyTarget, "reply", mailAiResult.text)}><Pencil size={14} />放入回复草稿</button>}
           </section>
         )}
         <div className="message-related-content"><RelatedContentPanel kind="mail" entityId={selected.id} refreshKey={mailRelatedVersion} hideWhenEmpty excludeRelations={["project-item"]} /></div>
@@ -1290,22 +1961,25 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
             <div>
               <h2 id="mail-composer-title">{composer.replyToMessageId ? "回复邮件" : "撰写邮件"}</h2>
               <span className={`composer-save-state ${composerSaveState}`}>
-                {composerSaveState === "saving" ? "正在保存…" : composerSaveState === "error" ? "保存失败" : "已保存草稿"}
+                {composerSaveLabel(composerSaveState)}
               </span>
             </div>
-            <button className="composer-icon-button" aria-label="关闭并保存草稿" title="关闭并保存草稿" disabled={sendBusy || attachmentBusy} onClick={() => void closeComposer()}><X size={18} /></button>
+            <button className="composer-icon-button" aria-label={composerHasContent ? "关闭并保存草稿" : "关闭空白邮件"} title={composerHasContent ? "关闭并保存草稿" : "关闭"} disabled={sendBusy || attachmentBusy || composerSaveState === "saving"} onClick={() => void closeComposer()}><X size={18} /></button>
           </header>
           <div className="mail-composer-fields">
             <label>
               <span>发件人</span>
-              <select
-                aria-label="发件账户"
+              <AppSelect
+                ariaLabel="发件账户"
                 value={composer.accountId}
                 disabled={Boolean(composer.replyToMessageId) || sendBusy || attachmentBusy}
-                onChange={(event) => setComposer({ ...composer, accountId: event.target.value })}
-              >
-                {mailAccounts.map((account) => <option key={account.id} value={account.id}>{account.displayName} &lt;{account.emailAddress}&gt;</option>)}
-              </select>
+                variant="ghost"
+                onValueChange={changeComposerAccount}
+                options={mailAccounts.map((account) => ({
+                  value: account.id,
+                  label: `${account.displayName} <${account.emailAddress}>`,
+                }))}
+              />
             </label>
             <label>
               <span>收件人</span>
@@ -1338,7 +2012,7 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
               onPasteImages={async (files) => (await uploadComposerAttachments(files, true)).map((attachment) => ({
                 attachmentId: attachment.id,
                 filename: attachment.filename,
-                url: `/api/mail-drafts/${encodeURIComponent(composer.id)}/attachments/${encodeURIComponent(attachment.id)}`,
+                url: `/api/mail-drafts/${encodeURIComponent(attachment.draftId ?? composer.id)}/attachments/${encodeURIComponent(attachment.id)}`,
               }))}
               onChange={(bodyContent) => setComposer((current) => current ? {
                 ...current,
@@ -1350,7 +2024,7 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
           </div>
           <footer>
             <div className="mail-compose-secondary-actions">
-              <button className="composer-discard" disabled={sendBusy || attachmentBusy} onClick={() => void discardComposer()}><Trash2 size={15} />删除草稿</button>
+              <button className="composer-discard" disabled={sendBusy || attachmentBusy || composerSaveState === "saving"} onClick={() => void discardComposer()}><Trash2 size={15} />{composer.localOnly ? "放弃邮件" : "删除草稿"}</button>
               <input
                 ref={attachmentInputRef}
                 className="mail-attachment-input"
@@ -1359,9 +2033,18 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
                 aria-label="选择邮件附件"
                 onChange={(event) => void uploadComposerAttachments(Array.from(event.target.files ?? []))}
               />
-              <button className="composer-attach" disabled={sendBusy || attachmentBusy || composer.attachments.length >= 10} onClick={() => attachmentInputRef.current?.click()}>
+              <button className="composer-attach" disabled={sendBusy || attachmentBusy || composerSaveState === "saving" || composer.attachments.length >= 10} onClick={() => attachmentInputRef.current?.click()}>
                 {attachmentBusy ? <LoaderCircle className="spin" size={15} /> : <Paperclip size={15} />}添加附件
               </button>
+              {composerSignatures.length > 0 && <AppSelect
+                ariaLabel="邮件签名"
+                className="composer-signature-select"
+                size="compact"
+                value={composerSignatureValue}
+                disabled={sendBusy || attachmentBusy}
+                onValueChange={applyComposerSignature}
+                options={composerSignatureOptions}
+              />}
             </div>
             <div>
               <button className="secondary-button" disabled={sendBusy || attachmentBusy} onClick={() => void closeComposer()}>稍后发送</button>
@@ -1387,6 +2070,23 @@ export function InboxPage({ initialMessageId, initialFolderId }: { readonly init
           <footer>
             <button className="secondary-button" disabled={sendBusy} onClick={() => setSendConfirmationKey(undefined)}>返回修改</button>
             <button className="primary-button" disabled={sendBusy} onClick={() => void confirmSend()}>{sendBusy ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}确认发送</button>
+          </footer>
+        </section>
+      </div>
+    )}
+    {batchDeletePending && selectedBatchItems.length > 0 && (
+      <div className="mail-send-confirmation-backdrop" role="presentation" onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !batchActionBusy) setBatchDeletePending(false);
+      }}>
+        <section className="mail-send-confirmation batch-delete-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="batch-delete-confirmation-title">
+          <div className="confirmation-icon danger"><Trash2 size={20} /></div>
+          <h2 id="batch-delete-confirmation-title">删除选中的 {selectedBatchItems.length} 封邮件？</h2>
+          <p>这些邮件会同步移至各自邮箱账户的“已删除邮件”文件夹。若部分账户操作失败，失败邮件会继续保持选中。</p>
+          <footer>
+            <button className="secondary-button" disabled={Boolean(batchActionBusy)} onClick={() => setBatchDeletePending(false)}>取消</button>
+            <button className="primary-button danger-button" disabled={Boolean(batchActionBusy)} onClick={() => void runBatchMessageAction("delete")}>
+              {batchActionBusy === "delete" ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}确认删除
+            </button>
           </footer>
         </section>
       </div>

@@ -5,6 +5,7 @@ import {
   performMailMessageAction,
   type MailMessageAction,
 } from "@/server/mail-message-actions";
+import { getCurrentAppUser, recordAuditEvent } from "@/server/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -22,11 +23,20 @@ export async function PATCH(request: Request, context: MessageActionRouteContext
     return NextResponse.json({ ok: false, message: "不支持的邮件操作" }, { status: 400 });
   }
   try {
+    const actor = await getCurrentAppUser();
     const result = await performMailMessageAction(
       messageId,
       input.action as MailMessageAction,
       typeof input.folderId === "string" ? input.folderId : undefined,
     );
+    if (actor) {
+      await recordAuditEvent({
+        actorUserId: actor.id,
+        targetUserId: actor.id,
+        action: `mail.message.${input.action}`,
+        metadata: { messageId, folderId: typeof input.folderId === "string" ? input.folderId : undefined },
+      }).catch(() => undefined);
+    }
     return NextResponse.json({ ok: true, result });
   } catch (error) {
     if (error instanceof MailMessageActionError) {

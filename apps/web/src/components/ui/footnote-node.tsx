@@ -204,7 +204,7 @@ export function FootnoteReferenceElement(
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-6 rounded-xs px-2 text-[11px]"
+                  className="h-6 rounded-xs px-2 text-xs"
                   onMouseDown={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -367,7 +367,7 @@ export function FootnoteDefinitionElement(
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-6 rounded-xs border-amber-500/40 px-2 text-[11px] text-amber-700 hover:bg-amber-500/10 hover:text-amber-800"
+                className="h-6 rounded-xs border-amber-500/40 px-2 text-xs text-amber-700 hover:bg-amber-500/10 hover:text-amber-800"
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();

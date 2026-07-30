@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import { getDatabase } from "./database";
+import { ensureProjectAccess } from "./project-collaboration";
+import { getUserScope } from "./user-scope";
 
 export const taskStatuses = ["inbox", "next", "waiting", "someday", "done"] as const;
 export const taskUrgencyModes = ["auto", "urgent", "not_urgent"] as const;
@@ -37,6 +39,9 @@ export interface StoredTask {
   readonly projectName?: string;
   readonly projectColor?: string;
   readonly areaName?: string;
+  readonly assigneeUserId?: string;
+  readonly assigneeDisplayName?: string;
+  readonly assigneeEmail?: string;
   readonly completedAt?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -67,6 +72,7 @@ export interface SaveTaskInput {
   readonly projectId?: string;
   readonly projectName?: string;
   readonly areaName?: string;
+  readonly assigneeUserId?: string;
   readonly sourceReferences?: readonly Omit<TaskSourceReference, "id">[];
 }
 
@@ -88,6 +94,9 @@ interface TaskRow {
   project_name: string | null;
   project_color: string | null;
   area_name: string | null;
+  assignee_user_id: string | null;
+  assignee_display_name: string | null;
+  assignee_email: string | null;
   completed_at: string | Date | null;
   created_at: string | Date;
   updated_at: string | Date;
@@ -120,10 +129,12 @@ const taskSelect = `
          COALESCE(p.name, t.project_name) AS project_name,
          p.color AS project_color,
          COALESCE(p.area_name, t.area_name) AS area_name,
+         t.assignee_user_id, assignee.display_name AS assignee_display_name, assignee.email AS assignee_email,
          t.completed_at, t.created_at, t.updated_at,
          count(tb.calendar_event_id)::int AS scheduled_block_count
     FROM tasks t
     LEFT JOIN projects p ON p.id = t.project_id
+    LEFT JOIN app_users assignee ON assignee.id = t.assignee_user_id
     LEFT JOIN task_time_blocks tb ON tb.task_id = t.id`;
 
 export async function listStoredTasks(includeCompleted = false): Promise<readonly StoredTask[]> {
@@ -137,6 +148,7 @@ export async function listStoredProjectTasks(
   projectId: string,
   includeCompleted = true,
 ): Promise<readonly StoredTask[]> {
+  await ensureProjectAccess(projectId, "viewer");
   return queryStoredTasks(
     "WHERE t.project_id = $1 AND ($2::boolean OR t.status <> 'done')",
     [projectId, includeCompleted],
@@ -169,30 +181,48 @@ async function queryStoredTasks(
   parameters: unknown[],
 ): Promise<readonly StoredTask[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
+  const scoped = scope.active
+    && whereClause.includes("t.project_id = $1")
+    ? { whereClause, parameters }
+    : scope.active
+    ? { whereClause: `${whereClause} AND (t.user_id = $${parameters.length + 1} OR t.assignee_user_id = $${parameters.length + 1})`, parameters: [...parameters, scope.userId] }
+    : { whereClause, parameters };
   const result = await database.query<TaskRow>(
     `${taskSelect}
-     ${whereClause}
-     GROUP BY t.id, p.id
+     ${scoped.whereClause}
+     GROUP BY t.id, p.id, assignee.id
      ORDER BY (t.status = 'done'), t.due_at ASC NULLS LAST, t.important DESC, t.updated_at DESC`,
-    parameters,
+    scoped.parameters,
   );
   return attachSources(result.rows);
 }
 
 export async function getStoredTask(taskId: string): Promise<StoredTask | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
+  const scoped = scope.active
+    ? {
+        clause: ` AND (t.user_id = $2 OR t.assignee_user_id = $2 OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = t.project_id AND pm.user_id = $2))`,
+        parameters: [taskId, scope.userId],
+      }
+    : { clause: "", parameters: [taskId] };
   const result = await database.query<TaskRow>(
-    `${taskSelect} WHERE t.id = $1 GROUP BY t.id, p.id LIMIT 1`,
-    [taskId],
+    `${taskSelect} WHERE t.id = $1${scoped.clause} GROUP BY t.id, p.id, assignee.id LIMIT 1`,
+    scoped.parameters,
   );
   return (await attachSources(result.rows))[0];
 }
 
 export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const id = input.id ?? randomUUID();
   const existing = input.id
-    ? await database.query<{ id: string }>("SELECT id FROM tasks WHERE id = $1 LIMIT 1", [input.id])
+    ? await database.query<{ id: string }>(
+        `SELECT id FROM tasks WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+        scope.active ? [input.id, scope.userId] : [input.id],
+      )
     : undefined;
   if (input.id && !existing?.rows[0]) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404);
   const project = await resolveTaskProject(input);
@@ -200,12 +230,21 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
   const projectName = project?.name ?? input.projectName ?? null;
   const areaName = project?.areaName ?? input.areaName ?? null;
 
+  if (projectId) await ensureProjectAccess(projectId, "editor");
+  if (input.assigneeUserId) {
+    const assignee = await database.query<{ id: string }>(
+      "SELECT id FROM app_users WHERE id = $1 AND disabled_at IS NULL LIMIT 1",
+      [input.assigneeUserId],
+    );
+    if (!assignee.rows[0]) throw new TaskRepositoryError("ASSIGNEE_NOT_FOUND", "指派用户不存在", 404);
+  }
+
   await database.transaction(async (transaction) => {
     await transaction.query(
       `INSERT INTO tasks (
-         id, title, notes, status, important, urgency_mode, due_at,
-         estimated_minutes, project_id, project_name, area_name, completed_at, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
+         id, user_id, title, notes, status, important, urgency_mode, due_at,
+         estimated_minutes, project_id, project_name, area_name, assignee_user_id, completed_at, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
        ON CONFLICT (id) DO UPDATE SET
          title = EXCLUDED.title,
          notes = EXCLUDED.notes,
@@ -217,10 +256,12 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
          project_id = EXCLUDED.project_id,
          project_name = EXCLUDED.project_name,
          area_name = EXCLUDED.area_name,
+         assignee_user_id = EXCLUDED.assignee_user_id,
          completed_at = EXCLUDED.completed_at,
          updated_at = now()`,
       [
         id,
+        scope.valueOrNull(),
         input.title,
         input.notes ?? null,
         input.status,
@@ -231,26 +272,27 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
         projectId,
         projectName,
         areaName,
+        input.assigneeUserId ?? null,
         input.status === "done" ? new Date().toISOString() : null,
       ],
     );
     await transaction.query(
-      "DELETE FROM entity_links WHERE source_kind = 'project' AND target_kind = 'task' AND target_id = $1 AND relation = 'project-item'",
-      [id],
+      `DELETE FROM entity_links WHERE source_kind = 'project' AND target_kind = 'task' AND target_id = $1 AND relation = 'project-item'${scope.active ? " AND user_id = $2" : ""}`,
+      scope.active ? [id, scope.userId] : [id],
     );
     if (projectId) {
       await transaction.query(
-        `INSERT INTO entity_links (id, source_kind, source_id, target_kind, target_id, relation)
-         VALUES ($1,'project',$2,'task',$3,'project-item')
+        `INSERT INTO entity_links (id, user_id, source_kind, source_id, target_kind, target_id, relation)
+         VALUES ($1,$2,'project',$3,'task',$4,'project-item')
          ON CONFLICT (source_kind, source_id, target_kind, target_id, relation) DO NOTHING`,
-        [`project-task:${id}`, projectId, id],
+        [`project-task:${id}`, scope.valueOrNull(), projectId, id],
       );
     }
     if (input.sourceReferences) {
       await transaction.query("DELETE FROM task_source_references WHERE task_id = $1", [id]);
       await transaction.query(
-        "DELETE FROM entity_links WHERE target_kind = 'task' AND target_id = $1 AND relation = 'derived-task'",
-        [id],
+        `DELETE FROM entity_links WHERE target_kind = 'task' AND target_id = $1 AND relation = 'derived-task'${scope.active ? " AND user_id = $2" : ""}`,
+        scope.active ? [id, scope.userId] : [id],
       );
       for (const source of input.sourceReferences) {
         const sourceReferenceId = randomUUID();
@@ -260,10 +302,10 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
           [sourceReferenceId, id, source.kind, source.sourceId, source.label, source.href ?? null],
         );
         await transaction.query(
-          `INSERT INTO entity_links (id, source_kind, source_id, target_kind, target_id, relation)
-           VALUES ($1,$2,$3,'task',$4,'derived-task')
+          `INSERT INTO entity_links (id, user_id, source_kind, source_id, target_kind, target_id, relation)
+           VALUES ($1,$2,$3,$4,'task',$5,'derived-task')
            ON CONFLICT (source_kind, source_id, target_kind, target_id, relation) DO NOTHING`,
-          [`source:${sourceReferenceId}`, source.kind, source.sourceId, id],
+          [`source:${sourceReferenceId}`, scope.valueOrNull(), source.kind, source.sourceId, id],
         );
       }
     }
@@ -276,12 +318,16 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
 
 export async function deleteStoredTask(taskId: string): Promise<boolean> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   return database.transaction(async (transaction) => {
     await transaction.query(
-      "DELETE FROM entity_links WHERE (source_kind = 'task' AND source_id = $1) OR (target_kind = 'task' AND target_id = $1)",
-      [taskId],
+      `DELETE FROM entity_links WHERE ((source_kind = 'task' AND source_id = $1) OR (target_kind = 'task' AND target_id = $1))${scope.active ? " AND user_id = $2" : ""}`,
+      scope.active ? [taskId, scope.userId] : [taskId],
     );
-    const result = await transaction.query<{ id: string }>("DELETE FROM tasks WHERE id = $1 RETURNING id", [taskId]);
+    const result = await transaction.query<{ id: string }>(
+      `DELETE FROM tasks WHERE id = $1${scope.active ? " AND user_id = $2" : ""} RETURNING id`,
+      scope.active ? [taskId, scope.userId] : [taskId],
+    );
     return Boolean(result.rows[0]);
   });
 }
@@ -369,6 +415,9 @@ async function attachSources(rows: readonly TaskRow[]): Promise<readonly StoredT
     projectName: row.project_name ?? undefined,
     projectColor: row.project_color ?? undefined,
     areaName: row.area_name ?? undefined,
+    assigneeUserId: row.assignee_user_id ?? undefined,
+    assigneeDisplayName: row.assignee_display_name ?? undefined,
+    assigneeEmail: row.assignee_email ?? undefined,
     completedAt: toIso(row.completed_at),
     createdAt: toIso(row.created_at)!,
     updatedAt: toIso(row.updated_at)!,
@@ -399,11 +448,12 @@ async function resolveTaskProject(input: SaveTaskInput): Promise<
   { readonly id: string; readonly name: string; readonly areaName?: string } | undefined
 > {
   const database = await getDatabase();
+  const scope = await getUserScope();
   let result;
   if (input.projectId) {
     result = await database.query<TaskProjectRow>(
-      "SELECT id, name, area_name, status FROM projects WHERE id = $1 LIMIT 1",
-      [input.projectId],
+      `SELECT id, name, area_name, status FROM projects WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+      scope.active ? [input.projectId, scope.userId] : [input.projectId],
     );
     const selectedProject = result.rows[0];
     if (!selectedProject) {
@@ -411,7 +461,10 @@ async function resolveTaskProject(input: SaveTaskInput): Promise<
     }
     if (selectedProject.status === "archived") {
       const existingLink = input.id
-        ? await database.query<{ project_id: string | null }>("SELECT project_id FROM tasks WHERE id = $1 LIMIT 1", [input.id])
+        ? await database.query<{ project_id: string | null }>(
+            `SELECT project_id FROM tasks WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+            scope.active ? [input.id, scope.userId] : [input.id],
+          )
         : undefined;
       if (existingLink?.rows[0]?.project_id !== selectedProject.id) {
         throw new TaskRepositoryError("PROJECT_NOT_FOUND", "项目不存在或已归档", 404);
@@ -419,8 +472,8 @@ async function resolveTaskProject(input: SaveTaskInput): Promise<
     }
   } else if (input.projectName) {
     result = await database.query<TaskProjectRow>(
-      "SELECT id, name, area_name, status FROM projects WHERE lower(trim(name)) = lower(trim($1)) AND status = 'active' LIMIT 1",
-      [input.projectName],
+      `SELECT id, name, area_name, status FROM projects WHERE lower(trim(name)) = lower(trim($1)) AND status = 'active'${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+      scope.active ? [input.projectName, scope.userId] : [input.projectName],
     );
   } else {
     return undefined;

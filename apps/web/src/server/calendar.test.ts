@@ -12,8 +12,10 @@ async function main() {
   process.env.KALENDER_DATA_DIR = testRoot;
   const { getDatabase } = await import("./database");
   const { localCalendarContext, localCalendarProvider } = await import("./local-calendar-provider");
-  const { listStoredCalendarEventConflicts } = await import("./calendar-repository");
+  const { deleteStoredCalendarEvent, listStoredCalendarEventConflicts } = await import("./calendar-repository");
   const { parseCalendarEventInput, parseCalendarRange, CalendarValidationError } = await import("./calendar-validation");
+  const { expandCalendarRecurrenceStarts } = await import("../lib/calendar-recurrence");
+  const { encodeNoteContent, noteContentToPlainText } = await import("../lib/note-content");
   const database = await getDatabase();
 
   try {
@@ -21,10 +23,16 @@ async function main() {
     assert(calendars.length === 1, "default local calendar is created");
     assert(calendars[0]?.primary && !calendars[0].readOnly, "default calendar is primary and writable");
     const calendarId = calendars[0]!.id;
+    const richDescription = encodeNoteContent([
+      { type: "p", children: [{ text: "会议议程", bold: true }] },
+      { type: "p", indent: 1, listStyleType: "todo", checked: false, children: [{ text: "准备材料" }] },
+    ]);
 
     const created = await localCalendarProvider.upsertEvent(localCalendarContext, {
       calendarId,
       title: "Calendar integration test",
+      description: "会议议程\n准备材料",
+      descriptionContent: richDescription,
       start: "2026-07-20T07:00:00.000Z",
       end: "2026-07-20T08:00:00.000Z",
       timeZone: "Europe/Berlin",
@@ -33,6 +41,10 @@ async function main() {
       idempotencyKey: "calendar-test-create",
     });
     assert(created.calendarId === calendarId, "created event retains calendar identity");
+    assert(
+      created.descriptionContent && noteContentToPlainText(created.descriptionContent) === "会议议程\n准备材料",
+      "calendar rich description is persisted as structured content",
+    );
 
     const duplicate = await localCalendarProvider.upsertEvent(localCalendarContext, {
       calendarId,
@@ -73,14 +85,78 @@ async function main() {
     });
     assert(updated.title === "Updated calendar event", "event can be edited");
 
+    const recurring = await localCalendarProvider.upsertEvent(localCalendarContext, {
+      calendarId,
+      title: "Recurring review",
+      start: "2026-07-20T09:00:00.000Z",
+      end: "2026-07-20T10:00:00.000Z",
+      timeZone: "Europe/Berlin",
+      recurrence: { frequency: "weekly", interval: 1, weekDays: [1, 3], end: "count", count: 4 },
+    });
+    assert(recurring.recurrenceSeriesId && recurring.recurrenceId, "recurring event returns series occurrence metadata");
+    const recurringPage = await localCalendarProvider.listEvents(localCalendarContext, {
+      from: "2026-07-20T00:00:00.000Z",
+      to: "2026-08-01T00:00:00.000Z",
+    });
+    const recurringOccurrences = recurringPage.items.filter((event) => event.recurrenceSeriesId === recurring.recurrenceSeriesId);
+    assert(recurringOccurrences.length === 4, "recurring series expands into the requested range");
+    assert(recurringOccurrences.every((event) => event.recurrence), "expanded occurrences include their recurrence rule");
+
+    const secondOccurrence = recurringOccurrences[1]!;
+    const movedOccurrence = await localCalendarProvider.upsertEvent(localCalendarContext, {
+      id: secondOccurrence.id,
+      calendarId,
+      title: "Moved recurring review",
+      start: "2026-07-23T09:30:00.000Z",
+      end: "2026-07-23T10:30:00.000Z",
+      timeZone: "Europe/Berlin",
+      recurrenceSeriesId: secondOccurrence.recurrenceSeriesId,
+      recurrenceId: secondOccurrence.recurrenceId,
+      recurrenceScope: "occurrence",
+    });
+    assert(
+      movedOccurrence.recurrenceException && new Date(movedOccurrence.start).toISOString() === "2026-07-23T09:30:00.000Z",
+      "one occurrence can be moved independently",
+    );
+
+    const thirdOccurrence = recurringOccurrences[2]!;
+    await deleteStoredCalendarEvent(calendarId, thirdOccurrence.id, {
+      recurrenceSeriesId: thirdOccurrence.recurrenceSeriesId,
+      recurrenceId: thirdOccurrence.recurrenceId,
+      recurrenceScope: "occurrence",
+    });
+    const afterExceptionChanges = await localCalendarProvider.listEvents(localCalendarContext, {
+      from: "2026-07-20T00:00:00.000Z",
+      to: "2026-08-01T00:00:00.000Z",
+    });
+    const changedSeries = afterExceptionChanges.items.filter((event) => event.recurrenceSeriesId === recurring.recurrenceSeriesId);
+    assert(changedSeries.length === 3, "a deleted occurrence is omitted without deleting the series");
+    assert(changedSeries.some((event) => event.title === "Moved recurring review"), "a moved exception remains visible after reloading");
+
+    const dstStarts = expandCalendarRecurrenceStarts({
+      start: "2026-10-19T07:00:00.000Z",
+      timeZone: "Europe/Berlin",
+      allDay: false,
+      recurrence: { frequency: "weekly", interval: 1, weekDays: [1], end: "count", count: 3 },
+      from: "2026-10-19T00:00:00.000Z",
+      to: "2026-11-10T00:00:00.000Z",
+    });
+    assert(
+      new Date(dstStarts[0]!).toISOString() === "2026-10-19T07:00:00.000Z"
+        && new Date(dstStarts[1]!).toISOString() === "2026-10-26T08:00:00.000Z",
+      "weekly recurrence preserves local wall time across daylight saving changes",
+    );
+
     const validated = parseCalendarEventInput({
       calendarId,
       title: "Validated event",
+      descriptionContent: richDescription,
       start: "2026-10-25T08:00:00+01:00",
       end: "2026-10-25T09:00:00+01:00",
       timeZone: "Europe/Berlin",
     });
     assert(validated.timeZone === "Europe/Berlin", "IANA time zone is preserved");
+    assert(validated.description === "会议议程\n准备材料", "rich description produces a searchable plain-text projection");
     const range = parseCalendarRange(new URL("http://localhost/api?from=2026-07-20T00:00:00Z&to=2026-07-27T00:00:00Z"));
     assert(range.from.startsWith("2026-07-20"), "calendar range is normalized");
 
@@ -98,6 +174,11 @@ async function main() {
     assert(invalidRejected, "end before start is rejected");
 
     await localCalendarProvider.deleteEvent(localCalendarContext, calendarId, created.id);
+    await deleteStoredCalendarEvent(calendarId, recurring.id, {
+      recurrenceSeriesId: recurring.recurrenceSeriesId,
+      recurrenceId: recurring.recurrenceId,
+      recurrenceScope: "series",
+    });
     const empty = await localCalendarProvider.listEvents(localCalendarContext, {
       from: "2026-07-20T00:00:00.000Z",
       to: "2026-07-21T00:00:00.000Z",

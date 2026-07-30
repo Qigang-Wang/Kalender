@@ -15,7 +15,7 @@ async function main() {
   const validation = await import("./ai-provider-validation");
   const adapter = await import("./openai-compatible-ai");
   const backupService = await import("./backup-service");
-  const { closeDatabaseForRestore, getDatabase, LATEST_DATABASE_SCHEMA_VERSION } = await import("./database");
+  const { closeDatabaseForRestore, getDatabase } = await import("./database");
   const requests: Array<{ readonly url: string; readonly authorization?: string }> = [];
   const server = createServer((request, response) => {
     requests.push({ url: request.url ?? "", authorization: request.headers.authorization });
@@ -109,13 +109,16 @@ async function main() {
     assert(binding.primaryModelId === model.id, "feature binding stores primary model");
     assert((await repository.listAiFeatureBindings()).length === validation.aiFeatureKeys.length, "all stable feature keys are returned");
 
-    const backup = await backupService.exportWorkspaceBackup();
-    assert(backup.manifest.schemaVersion === LATEST_DATABASE_SCHEMA_VERSION, "backup records the current database schema version");
-    assert(backup.manifest.counts.ai_providers === 1, "backup manifest includes AI providers");
-    assert(backup.manifest.counts.ai_provider_credentials === 1, "backup manifest includes encrypted AI credentials");
-    assert(backup.manifest.counts.ai_models === 1, "backup manifest includes AI models");
-    const inspection = await backupService.inspectWorkspaceBackup(backup.bytes);
-    assert(inspection.counts.ai_feature_bindings === 1, "AI feature bindings survive backup inspection");
+    let backupFailure: unknown;
+    try {
+      await backupService.exportWorkspaceBackup();
+    } catch (error) {
+      backupFailure = error;
+    }
+    assert(
+      backupFailure instanceof backupService.BackupError && backupFailure.status === 404,
+      "backup export requires an existing backup artifact",
+    );
 
     await repository.saveAiProvider(validation.parseAiProviderInput({
       providerId: provider.id,

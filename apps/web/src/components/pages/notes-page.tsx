@@ -11,6 +11,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { EMPTY_PLATE_NOTE_CONTENT, noteContentToPlainText } from "@/lib/note-content";
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
+import { appConfirm } from "@/components/app-dialog-provider";
+import { AppSelect } from "../app-select";
 import { ContextMenu } from "../context-menu";
 import { resolveContextCommands, type ContextCommandId, type NoteCommandId } from "../context-commands";
 import { TransientToast } from "../workspace-shared";
@@ -231,7 +233,12 @@ export function NotesPage({ initialNoteId }: { readonly initialNoteId?: string }
   };
 
   const deleteNote = async (target = draft) => {
-    if (!target || !window.confirm(`删除笔记“${target.title}”？关联任务会保留，但不再显示此来源。`)) return;
+    if (!target || !await appConfirm({
+      title: `删除笔记“${target.title}”？`,
+      description: "关联任务会保留，但不再显示这条笔记来源。",
+      confirmLabel: "删除笔记",
+      tone: "danger",
+    })) return;
     setBusy(true);
     try {
       if (target.id === draft?.id) {
@@ -469,11 +476,11 @@ export function NotesPage({ initialNoteId }: { readonly initialNoteId?: string }
           <header className="note-editor-toolbar">
             <div>
               <button className="mobile-detail-back" aria-label="返回笔记列表" onClick={() => setMobileNoteDetail(false)}><ChevronLeft size={20} /></button>
-              <select aria-label="笔记所属项目" value={draft.projectId ?? ""} onChange={(event) => {
-                const project = projects.find((entry) => entry.id === event.target.value);
+              <AppSelect ariaLabel="笔记所属项目" className="note-toolbar-project-select" size="compact" value={draft.projectId ?? ""} onValueChange={(projectId) => {
+                const project = projects.find((entry) => entry.id === projectId);
                 updateDraft({ projectId: project?.id, projectName: project?.name, projectColor: project?.color });
-              }}><option value="">未归档</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select>
-              <select aria-label="笔记类型" value={draft.noteType} onChange={(event) => updateDraft({ noteType: event.target.value as ClientNoteType })}>{Object.entries(noteTypeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
+              }} options={[{ value: "", label: "未归档" }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} />
+              <AppSelect ariaLabel="笔记类型" className="note-toolbar-type-select" size="compact" value={draft.noteType} onValueChange={(noteType) => updateDraft({ noteType: noteType as ClientNoteType })} options={Object.entries(noteTypeLabels).map(([value, label]) => ({ value, label }))} />
               <input ref={noteTitleRef} className="note-title-inline" aria-label="笔记标题" value={draft.title} maxLength={240} onChange={(event) => updateDraft({ title: event.target.value })} placeholder="无标题笔记" />
             </div>
             <div>

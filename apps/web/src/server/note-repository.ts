@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import { getDatabase } from "./database";
+import { ensureProjectAccess, visibleProjectWhere } from "./project-collaboration";
+import { getUserScope } from "./user-scope";
 
 export const noteTypes = ["general", "meeting", "email", "project", "daily"] as const;
 export type NoteType = (typeof noteTypes)[number];
@@ -84,50 +86,54 @@ interface NoteRow {
 
 export async function listStoredProjects(includeArchived = false): Promise<readonly StoredProject[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
+  const scoped = await visibleProjectWhere("p", [includeArchived]);
   const result = await database.query<ProjectRow>(
     `SELECT p.id, p.name, p.description, p.area_name, p.color, p.status,
             count(n.id)::int AS note_count, p.created_at, p.updated_at
        FROM projects p
-       LEFT JOIN notes n ON n.project_id = p.id
-      WHERE ($1::boolean OR p.status = 'active')
+       LEFT JOIN notes n ON n.project_id = p.id${scope.active ? " AND n.user_id = p.user_id" : ""}
+      WHERE ($1::boolean OR p.status = 'active')${scoped.clause ? ` AND ${scoped.clause}` : ""}
       GROUP BY p.id
       ORDER BY (p.status = 'archived'), p.updated_at DESC, p.name`,
-    [includeArchived],
+    scoped.parameters,
   );
   return result.rows.map(mapProject);
 }
 
 export async function getStoredProject(projectId: string): Promise<StoredProject | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
+  const scoped = await visibleProjectWhere("p", [projectId]);
   const result = await database.query<ProjectRow>(
     `SELECT p.id, p.name, p.description, p.area_name, p.color, p.status,
             count(n.id)::int AS note_count, p.created_at, p.updated_at
        FROM projects p
-       LEFT JOIN notes n ON n.project_id = p.id
-      WHERE p.id = $1
+       LEFT JOIN notes n ON n.project_id = p.id${scope.active ? " AND n.user_id = p.user_id" : ""}
+      WHERE p.id = $1${scoped.clause ? ` AND ${scoped.clause}` : ""}
       GROUP BY p.id
       LIMIT 1`,
-    [projectId],
+    scoped.parameters,
   );
   return result.rows[0] ? mapProject(result.rows[0]) : undefined;
 }
 
 export async function saveStoredProject(input: SaveProjectInput): Promise<StoredProject> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const id = input.id ?? randomUUID();
   if (input.id) {
-    const existing = await database.query<{ id: string }>("SELECT id FROM projects WHERE id = $1 LIMIT 1", [input.id]);
-    if (!existing.rows[0]) throw new NoteRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
+    await ensureProjectAccess(input.id, "editor");
   }
   try {
     await database.query(
-      `INSERT INTO projects (id, name, description, area_name, color, status, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,now())
+      `INSERT INTO projects (id, user_id, name, description, area_name, color, status, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,now())
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name, description = EXCLUDED.description,
          area_name = EXCLUDED.area_name, color = EXCLUDED.color,
          status = EXCLUDED.status, updated_at = now()`,
-      [id, input.name, input.description ?? null, input.areaName ?? null, input.color, input.status],
+      [id, scope.valueOrNull(), input.name, input.description ?? null, input.areaName ?? null, input.color, input.status],
     );
   } catch (error) {
     if (error instanceof Error && /unique|duplicate/i.test(error.message)) {
@@ -140,23 +146,88 @@ export async function saveStoredProject(input: SaveProjectInput): Promise<Stored
   return saved;
 }
 
+export async function renameStoredProjectArea(previousName: string, name: string): Promise<{
+  readonly previousName: string;
+  readonly name: string;
+  readonly projectsUpdated: number;
+}> {
+  const database = await getDatabase();
+  const sourceScope = await visibleProjectWhere("p", [previousName]);
+  const source = await database.query<{ id: string }>(
+    `SELECT p.id
+       FROM projects p
+      WHERE p.area_name = $1${sourceScope.clause ? ` AND ${sourceScope.clause}` : ""}
+      ORDER BY p.id`,
+    sourceScope.parameters,
+  );
+  if (!source.rows.length) {
+    throw new NoteRepositoryError("PROJECT_AREA_NOT_FOUND", "领域不存在或已经被重命名", 404);
+  }
+  for (const project of source.rows) {
+    await ensureProjectAccess(project.id, "editor");
+  }
+
+  const projectIds = source.rows.map((project) => project.id);
+  const destinationScope = await visibleProjectWhere("p", [name, projectIds]);
+  const destination = await database.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1
+         FROM projects p
+        WHERE lower(p.area_name) = lower($1)
+          AND NOT (p.id = ANY($2::text[]))
+          ${destinationScope.clause ? `AND ${destinationScope.clause}` : ""}
+     ) AS exists`,
+    destinationScope.parameters,
+  );
+  if (destination.rows[0]?.exists) {
+    throw new NoteRepositoryError("PROJECT_AREA_EXISTS", "已有同名领域，请将项目移动到该领域", 409);
+  }
+
+  await database.transaction(async (transaction) => {
+    await transaction.query(
+      `UPDATE projects
+          SET area_name = $2, updated_at = now()
+        WHERE id = ANY($1::text[])`,
+      [projectIds, name],
+    );
+    await transaction.query(
+      `UPDATE tasks
+          SET area_name = $2, updated_at = now()
+        WHERE project_id = ANY($1::text[])
+          AND area_name IS DISTINCT FROM $2`,
+      [projectIds, name],
+    );
+  });
+  return { previousName, name, projectsUpdated: projectIds.length };
+}
+
 export async function deleteStoredProject(projectId: string): Promise<boolean> {
   const database = await getDatabase();
+  const scope = await getUserScope();
+  const projectScope = scope.and("p", [projectId]);
+  const project = await database.query<{ id: string }>(
+    `SELECT id FROM projects p WHERE p.id = $1${projectScope.clause} LIMIT 1`,
+    projectScope.parameters,
+  );
+  if (!project.rows[0]) return false;
   const contents = await database.query<{ note_count: number | string; task_count: number | string }>(
     `SELECT
-       (SELECT count(*)::int FROM notes WHERE project_id = $1) AS note_count,
-       (SELECT count(*)::int FROM tasks WHERE project_id = $1) AS task_count`,
-    [projectId],
+       (SELECT count(*)::int FROM notes WHERE project_id = $1${scope.active ? " AND user_id = $2" : ""}) AS note_count,
+       (SELECT count(*)::int FROM tasks WHERE project_id = $1${scope.active ? " AND user_id = $2" : ""}) AS task_count`,
+    scope.active ? [projectId, scope.userId] : [projectId],
   );
   if (Number(contents.rows[0]?.note_count ?? 0) > 0 || Number(contents.rows[0]?.task_count ?? 0) > 0) {
     throw new NoteRepositoryError("PROJECT_NOT_EMPTY", "请先移动或删除该项目中的笔记和任务", 409);
   }
   return database.transaction(async (transaction) => {
     await transaction.query(
-      "DELETE FROM entity_links WHERE (source_kind = 'project' AND source_id = $1) OR (target_kind = 'project' AND target_id = $1)",
-      [projectId],
+      `DELETE FROM entity_links WHERE ((source_kind = 'project' AND source_id = $1) OR (target_kind = 'project' AND target_id = $1))${scope.active ? " AND user_id = $2" : ""}`,
+      scope.active ? [projectId, scope.userId] : [projectId],
     );
-    const result = await transaction.query<{ id: string }>("DELETE FROM projects WHERE id = $1 RETURNING id", [projectId]);
+    const result = await transaction.query<{ id: string }>(
+      `DELETE FROM projects WHERE id = $1${scope.active ? " AND user_id = $2" : ""} RETURNING id`,
+      scope.active ? [projectId, scope.userId] : [projectId],
+    );
     return Boolean(result.rows[0]);
   });
 }
@@ -166,6 +237,7 @@ export async function listStoredNotes(): Promise<readonly StoredNote[]> {
 }
 
 export async function listStoredProjectNotes(projectId: string): Promise<readonly StoredNote[]> {
+  await ensureProjectAccess(projectId, "viewer");
   return queryStoredNotes("WHERE n.project_id = $1", [projectId]);
 }
 
@@ -174,61 +246,74 @@ async function queryStoredNotes(
   parameters: unknown[],
 ): Promise<readonly StoredNote[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
+  const scoped = scope.active
+    && whereClause.includes("n.project_id = $1")
+    ? { clause: whereClause, parameters }
+    : scope.active
+    ? {
+        clause: whereClause ? `${whereClause} AND n.user_id = $${parameters.length + 1}` : `WHERE n.user_id = $${parameters.length + 1}`,
+        parameters: [...parameters, scope.userId],
+      }
+    : { clause: whereClause, parameters };
   const result = await database.query<NoteRow>(
     `SELECT n.id, n.project_id, p.name AS project_name, p.color AS project_color,
             n.title, n.content, n.note_type, n.pinned, n.created_at, n.updated_at
        FROM notes n
-       LEFT JOIN projects p ON p.id = n.project_id
-       ${whereClause}
+       LEFT JOIN projects p ON p.id = n.project_id${scope.active ? " AND p.user_id = n.user_id" : ""}
+       ${scoped.clause}
       ORDER BY n.pinned DESC, n.updated_at DESC, n.title`,
-    parameters,
+    scoped.parameters,
   );
   return attachLinkedTasks(result.rows);
 }
 
 export async function getStoredNote(noteId: string): Promise<StoredNote | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
+  const scoped = scope.and("n", [noteId]);
   const result = await database.query<NoteRow>(
     `SELECT n.id, n.project_id, p.name AS project_name, p.color AS project_color,
             n.title, n.content, n.note_type, n.pinned, n.created_at, n.updated_at
-       FROM notes n LEFT JOIN projects p ON p.id = n.project_id
-      WHERE n.id = $1 LIMIT 1`,
-    [noteId],
+       FROM notes n LEFT JOIN projects p ON p.id = n.project_id${scope.active ? " AND p.user_id = n.user_id" : ""}
+      WHERE n.id = $1${scoped.clause} LIMIT 1`,
+    scoped.parameters,
   );
   return (await attachLinkedTasks(result.rows))[0];
 }
 
 export async function saveStoredNote(input: SaveNoteInput): Promise<StoredNote> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const id = input.id ?? randomUUID();
   if (input.id) {
-    const existing = await database.query<{ id: string }>("SELECT id FROM notes WHERE id = $1 LIMIT 1", [input.id]);
+    const scoped = scope.and("notes", [input.id]);
+    const existing = await database.query<{ id: string }>(`SELECT id FROM notes WHERE id = $1${scoped.clause} LIMIT 1`, scoped.parameters);
     if (!existing.rows[0]) throw new NoteRepositoryError("NOTE_NOT_FOUND", "笔记不存在", 404);
   }
   if (input.projectId) {
-    const project = await database.query<{ id: string }>("SELECT id FROM projects WHERE id = $1 AND status = 'active' LIMIT 1", [input.projectId]);
-    if (!project.rows[0]) throw new NoteRepositoryError("PROJECT_NOT_FOUND", "项目不存在或已归档", 404);
+    await ensureProjectAccess(input.projectId, "editor");
   }
   await database.transaction(async (transaction) => {
     await transaction.query(
-      `INSERT INTO notes (id, project_id, title, content, note_type, pinned, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,now())
+      `INSERT INTO notes (id, user_id, project_id, title, content, note_type, pinned, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,now())
        ON CONFLICT (id) DO UPDATE SET
          project_id = EXCLUDED.project_id, title = EXCLUDED.title,
          content = EXCLUDED.content, note_type = EXCLUDED.note_type,
          pinned = EXCLUDED.pinned, updated_at = now()`,
-      [id, input.projectId ?? null, input.title, input.content, input.noteType, input.pinned],
+      [id, scope.valueOrNull(), input.projectId ?? null, input.title, input.content, input.noteType, input.pinned],
     );
     await transaction.query(
-      "DELETE FROM entity_links WHERE source_kind = 'project' AND target_kind = 'note' AND target_id = $1 AND relation = 'project-item'",
-      [id],
+      `DELETE FROM entity_links WHERE source_kind = 'project' AND target_kind = 'note' AND target_id = $1 AND relation = 'project-item'${scope.active ? " AND user_id = $2" : ""}`,
+      scope.active ? [id, scope.userId] : [id],
     );
     if (input.projectId) {
       await transaction.query(
-        `INSERT INTO entity_links (id, source_kind, source_id, target_kind, target_id, relation)
-         VALUES ($1,'project',$2,'note',$3,'project-item')
+        `INSERT INTO entity_links (id, user_id, source_kind, source_id, target_kind, target_id, relation)
+         VALUES ($1,$2,'project',$3,'note',$4,'project-item')
          ON CONFLICT (source_kind, source_id, target_kind, target_id, relation) DO NOTHING`,
-        [`project-note:${id}`, input.projectId, id],
+        [`project-note:${id}`, scope.valueOrNull(), input.projectId, id],
       );
     }
   });
@@ -239,13 +324,20 @@ export async function saveStoredNote(input: SaveNoteInput): Promise<StoredNote> 
 
 export async function deleteStoredNote(noteId: string): Promise<boolean> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   return database.transaction(async (transaction) => {
-    await transaction.query("DELETE FROM task_source_references WHERE source_kind = 'note' AND source_id = $1", [noteId]);
     await transaction.query(
-      "DELETE FROM entity_links WHERE (source_kind = 'note' AND source_id = $1) OR (target_kind = 'note' AND target_id = $1)",
-      [noteId],
+      `DELETE FROM task_source_references r USING tasks t WHERE r.task_id = t.id AND r.source_kind = 'note' AND r.source_id = $1${scope.active ? " AND t.user_id = $2" : ""}`,
+      scope.active ? [noteId, scope.userId] : [noteId],
     );
-    const result = await transaction.query<{ id: string }>("DELETE FROM notes WHERE id = $1 RETURNING id", [noteId]);
+    await transaction.query(
+      `DELETE FROM entity_links WHERE ((source_kind = 'note' AND source_id = $1) OR (target_kind = 'note' AND target_id = $1))${scope.active ? " AND user_id = $2" : ""}`,
+      scope.active ? [noteId, scope.userId] : [noteId],
+    );
+    const result = await transaction.query<{ id: string }>(
+      `DELETE FROM notes WHERE id = $1${scope.active ? " AND user_id = $2" : ""} RETURNING id`,
+      scope.active ? [noteId, scope.userId] : [noteId],
+    );
     return Boolean(result.rows[0]);
   });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, CalendarPlus, CheckCircle2, Clock3, Copy, Eye, EyeOff, FolderPlus, Mail, NotebookPen, Pencil, RotateCcw, Sparkles, Star, Trash2 } from "lucide-react";
+import { Archive, CalendarPlus, CheckCircle2, Clock3, Copy, Download, Eye, EyeOff, FolderPlus, Info, Mail, NotebookPen, Pencil, RefreshCw, RotateCcw, Sparkles, Star, Trash2, ExternalLink } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import type {
@@ -25,11 +25,15 @@ const iconComponents = {
   "calendar-plus": CalendarPlus,
   clock: Clock3,
   copy: Copy,
+  download: Download,
   edit: Pencil,
   eye: Eye,
   "eye-off": EyeOff,
   folder: FolderPlus,
+  info: Info,
   mail: Mail,
+  open: ExternalLink,
+  refresh: RefreshCw,
   sparkles: Sparkles,
   star: Star,
   "star-filled": Star,

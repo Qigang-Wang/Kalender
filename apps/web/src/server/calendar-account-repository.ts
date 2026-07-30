@@ -3,12 +3,14 @@ import { randomUUID } from "node:crypto";
 import type { CalDavCredential, CalDavEventRecord, DiscoveredCalDavCalendar } from "./caldav-client";
 import { decryptCredential, encryptCredential } from "./credential-crypto";
 import { getDatabase } from "./database";
+import { decodeNoteContent } from "../lib/note-content";
 import type { ExchangeCalendarCredential, ExchangeCalendarEvent, ExchangeCalendarFolder } from "./exchange-calendar";
 import {
   icsSubscriptionFingerprint,
   safeIcsSubscriptionLabel,
   type IcsSubscriptionCredential,
 } from "./ics-subscription";
+import { getUserScope } from "./user-scope";
 
 export interface StoredCalendarAccount {
   readonly id: string;
@@ -59,10 +61,11 @@ export async function saveCalDavAccount(
   credential: CalDavCredential,
 ): Promise<StoredCalendarAccount> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const existing = await database.query<{ id: string; color: string }>(
     `SELECT id, color FROM calendar_accounts
-      WHERE provider_id = 'caldav' AND server_url = $1 AND username = $2 LIMIT 1`,
-    [credential.serverUrl, credential.username],
+      WHERE provider_id = 'caldav' AND server_url = $1 AND username = $2${scope.active ? " AND user_id = $3" : ""} LIMIT 1`,
+    scope.active ? [credential.serverUrl, credential.username, scope.userId] : [credential.serverUrl, credential.username],
   );
   const accountId = existing.rows[0]?.id ?? randomUUID();
   const color = existing.rows[0]?.color ?? accountColor(accountId);
@@ -70,17 +73,17 @@ export async function saveCalDavAccount(
   await database.transaction(async (transaction) => {
     await transaction.query(
       `INSERT INTO calendar_accounts (
-         id, provider_id, display_name, server_url, username, color,
+         id, user_id, provider_id, display_name, server_url, username, color,
          enabled, sync_status, sync_error, last_tested_at, updated_at
-       ) VALUES ($1, 'caldav', $2, $3, $4, $5, true, 'idle', NULL, now(), now())
-       ON CONFLICT (provider_id, server_url, username) DO UPDATE SET
+       ) VALUES ($1, $2, 'caldav', $3, $4, $5, $6, true, 'idle', NULL, now(), now())
+       ON CONFLICT (id) DO UPDATE SET
          display_name = EXCLUDED.display_name,
          enabled = true,
          sync_status = 'idle',
          sync_error = NULL,
          last_tested_at = now(),
          updated_at = now()`,
-      [accountId, displayName, credential.serverUrl, credential.username, color],
+      [accountId, scope.valueOrNull(), displayName, credential.serverUrl, credential.username, color],
     );
     await transaction.query(
       `INSERT INTO calendar_encrypted_credentials (account_id, encrypted_payload, key_version, updated_at)
@@ -100,11 +103,12 @@ export async function saveIcsSubscription(
   credential: IcsSubscriptionCredential,
 ): Promise<StoredCalendarAccount> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const fingerprint = icsSubscriptionFingerprint(credential.feedUrl);
   const existing = await database.query<{ id: string; color: string }>(
     `SELECT id, color FROM calendar_accounts
-      WHERE provider_id = 'ics' AND username = $1 LIMIT 1`,
-    [fingerprint],
+      WHERE provider_id = 'ics' AND username = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [fingerprint, scope.userId] : [fingerprint],
   );
   const accountId = existing.rows[0]?.id ?? randomUUID();
   const color = existing.rows[0]?.color ?? accountColor(accountId);
@@ -112,17 +116,17 @@ export async function saveIcsSubscription(
   await database.transaction(async (transaction) => {
     await transaction.query(
       `INSERT INTO calendar_accounts (
-         id, provider_id, display_name, server_url, username, color,
+         id, user_id, provider_id, display_name, server_url, username, color,
          enabled, sync_status, sync_error, last_tested_at, updated_at
-       ) VALUES ($1, 'ics', $2, $3, $4, $5, true, 'idle', NULL, now(), now())
-       ON CONFLICT (provider_id, server_url, username) DO UPDATE SET
+       ) VALUES ($1, $2, 'ics', $3, $4, $5, $6, true, 'idle', NULL, now(), now())
+       ON CONFLICT (id) DO UPDATE SET
          display_name = EXCLUDED.display_name,
          enabled = true,
          sync_status = 'idle',
          sync_error = NULL,
          last_tested_at = now(),
          updated_at = now()`,
-      [accountId, displayName, safeIcsSubscriptionLabel(credential.feedUrl), fingerprint, color],
+      [accountId, scope.valueOrNull(), displayName, safeIcsSubscriptionLabel(credential.feedUrl), fingerprint, color],
     );
     await transaction.query(
       `INSERT INTO calendar_encrypted_credentials (account_id, encrypted_payload, key_version, updated_at)
@@ -143,14 +147,15 @@ export async function saveExchangeCalendarAccount(
   emailAddress = credential.username,
 ): Promise<StoredCalendarAccount> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const existing = await database.query<{ id: string; color: string; connection_id: string | null }>(
     `SELECT id, color, exchange_connection_id AS connection_id FROM calendar_accounts
-      WHERE provider_id = 'exchange' AND server_url = $1 AND username = $2 LIMIT 1`,
-    [credential.serverUrl, credential.username],
+      WHERE provider_id = 'exchange' AND server_url = $1 AND username = $2${scope.active ? " AND user_id = $3" : ""} LIMIT 1`,
+    scope.active ? [credential.serverUrl, credential.username, scope.userId] : [credential.serverUrl, credential.username],
   );
   const existingConnection = await database.query<{ id: string; color: string }>(
-    "SELECT id, color FROM exchange_connections WHERE server_url = $1 AND username = $2 LIMIT 1",
-    [credential.serverUrl, credential.username],
+    `SELECT id, color FROM exchange_connections WHERE server_url = $1 AND username = $2${scope.active ? " AND user_id = $3" : ""} LIMIT 1`,
+    scope.active ? [credential.serverUrl, credential.username, scope.userId] : [credential.serverUrl, credential.username],
   );
   const connectionId = existing.rows[0]?.connection_id ?? existingConnection.rows[0]?.id ?? existing.rows[0]?.id ?? randomUUID();
   const accountId = existing.rows[0]?.id ?? connectionId;
@@ -160,17 +165,17 @@ export async function saveExchangeCalendarAccount(
   await database.transaction(async (transaction) => {
     await transaction.query(
       `INSERT INTO exchange_connections (
-         id, display_name, server_url, username, email_address, color,
+         id, user_id, display_name, server_url, username, email_address, color,
          mail_enabled, calendar_enabled, last_tested_at, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,true,true,now(),now())
-       ON CONFLICT (server_url, username) DO UPDATE SET
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,true,true,now(),now())
+       ON CONFLICT (id) DO UPDATE SET
          display_name = EXCLUDED.display_name,
          email_address = EXCLUDED.email_address,
          mail_enabled = true,
          calendar_enabled = true,
          last_tested_at = now(),
          updated_at = now()`,
-      [connectionId, displayName, credential.serverUrl, credential.username, emailAddress.toLocaleLowerCase(), color],
+      [connectionId, scope.valueOrNull(), displayName, credential.serverUrl, credential.username, emailAddress.toLocaleLowerCase(), color],
     );
     await transaction.query(
       `INSERT INTO exchange_connection_credentials (connection_id, encrypted_payload, key_version, updated_at)
@@ -183,10 +188,10 @@ export async function saveExchangeCalendarAccount(
     );
     await transaction.query(
       `INSERT INTO calendar_accounts (
-         id, provider_id, display_name, server_url, username, color,
+         id, user_id, provider_id, display_name, server_url, username, color,
          enabled, sync_status, sync_error, last_tested_at, exchange_connection_id, updated_at
-       ) VALUES ($1, 'exchange', $2, $3, $4, $5, true, 'idle', NULL, now(), $6, now())
-       ON CONFLICT (provider_id, server_url, username) DO UPDATE SET
+       ) VALUES ($1, $2, 'exchange', $3, $4, $5, $6, true, 'idle', NULL, now(), $7, now())
+       ON CONFLICT (id) DO UPDATE SET
          display_name = EXCLUDED.display_name,
          exchange_connection_id = EXCLUDED.exchange_connection_id,
          enabled = true,
@@ -194,20 +199,20 @@ export async function saveExchangeCalendarAccount(
          sync_error = NULL,
          last_tested_at = now(),
          updated_at = now()`,
-      [accountId, displayName, credential.serverUrl, credential.username, color, connectionId],
+      [accountId, scope.valueOrNull(), displayName, credential.serverUrl, credential.username, color, connectionId],
     );
     await transaction.query(
       `INSERT INTO accounts (
-         id, provider_id, display_name, email_address, color, enabled,
+         id, user_id, provider_id, display_name, email_address, color, enabled,
          sync_mode, sync_status, sync_error, last_tested_at, exchange_connection_id, updated_at
-       ) VALUES ($1,'exchange-ews',$2,$3,$4,true,'recommended','idle',NULL,now(),$5,now())
-       ON CONFLICT (provider_id, email_address) DO UPDATE SET
+       ) VALUES ($1,$2,'exchange-ews',$3,$4,$5,true,'recommended','idle',NULL,now(),$6,now())
+       ON CONFLICT (id) DO UPDATE SET
          display_name = EXCLUDED.display_name,
          exchange_connection_id = EXCLUDED.exchange_connection_id,
          enabled = true,
          last_tested_at = now(),
          updated_at = now()`,
-      [mailAccountId, displayName, emailAddress.toLocaleLowerCase(), color, connectionId],
+      [mailAccountId, scope.valueOrNull(), displayName, emailAddress.toLocaleLowerCase(), color, connectionId],
     );
   });
   return (await getCalendarAccount(accountId))!;
@@ -215,6 +220,7 @@ export async function saveExchangeCalendarAccount(
 
 export async function listCalendarAccounts(): Promise<readonly StoredCalendarAccount[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<CalendarAccountRow>(
     `SELECT a.id, a.provider_id, a.display_name, a.server_url, a.username, ec.email_address,
             a.color, a.color_override, a.sync_status, a.sync_error, a.last_sync_at,
@@ -233,16 +239,19 @@ export async function listCalendarAccounts(): Promise<readonly StoredCalendarAcc
                             AND ma.provider_id = 'exchange-ews'
        LEFT JOIN exchange_mail_sync_state ms ON ms.account_id = ma.id
       WHERE a.enabled = true
+        ${scope.active ? "AND a.user_id = $1" : ""}
       GROUP BY a.id, a.provider_id, a.display_name, a.server_url, a.username,
                a.color, a.color_override, a.sync_status, a.sync_error, a.last_sync_at, a.created_at,
                ec.email_address, ec.mail_enabled, ec.calendar_enabled
       ORDER BY a.created_at`,
+    scope.active ? [scope.userId] : [],
   );
   return result.rows.map(mapCalendarAccount);
 }
 
 export async function getCalendarAccount(id: string): Promise<StoredCalendarAccount | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<CalendarAccountRow>(
     `SELECT a.id, a.provider_id, a.display_name, a.server_url, a.username, ec.email_address,
             a.color, a.color_override, a.sync_status, a.sync_error, a.last_sync_at,
@@ -260,21 +269,26 @@ export async function getCalendarAccount(id: string): Promise<StoredCalendarAcco
        LEFT JOIN accounts ma ON ma.exchange_connection_id = a.exchange_connection_id
                             AND ma.provider_id = 'exchange-ews'
        LEFT JOIN exchange_mail_sync_state ms ON ms.account_id = ma.id
-      WHERE a.id = $1 AND a.enabled = true
+      WHERE a.id = $1 AND a.enabled = true${scope.active ? " AND a.user_id = $2" : ""}
       GROUP BY a.id, a.provider_id, a.display_name, a.server_url, a.username,
                a.color, a.color_override, a.sync_status, a.sync_error, a.last_sync_at,
                ec.email_address, ec.mail_enabled, ec.calendar_enabled
       LIMIT 1`,
-    [id],
+    scope.active ? [id, scope.userId] : [id],
   );
   return result.rows[0] ? mapCalendarAccount(result.rows[0]) : undefined;
 }
 
 export async function loadCalDavCredential(accountId: string): Promise<CalDavCredential> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{ encrypted_payload: string }>(
-    "SELECT encrypted_payload FROM calendar_encrypted_credentials WHERE account_id = $1 LIMIT 1",
-    [accountId],
+    `SELECT c.encrypted_payload
+       FROM calendar_encrypted_credentials c
+       JOIN calendar_accounts a ON a.id = c.account_id
+      WHERE c.account_id = $1${scope.active ? " AND a.user_id = $2" : ""}
+      LIMIT 1`,
+    scope.active ? [accountId, scope.userId] : [accountId],
   );
   const payload = result.rows[0]?.encrypted_payload;
   if (!payload) throw new Error("Calendar account credentials were not found");
@@ -283,9 +297,14 @@ export async function loadCalDavCredential(accountId: string): Promise<CalDavCre
 
 export async function loadIcsSubscriptionCredential(accountId: string): Promise<IcsSubscriptionCredential> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{ encrypted_payload: string }>(
-    "SELECT encrypted_payload FROM calendar_encrypted_credentials WHERE account_id = $1 LIMIT 1",
-    [accountId],
+    `SELECT c.encrypted_payload
+       FROM calendar_encrypted_credentials c
+       JOIN calendar_accounts a ON a.id = c.account_id
+      WHERE c.account_id = $1${scope.active ? " AND a.user_id = $2" : ""}
+      LIMIT 1`,
+    scope.active ? [accountId, scope.userId] : [accountId],
   );
   const payload = result.rows[0]?.encrypted_payload;
   if (!payload) throw new Error("ICS subscription credentials were not found");
@@ -294,19 +313,20 @@ export async function loadIcsSubscriptionCredential(accountId: string): Promise<
 
 export async function loadExchangeCalendarCredential(accountId: string): Promise<ExchangeCalendarCredential> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{ encrypted_payload: string }>(
     `SELECT COALESCE(ecc.encrypted_payload, cec.encrypted_payload) AS encrypted_payload
        FROM calendar_accounts ca
        LEFT JOIN exchange_connection_credentials ecc ON ecc.connection_id = ca.exchange_connection_id
        LEFT JOIN calendar_encrypted_credentials cec ON cec.account_id = ca.id
-      WHERE ca.id = $1 LIMIT 1`,
-    [accountId],
+      WHERE ca.id = $1${scope.active ? " AND ca.user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [accountId, scope.userId] : [accountId],
   );
   const payload = result.rows[0]?.encrypted_payload;
   if (!payload) throw new Error("Exchange calendar credentials were not found");
   const identity = await database.query<{ identity: string }>(
-    "SELECT COALESCE(exchange_connection_id, id) AS identity FROM calendar_accounts WHERE id = $1 LIMIT 1",
-    [accountId],
+    `SELECT COALESCE(exchange_connection_id, id) AS identity FROM calendar_accounts WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [accountId, scope.userId] : [accountId],
   );
   return decryptCredential<ExchangeCalendarCredential>(identity.rows[0]?.identity ?? accountId, payload);
 }
@@ -330,34 +350,35 @@ export async function updateCalendarAccountSettings(
   input: { readonly displayName: string; readonly color: string; readonly emailAddress?: string },
 ): Promise<StoredCalendarAccount | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const updated = await database.transaction(async (transaction) => {
     const result = await transaction.query<{ id: string }>(
       `UPDATE calendar_accounts
           SET display_name = $2, color_override = $3, updated_at = now()
-        WHERE id = $1 AND enabled = true
+        WHERE id = $1 AND enabled = true${scope.active ? " AND user_id = $4" : ""}
         RETURNING id`,
-      [accountId, input.displayName, input.color],
+      scope.active ? [accountId, input.displayName, input.color, scope.userId] : [accountId, input.displayName, input.color],
     );
     if (!result.rows[0]) return false;
     await transaction.query(
-      "UPDATE calendars SET color = $2, updated_at = now() WHERE account_id = $1",
-      [accountId, input.color],
+      `UPDATE calendars SET color = $2, updated_at = now() WHERE account_id = $1${scope.active ? " AND user_id = $3" : ""}`,
+      scope.active ? [accountId, input.color, scope.userId] : [accountId, input.color],
     );
     await transaction.query(
       `UPDATE exchange_connections ec
           SET display_name = $2, color = $3,
               email_address = COALESCE($4, ec.email_address), updated_at = now()
          FROM calendar_accounts ca
-        WHERE ca.id = $1 AND ca.exchange_connection_id = ec.id`,
-      [accountId, input.displayName, input.color, input.emailAddress?.toLocaleLowerCase() ?? null],
+        WHERE ca.id = $1 AND ca.exchange_connection_id = ec.id${scope.active ? " AND ca.user_id = $5 AND ec.user_id = $5" : ""}`,
+      scope.active ? [accountId, input.displayName, input.color, input.emailAddress?.toLocaleLowerCase() ?? null, scope.userId] : [accountId, input.displayName, input.color, input.emailAddress?.toLocaleLowerCase() ?? null],
     );
     await transaction.query(
       `UPDATE accounts a
           SET display_name = $2, color = $3,
               email_address = COALESCE($4, a.email_address), updated_at = now()
          FROM calendar_accounts ca
-        WHERE ca.id = $1 AND ca.exchange_connection_id = a.exchange_connection_id`,
-      [accountId, input.displayName, input.color, input.emailAddress?.toLocaleLowerCase() ?? null],
+        WHERE ca.id = $1 AND ca.exchange_connection_id = a.exchange_connection_id${scope.active ? " AND ca.user_id = $5 AND a.user_id = $5" : ""}`,
+      scope.active ? [accountId, input.displayName, input.color, input.emailAddress?.toLocaleLowerCase() ?? null, scope.userId] : [accountId, input.displayName, input.color, input.emailAddress?.toLocaleLowerCase() ?? null],
     );
     return true;
   });
@@ -369,6 +390,7 @@ export async function updateExchangeFeatureSettings(
   input: { readonly mailEnabled: boolean; readonly calendarEnabled: boolean },
 ): Promise<StoredCalendarAccount | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const updated = await database.transaction(async (transaction) => {
     const connection = await transaction.query<{
       connection_id: string;
@@ -379,26 +401,27 @@ export async function updateExchangeFeatureSettings(
     }>(
       `SELECT ca.exchange_connection_id AS connection_id, ca.display_name, ca.username,
               ec.email_address, COALESCE(ca.color_override, ca.color) AS color
-         FROM calendar_accounts ca
+        FROM calendar_accounts ca
          JOIN exchange_connections ec ON ec.id = ca.exchange_connection_id
         WHERE ca.id = $1 AND ca.provider_id = 'exchange' AND ca.exchange_connection_id IS NOT NULL
+          ${scope.active ? "AND ca.user_id = $2 AND ec.user_id = $2" : ""}
         LIMIT 1`,
-      [accountId],
+      scope.active ? [accountId, scope.userId] : [accountId],
     );
     const row = connection.rows[0];
     if (!row) return false;
     await transaction.query(
       `UPDATE exchange_connections SET mail_enabled = $2, calendar_enabled = $3, updated_at = now()
-        WHERE id = $1`,
-      [row.connection_id, input.mailEnabled, input.calendarEnabled],
+        WHERE id = $1${scope.active ? " AND user_id = $4" : ""}`,
+      scope.active ? [row.connection_id, input.mailEnabled, input.calendarEnabled, scope.userId] : [row.connection_id, input.mailEnabled, input.calendarEnabled],
     );
     if (input.mailEnabled) {
       await transaction.query(
         `INSERT INTO accounts (
-           id, provider_id, display_name, email_address, color, enabled,
+           id, user_id, provider_id, display_name, email_address, color, enabled,
            sync_mode, sync_status, sync_error, last_tested_at, exchange_connection_id, updated_at
-         ) VALUES ($1,'exchange-ews',$2,$3,$4,true,'recommended','idle',NULL,now(),$5,now())
-         ON CONFLICT (provider_id, email_address) DO UPDATE SET
+         ) VALUES ($1,$2,'exchange-ews',$3,$4,$5,true,'recommended','idle',NULL,now(),$6,now())
+         ON CONFLICT (id) DO UPDATE SET
            display_name = EXCLUDED.display_name,
            color = EXCLUDED.color,
            exchange_connection_id = EXCLUDED.exchange_connection_id,
@@ -406,12 +429,12 @@ export async function updateExchangeFeatureSettings(
            sync_status = CASE WHEN accounts.last_sync_at IS NULL THEN 'idle' ELSE 'ready' END,
            sync_error = NULL,
            updated_at = now()`,
-        [`exchange-mail:${row.connection_id}`, row.display_name, row.email_address, row.color, row.connection_id],
+        [`exchange-mail:${row.connection_id}`, scope.valueOrNull(), row.display_name, row.email_address, row.color, row.connection_id],
       );
     } else {
       await transaction.query(
-        "UPDATE accounts SET enabled = false, sync_status = 'paused', updated_at = now() WHERE exchange_connection_id = $1",
-        [row.connection_id],
+        `UPDATE accounts SET enabled = false, sync_status = 'paused', updated_at = now() WHERE exchange_connection_id = $1${scope.active ? " AND user_id = $2" : ""}`,
+        scope.active ? [row.connection_id, scope.userId] : [row.connection_id],
       );
     }
     await transaction.query(
@@ -423,8 +446,8 @@ export async function updateExchangeFeatureSettings(
          END,
          sync_error = NULL,
          updated_at = now()
-       WHERE id = $1`,
-      [accountId, input.calendarEnabled],
+       WHERE id = $1${scope.active ? " AND user_id = $3" : ""}`,
+      scope.active ? [accountId, input.calendarEnabled, scope.userId] : [accountId, input.calendarEnabled],
     );
     return true;
   });
@@ -437,6 +460,7 @@ export async function saveDiscoveredCalendar(
   primary: boolean,
 ): Promise<string> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const existing = await database.query<{ id: string }>(
     "SELECT id FROM calendars WHERE account_id = $1 AND source_url = $2 LIMIT 1",
     [accountId, calendar.url],
@@ -444,9 +468,9 @@ export async function saveDiscoveredCalendar(
   const id = existing.rows[0]?.id ?? `caldav:${randomUUID()}`;
   await database.query(
     `INSERT INTO calendars (
-       id, account_id, provider_id, provider_calendar_id, source_url,
+       id, user_id, account_id, provider_id, provider_calendar_id, source_url,
        name, color, read_only, is_primary, time_zone, updated_at
-     ) VALUES ($1,$2,'caldav',$3,$4,$5,$6,true,$7,'Europe/Berlin',now())
+     ) VALUES ($1,COALESCE($2, (SELECT user_id FROM calendar_accounts WHERE id = $3)),$3,'caldav',$4,$5,$6,$7,true,$8,'Europe/Berlin',now())
      ON CONFLICT (id) DO UPDATE SET
        name = EXCLUDED.name,
        color = EXCLUDED.color,
@@ -454,7 +478,7 @@ export async function saveDiscoveredCalendar(
        is_primary = EXCLUDED.is_primary,
        source_url = EXCLUDED.source_url,
        updated_at = now()`,
-    [id, accountId, `${accountId}:${calendar.url}`, calendar.url, calendar.name, calendar.color, primary],
+    [id, scope.valueOrNull(), accountId, `${accountId}:${calendar.url}`, calendar.url, calendar.name, calendar.color, primary],
   );
   return id;
 }
@@ -466,6 +490,7 @@ export async function saveIcsSubscriptionCalendar(
   color: string,
 ): Promise<string> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const existing = await database.query<{ id: string }>(
     "SELECT id FROM calendars WHERE account_id = $1 LIMIT 1",
     [accountId],
@@ -473,16 +498,16 @@ export async function saveIcsSubscriptionCalendar(
   const id = existing.rows[0]?.id ?? `ics:${randomUUID()}`;
   await database.query(
     `INSERT INTO calendars (
-       id, account_id, provider_id, provider_calendar_id, source_url,
+       id, user_id, account_id, provider_id, provider_calendar_id, source_url,
        name, color, read_only, is_primary, time_zone, updated_at
-     ) VALUES ($1,$2,'ics',$3,$4,$5,$6,true,false,'Europe/Berlin',now())
+     ) VALUES ($1,COALESCE($2, (SELECT user_id FROM calendar_accounts WHERE id = $3)),$3,'ics',$4,$5,$6,$7,true,false,'Europe/Berlin',now())
      ON CONFLICT (id) DO UPDATE SET
        name = EXCLUDED.name,
        color = EXCLUDED.color,
        read_only = true,
        source_url = EXCLUDED.source_url,
        updated_at = now()`,
-    [id, accountId, `${accountId}:feed`, sourceLabel, name, color],
+    [id, scope.valueOrNull(), accountId, `${accountId}:feed`, sourceLabel, name, color],
   );
   return id;
 }
@@ -494,6 +519,7 @@ export async function saveExchangeCalendar(
   color: string,
 ): Promise<string> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const providerCalendarId = `${accountId}:${folder.folderId}`;
   const existing = await database.query<{ id: string }>(
     "SELECT id FROM calendars WHERE provider_id = 'exchange' AND provider_calendar_id = $1 LIMIT 1",
@@ -502,16 +528,16 @@ export async function saveExchangeCalendar(
   const id = existing.rows[0]?.id ?? `exchange:${randomUUID()}`;
   await database.query(
     `INSERT INTO calendars (
-       id, account_id, provider_id, provider_calendar_id, source_url,
+       id, user_id, account_id, provider_id, provider_calendar_id, source_url,
        name, color, read_only, is_primary, time_zone, updated_at
-     ) VALUES ($1,$2,'exchange',$3,$4,$5,$6,false,false,'Europe/Berlin',now())
+     ) VALUES ($1,COALESCE($2, (SELECT user_id FROM calendar_accounts WHERE id = $3)),$3,'exchange',$4,$5,$6,$7,false,false,'Europe/Berlin',now())
      ON CONFLICT (id) DO UPDATE SET
        name = EXCLUDED.name,
        color = EXCLUDED.color,
        read_only = false,
        source_url = EXCLUDED.source_url,
        updated_at = now()`,
-    [id, accountId, providerCalendarId, sourceUrl, folder.name, color],
+    [id, scope.valueOrNull(), accountId, providerCalendarId, sourceUrl, folder.name, color],
   );
   return id;
 }
@@ -538,20 +564,22 @@ export async function saveExchangeCalendarMutation(
   calendarId: string,
   event: ExchangeCalendarEvent,
   localEventId?: string,
+  descriptionContent?: string,
 ): Promise<string> {
   const database = await getDatabase();
   const id = localEventId ?? `exchange-event:${randomUUID()}`;
   await database.query(
     `INSERT INTO calendar_events (
-       id, calendar_id, provider_event_id, title, description, location,
+       id, calendar_id, provider_event_id, title, description, description_content, location,
        starts_at, ends_at, time_zone, all_day, attendees, meeting_url,
        status, etag, provider_item_id, provider_change_key,
-       is_meeting, is_recurring, is_organizer, updated_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16,$17,$18,$19,now())
+       is_meeting, is_recurring, is_organizer, availability, updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16,$17,$18,$19,$20,$21,now())
      ON CONFLICT (id) DO UPDATE SET
        provider_event_id = EXCLUDED.provider_event_id,
        title = EXCLUDED.title,
        description = EXCLUDED.description,
+       description_content = EXCLUDED.description_content,
        location = EXCLUDED.location,
        starts_at = EXCLUDED.starts_at,
        ends_at = EXCLUDED.ends_at,
@@ -566,6 +594,7 @@ export async function saveExchangeCalendarMutation(
        is_meeting = EXCLUDED.is_meeting,
        is_recurring = EXCLUDED.is_recurring,
        is_organizer = EXCLUDED.is_organizer,
+       availability = EXCLUDED.availability,
        updated_at = now()`,
     [
       id,
@@ -573,6 +602,7 @@ export async function saveExchangeCalendarMutation(
       event.providerEventId,
       event.title,
       event.description ?? null,
+      descriptionContent ? JSON.stringify(decodeNoteContent(descriptionContent)) : null,
       event.location ?? null,
       event.start,
       event.end,
@@ -587,6 +617,7 @@ export async function saveExchangeCalendarMutation(
       event.isMeeting,
       event.isRecurring,
       event.isOrganizer ?? null,
+      event.availability ?? "busy",
     ],
   );
   return id;
@@ -609,10 +640,14 @@ async function saveRemoteCalendarEvents(
          id, calendar_id, provider_event_id, title, description, location,
          starts_at, ends_at, time_zone, all_day, attendees, meeting_url,
          status, etag, provider_item_id, provider_change_key,
-         is_meeting, is_recurring, is_organizer, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16,$17,$18,$19,now())
+         is_meeting, is_recurring, is_organizer, availability, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16,$17,$18,$19,$20,now())
        ON CONFLICT (calendar_id, provider_event_id) DO UPDATE SET
          title = EXCLUDED.title,
+         description_content = CASE
+           WHEN calendar_events.description IS DISTINCT FROM EXCLUDED.description THEN NULL
+           ELSE calendar_events.description_content
+         END,
          description = EXCLUDED.description,
          location = EXCLUDED.location,
          starts_at = EXCLUDED.starts_at,
@@ -628,6 +663,7 @@ async function saveRemoteCalendarEvents(
          is_meeting = EXCLUDED.is_meeting,
          is_recurring = EXCLUDED.is_recurring,
          is_organizer = EXCLUDED.is_organizer,
+         availability = EXCLUDED.availability,
          updated_at = now()`,
       [
         `${idPrefix}:${randomUUID()}`,
@@ -649,6 +685,7 @@ async function saveRemoteCalendarEvents(
         exchangeEvent?.isMeeting ?? false,
         exchangeEvent?.isRecurring ?? false,
         exchangeEvent?.isOrganizer ?? null,
+        event.availability ?? "busy",
       ],
     );
   }
@@ -663,25 +700,29 @@ async function saveRemoteCalendarEvents(
 
 export async function deleteCalendarAccount(accountId: string): Promise<boolean> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   return database.transaction(async (transaction) => {
     const existing = await transaction.query<{ exchange_connection_id: string | null }>(
-      "SELECT exchange_connection_id FROM calendar_accounts WHERE id = $1 LIMIT 1",
-      [accountId],
+      `SELECT exchange_connection_id FROM calendar_accounts WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+      scope.active ? [accountId, scope.userId] : [accountId],
     );
     const connectionId = existing.rows[0]?.exchange_connection_id;
-    await transaction.query("DELETE FROM calendars WHERE account_id = $1", [accountId]);
+    await transaction.query(
+      `DELETE FROM calendars WHERE account_id = $1${scope.active ? " AND user_id = $2" : ""}`,
+      scope.active ? [accountId, scope.userId] : [accountId],
+    );
     const result = await transaction.query<{ id: string }>(
-      "DELETE FROM calendar_accounts WHERE id = $1 RETURNING id",
-      [accountId],
+      `DELETE FROM calendar_accounts WHERE id = $1${scope.active ? " AND user_id = $2" : ""} RETURNING id`,
+      scope.active ? [accountId, scope.userId] : [accountId],
     );
     if (connectionId) {
       await transaction.query(
-        "UPDATE exchange_connections SET calendar_enabled = false, updated_at = now() WHERE id = $1",
-        [connectionId],
+        `UPDATE exchange_connections SET calendar_enabled = false, updated_at = now() WHERE id = $1${scope.active ? " AND user_id = $2" : ""}`,
+        scope.active ? [connectionId, scope.userId] : [connectionId],
       );
       await transaction.query(
-        "DELETE FROM exchange_connections WHERE id = $1 AND mail_enabled = false AND calendar_enabled = false",
-        [connectionId],
+        `DELETE FROM exchange_connections WHERE id = $1 AND mail_enabled = false AND calendar_enabled = false${scope.active ? " AND user_id = $2" : ""}`,
+        scope.active ? [connectionId, scope.userId] : [connectionId],
       );
     }
     return Boolean(result.rows[0]);

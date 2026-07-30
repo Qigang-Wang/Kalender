@@ -10,8 +10,9 @@ function assert(condition: unknown, message: string): asserts condition {
 async function main() {
   const testRoot = path.join(tmpdir(), `kalender-mail-draft-test-${randomUUID()}`);
   process.env.KALENDER_DATA_DIR = testRoot;
-  const repository = await import("./mail-draft-repository");
-  const mailRepository = await import("./mail-repository");
+    const repository = await import("./mail-draft-repository");
+    const mailRepository = await import("./mail-repository");
+    const signatureRepository = await import("./mail-signature-repository");
   const validation = await import("./mail-draft-validation");
   const attachmentService = await import("./mail-draft-attachment-service");
   const richText = await import("./mail-rich-text");
@@ -52,6 +53,77 @@ async function main() {
     const repeated = await repository.beginMailDraftSend(created.id, account.id, idempotencyKey);
     assert(repeated.alreadySent, "same idempotency key does not send twice");
     assert((await repository.listMailDrafts()).length === 0, "sent drafts leave the active draft list");
+
+    const signature = await signatureRepository.createMailSignature({
+      accountId: account.id,
+      name: "Work",
+      fullText: "Kind regards\nDraft Test\nExample Institute",
+      shortText: "Thanks\nDraft Test",
+      makeDefault: true,
+    });
+    const signedNewDraft = await repository.createMailDraft({ ...parsed, subject: "Signed new message" });
+    assert(signedNewDraft.signatureId === signature.id && signedNewDraft.signatureVariant === "full", "new messages use the full default signature");
+    assert(signedNewDraft.textBody.endsWith("Kind regards\nDraft Test\nExample Institute"), "full signature is appended to a new message");
+    assert(await repository.deleteMailDraft(signedNewDraft.id), "signed new-message draft is deleted");
+
+    const database = await getDatabase();
+    const threadId = randomUUID();
+    const inboxMessageId = randomUUID();
+    await database.query(
+      `INSERT INTO mail_folders (id, account_id, provider_folder_id, name, role)
+       VALUES ($1,$2,'INBOX','Inbox','inbox'), ($3,$2,'SENT','Sent','sent')`,
+      [randomUUID(), account.id, randomUUID()],
+    );
+    await database.query(
+      `INSERT INTO mail_threads (id, account_id, provider_thread_id, subject, snippet, participants, last_message_at)
+       VALUES ($1,$2,$3,'Signature thread','Hello','[]'::jsonb,now())`,
+      [threadId, account.id, `thread-${threadId}`],
+    );
+    await database.query(
+      `INSERT INTO mail_messages (
+         id, account_id, thread_id, provider_message_id, provider_uid, provider_folder_id,
+         subject, from_address, to_addresses, sent_at, received_at
+       ) VALUES ($1,$2,$3,$4,1,'INBOX','Signature thread',$5::jsonb,$6::jsonb,now(),now())`,
+      [
+        inboxMessageId,
+        account.id,
+        threadId,
+        `<inbox-${inboxMessageId}@example.test>`,
+        JSON.stringify({ address: "person@example.test", name: "Person" }),
+        JSON.stringify([{ address: account.emailAddress }]),
+      ],
+    );
+    const firstReply = await repository.createMailDraft({
+      ...parsed,
+      replyToMessageId: inboxMessageId,
+      subject: "Re: Signature thread",
+    });
+    assert(firstReply.signatureVariant === "full", "the first reply in a thread uses the full signature");
+    assert(await repository.deleteMailDraft(firstReply.id), "first reply draft is deleted");
+
+    const sentMessageId = randomUUID();
+    await database.query(
+      `INSERT INTO mail_messages (
+         id, account_id, thread_id, provider_message_id, provider_uid, provider_folder_id,
+         subject, from_address, to_addresses, sent_at, received_at
+       ) VALUES ($1,$2,$3,$4,1,'SENT','Re: Signature thread',$5::jsonb,$6::jsonb,now(),now())`,
+      [
+        sentMessageId,
+        account.id,
+        threadId,
+        `<sent-${sentMessageId}@example.test>`,
+        JSON.stringify({ address: account.emailAddress, name: "Draft Test" }),
+        JSON.stringify([{ address: "person@example.test" }]),
+      ],
+    );
+    const laterReply = await repository.createMailDraft({
+      ...parsed,
+      replyToMessageId: inboxMessageId,
+      subject: "Re: Signature thread",
+    });
+    assert(laterReply.signatureVariant === "short", "later replies use the short signature");
+    assert(laterReply.textBody.endsWith("Thanks\nDraft Test"), "short signature is appended to later replies");
+    assert(await repository.deleteMailDraft(laterReply.id), "later reply draft is deleted");
 
     const rich = validation.parseMailDraftInput({
       accountId: account.id,

@@ -39,7 +39,7 @@
 
 ### 数据层
 
-- [x] 建立本地嵌入式 PostgreSQL（PGlite），保留迁移到托管 PostgreSQL 的表结构边界；
+- [x] 建立 PostgreSQL 数据层和启动时迁移；
 - [x] 定义单用户版 `Account`、`EncryptedCredential`、`SyncCursor` 和 `SyncRun`；
 - [x] 定义邮件、线程和文件夹本地索引表；
 - [x] 建立启动时幂等 Schema 迁移；

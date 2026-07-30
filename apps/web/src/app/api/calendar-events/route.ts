@@ -10,11 +10,13 @@ import { localCalendarContext, localCalendarProvider } from "@/server/local-cale
 import { upsertCalendarEvent } from "@/server/calendar-event-service";
 import { listStoredCalendarEventConflicts } from "@/server/calendar-repository";
 import { listCalendarTaskLinks } from "@/server/task-schedule";
+import { ensureCalendarSyncScheduler } from "@/server/calendar-sync-scheduler";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
+    await ensureCalendarSyncScheduler();
     const range = parseCalendarRange(new URL(request.url));
     const events = await localCalendarProvider.listEvents(localCalendarContext, { ...range, limit: 1000 });
     const links = await listCalendarTaskLinks(events.items.map((event) => event.id));

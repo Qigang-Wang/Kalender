@@ -37,6 +37,7 @@ import {
 } from 'platejs/react';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { appAlert } from '@/components/app-dialog-provider';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -317,8 +318,14 @@ function CommentMoreDropdown(props: {
   const selectedEditCommentRef = React.useRef<boolean>(false);
 
   const onDeleteComment = React.useCallback(() => {
-    if (!comment.id)
-      return alert('You are operating too quickly, please try again later.');
+    if (!comment.id) {
+      void appAlert({
+        title: '暂时无法删除评论',
+        description: '操作过于频繁，请稍后再试。',
+        tone: 'danger',
+      });
+      return;
+    }
 
     // Find and update the discussion
     const updatedDiscussions = editor
@@ -352,8 +359,14 @@ function CommentMoreDropdown(props: {
   const onEditComment = React.useCallback(() => {
     selectedEditCommentRef.current = true;
 
-    if (!comment.id)
-      return alert('You are operating too quickly, please try again later.');
+    if (!comment.id) {
+      void appAlert({
+        title: '暂时无法编辑评论',
+        description: '操作过于频繁，请稍后再试。',
+        tone: 'danger',
+      });
+      return;
+    }
 
     setEditingId(comment.id);
   }, [comment.id, setEditingId]);

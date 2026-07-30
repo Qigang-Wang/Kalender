@@ -21,12 +21,14 @@ import {
 import { discoverExchangeMailbox } from "@/server/exchange-mail";
 import { runExchangeMailSync } from "@/server/exchange-mail-sync";
 import { getExchangeMailAccountForCalendar } from "@/server/mail-repository";
+import { ensureCalendarSyncScheduler } from "@/server/calendar-sync-scheduler";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function GET() {
-  return NextResponse.json({ ok: true, accounts: await listCalendarAccounts() });
+  const scheduler = await ensureCalendarSyncScheduler();
+  return NextResponse.json({ ok: true, accounts: await listCalendarAccounts(), scheduler });
 }
 
 export async function POST(request: Request) {

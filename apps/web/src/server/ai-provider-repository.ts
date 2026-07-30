@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { decryptCredential, encryptCredential } from "./credential-crypto";
 import { getDatabase } from "./database";
+import { getUserScope } from "./user-scope";
 import {
   AiProviderError,
   aiFeatureKeys,
@@ -135,23 +136,27 @@ const modelSelect = `
 
 export async function listAiProviders(): Promise<readonly StoredAiProvider[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<ProviderRow>(`${providerSelect}
+    ${scope.active ? "WHERE p.user_id = $1" : ""}
     GROUP BY p.id
-    ORDER BY p.created_at`);
+    ORDER BY p.created_at`, scope.active ? [scope.userId] : []);
   return result.rows.map(mapProvider);
 }
 
 export async function getAiProvider(id: string): Promise<StoredAiProvider | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<ProviderRow>(`${providerSelect}
-    WHERE p.id = $1
+    WHERE p.id = $1${scope.active ? " AND p.user_id = $2" : ""}
     GROUP BY p.id
-    LIMIT 1`, [id]);
+    LIMIT 1`, scope.active ? [id, scope.userId] : [id]);
   return result.rows[0] ? mapProvider(result.rows[0]) : undefined;
 }
 
 export async function saveAiProvider(input: ParsedAiProviderInput): Promise<StoredAiProvider> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const providerId = input.providerId ?? randomUUID();
   const existing = input.providerId ? await getAiProvider(input.providerId) : undefined;
   if (input.providerId && !existing) throw new AiProviderError("AI API 不存在", "AI_PROVIDER_NOT_FOUND", 404);
@@ -163,9 +168,9 @@ export async function saveAiProvider(input: ParsedAiProviderInput): Promise<Stor
     await database.transaction(async (transaction) => {
       await transaction.query(
         `INSERT INTO ai_providers (
-           id, display_name, provider_kind, base_url, auth_scheme, auth_header_name,
+           id, user_id, display_name, provider_kind, base_url, auth_scheme, auth_header_name,
            enabled, allow_private_network, request_timeout_ms, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
          ON CONFLICT (id) DO UPDATE SET
            display_name = EXCLUDED.display_name,
            provider_kind = EXCLUDED.provider_kind,
@@ -176,7 +181,7 @@ export async function saveAiProvider(input: ParsedAiProviderInput): Promise<Stor
            allow_private_network = EXCLUDED.allow_private_network,
            request_timeout_ms = EXCLUDED.request_timeout_ms,
            updated_at = now()`,
-        [providerId, input.displayName, input.providerKind, input.baseUrl, input.authScheme,
+        [providerId, scope.valueOrNull(), input.displayName, input.providerKind, input.baseUrl, input.authScheme,
           input.authHeaderName, input.enabled, input.allowPrivateNetwork, input.requestTimeoutMs],
       );
       if (encryptedPayload) {
@@ -202,8 +207,14 @@ export async function saveAiProvider(input: ParsedAiProviderInput): Promise<Stor
 
 export async function loadAiProviderCredential(providerId: string): Promise<AiProviderCredential> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{ encrypted_payload: string }>(
-    "SELECT encrypted_payload FROM ai_provider_credentials WHERE provider_id = $1 LIMIT 1", [providerId],
+    `SELECT c.encrypted_payload
+       FROM ai_provider_credentials c
+       JOIN ai_providers p ON p.id = c.provider_id
+      WHERE c.provider_id = $1${scope.active ? " AND p.user_id = $2" : ""}
+      LIMIT 1`,
+    scope.active ? [providerId, scope.userId] : [providerId],
   );
   const payload = result.rows[0]?.encrypted_payload;
   if (!payload) throw new AiProviderError("API Key 不存在", "AI_API_KEY_NOT_FOUND", 404);
@@ -212,7 +223,11 @@ export async function loadAiProviderCredential(providerId: string): Promise<AiPr
 
 export async function deleteAiProvider(providerId: string): Promise<boolean> {
   const database = await getDatabase();
-  const result = await database.query("DELETE FROM ai_providers WHERE id = $1", [providerId]);
+  const scope = await getUserScope();
+  const result = await database.query(
+    `DELETE FROM ai_providers WHERE id = $1${scope.active ? " AND user_id = $2" : ""}`,
+    scope.active ? [providerId, scope.userId] : [providerId],
+  );
   return (result.affectedRows ?? 0) > 0;
 }
 
@@ -221,24 +236,36 @@ export async function updateAiProviderTestStatus(
   result: { readonly status: "passed" | "failed"; readonly latencyMs?: number; readonly errorCode?: string },
 ): Promise<void> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   await database.query(
     `UPDATE ai_providers SET last_tested_at = now(), last_test_status = $2,
-       last_test_latency_ms = $3, last_error_code = $4, updated_at = now() WHERE id = $1`,
-    [providerId, result.status, result.latencyMs ?? null, result.errorCode ?? null],
+       last_test_latency_ms = $3, last_error_code = $4, updated_at = now() WHERE id = $1${scope.active ? " AND user_id = $5" : ""}`,
+    scope.active ? [providerId, result.status, result.latencyMs ?? null, result.errorCode ?? null, scope.userId] : [providerId, result.status, result.latencyMs ?? null, result.errorCode ?? null],
   );
 }
 
 export async function listAiModels(providerId?: string): Promise<readonly StoredAiModel[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = providerId
-    ? await database.query<ModelRow>(`${modelSelect} WHERE provider_id = $1 ORDER BY created_at`, [providerId])
-    : await database.query<ModelRow>(`${modelSelect} ORDER BY created_at`);
+    ? await database.query<ModelRow>(
+        `${modelSelect} WHERE provider_id = $1${scope.active ? " AND provider_id IN (SELECT id FROM ai_providers WHERE user_id = $2)" : ""} ORDER BY created_at`,
+        scope.active ? [providerId, scope.userId] : [providerId],
+      )
+    : await database.query<ModelRow>(
+        `${modelSelect}${scope.active ? " WHERE provider_id IN (SELECT id FROM ai_providers WHERE user_id = $1)" : ""} ORDER BY created_at`,
+        scope.active ? [scope.userId] : [],
+      );
   return result.rows.map(mapModel);
 }
 
 export async function getAiModel(id: string): Promise<StoredAiModel | undefined> {
   const database = await getDatabase();
-  const result = await database.query<ModelRow>(`${modelSelect} WHERE id = $1 LIMIT 1`, [id]);
+  const scope = await getUserScope();
+  const result = await database.query<ModelRow>(
+    `${modelSelect} WHERE id = $1${scope.active ? " AND provider_id IN (SELECT id FROM ai_providers WHERE user_id = $2)" : ""} LIMIT 1`,
+    scope.active ? [id, scope.userId] : [id],
+  );
   return result.rows[0] ? mapModel(result.rows[0]) : undefined;
 }
 
@@ -291,26 +318,34 @@ export async function updateAiModelTestStatus(
   result: { readonly status: "passed" | "failed"; readonly capabilities?: AiModelCapabilities; readonly latencyMs?: number; readonly errorCode?: string },
 ): Promise<void> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   await database.query(
     `UPDATE ai_models SET last_tested_at = now(), last_test_status = $2,
        capabilities = COALESCE($3::jsonb, capabilities), last_test_latency_ms = $4,
-       last_error_code = $5, updated_at = now() WHERE id = $1`,
-    [modelId, result.status, result.capabilities ? JSON.stringify(result.capabilities) : null,
-      result.latencyMs ?? null, result.errorCode ?? null],
+       last_error_code = $5, updated_at = now() WHERE id = $1${scope.active ? " AND provider_id IN (SELECT id FROM ai_providers WHERE user_id = $6)" : ""}`,
+    scope.active
+      ? [modelId, result.status, result.capabilities ? JSON.stringify(result.capabilities) : null, result.latencyMs ?? null, result.errorCode ?? null, scope.userId]
+      : [modelId, result.status, result.capabilities ? JSON.stringify(result.capabilities) : null, result.latencyMs ?? null, result.errorCode ?? null],
   );
 }
 
 export async function deleteAiModel(modelId: string): Promise<boolean> {
   const database = await getDatabase();
-  const result = await database.query("DELETE FROM ai_models WHERE id = $1", [modelId]);
+  const scope = await getUserScope();
+  const result = await database.query(
+    `DELETE FROM ai_models WHERE id = $1${scope.active ? " AND provider_id IN (SELECT id FROM ai_providers WHERE user_id = $2)" : ""}`,
+    scope.active ? [modelId, scope.userId] : [modelId],
+  );
   return (result.affectedRows ?? 0) > 0;
 }
 
 export async function listAiFeatureBindings(): Promise<readonly StoredAiFeatureBinding[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<BindingRow>(
     `SELECT feature_key, primary_model_id, fallback_model_id, context_budget_tokens, timeout_ms, tool_mode
-       FROM ai_feature_bindings`,
+       FROM ai_feature_bindings${scope.active ? " WHERE user_id = $1" : ""}`,
+    scope.active ? [scope.userId] : [],
   );
   const stored = new Map(result.rows.map((row) => [row.feature_key, mapBinding(row)]));
   return aiFeatureKeys.map((featureKey) => stored.get(featureKey) ?? {
@@ -323,24 +358,28 @@ export async function listAiFeatureBindings(): Promise<readonly StoredAiFeatureB
 
 export async function saveAiFeatureBinding(input: ParsedAiFeatureBindingInput): Promise<StoredAiFeatureBinding> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   if (input.primaryModelId && !await getAiModel(input.primaryModelId)) {
     throw new AiProviderError("主模型不存在", "AI_MODEL_NOT_FOUND", 404);
   }
   if (input.fallbackModelId && !await getAiModel(input.fallbackModelId)) {
     throw new AiProviderError("备用模型不存在", "AI_MODEL_NOT_FOUND", 404);
   }
+  if (!scope.active) {
+    await database.query("DELETE FROM ai_feature_bindings WHERE user_id IS NULL AND feature_key = $1", [input.featureKey]);
+  }
   await database.query(
     `INSERT INTO ai_feature_bindings (
-       feature_key, primary_model_id, fallback_model_id, context_budget_tokens, timeout_ms, tool_mode, updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, now())
-     ON CONFLICT (feature_key) DO UPDATE SET
+       user_id, feature_key, primary_model_id, fallback_model_id, context_budget_tokens, timeout_ms, tool_mode, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+     ON CONFLICT (user_id, feature_key) DO UPDATE SET
        primary_model_id = EXCLUDED.primary_model_id,
        fallback_model_id = EXCLUDED.fallback_model_id,
        context_budget_tokens = EXCLUDED.context_budget_tokens,
        timeout_ms = EXCLUDED.timeout_ms,
        tool_mode = EXCLUDED.tool_mode,
        updated_at = now()`,
-    [input.featureKey, input.primaryModelId ?? null, input.fallbackModelId ?? null,
+    [scope.valueOrNull(), input.featureKey, input.primaryModelId ?? null, input.fallbackModelId ?? null,
       input.contextBudgetTokens, input.timeoutMs, input.toolMode],
   );
   return input;

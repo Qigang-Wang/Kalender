@@ -1,10 +1,23 @@
-import type { UpsertCalendarEventInput } from "../../../../src/mail/types";
+import type {
+  CalendarRecurrenceEditScope,
+  CalendarRecurrenceRule,
+  UpsertCalendarEventInput,
+} from "../../../../src/mail/types";
+
+import { normalizeCalendarRecurrence } from "../lib/calendar-recurrence";
+import {
+  PLATE_NOTE_PREFIX,
+  decodeNoteContent,
+  encodeNoteContent,
+  noteContentToPlainText,
+} from "../lib/note-content";
 
 export interface CalendarEventRequestBody {
   readonly id?: unknown;
   readonly calendarId?: unknown;
   readonly title?: unknown;
   readonly description?: unknown;
+  readonly descriptionContent?: unknown;
   readonly location?: unknown;
   readonly start?: unknown;
   readonly end?: unknown;
@@ -12,6 +25,10 @@ export interface CalendarEventRequestBody {
   readonly allDay?: unknown;
   readonly idempotencyKey?: unknown;
   readonly allowConflicts?: unknown;
+  readonly recurrence?: unknown;
+  readonly recurrenceSeriesId?: unknown;
+  readonly recurrenceId?: unknown;
+  readonly recurrenceScope?: unknown;
 }
 
 export function parseCalendarEventInput(body: CalendarEventRequestBody | null): UpsertCalendarEventInput {
@@ -34,11 +51,21 @@ export function parseCalendarEventInput(body: CalendarEventRequestBody | null): 
   } catch {
     throw new CalendarValidationError("时区无效");
   }
+  const recurrence = parseRecurrence(body.recurrence);
+  const recurrenceSeriesId = optionalIdentifier(body.recurrenceSeriesId);
+  const recurrenceId = recurrenceSeriesId ? parseDate(body.recurrenceId, "重复日程发生时间").toISOString() : undefined;
+  const recurrenceScope = recurrenceSeriesId ? parseRecurrenceScope(body.recurrenceScope) : undefined;
+  const descriptionContent = optionalRichText(body.descriptionContent);
+  const description = descriptionContent
+    ? noteContentToPlainText(descriptionContent) || undefined
+    : optionalText(body.description, 100_000, "说明");
+  if ((description?.length ?? 0) > 100_000) throw new CalendarValidationError("说明内容过长");
   return {
     id: typeof body.id === "string" && body.id ? body.id : undefined,
     calendarId: body.calendarId,
     title,
-    description: optionalText(body.description, 100_000, "说明"),
+    description,
+    descriptionContent,
     location: optionalText(body.location, 500, "地点"),
     start: start.toISOString(),
     end: end.toISOString(),
@@ -48,7 +75,19 @@ export function parseCalendarEventInput(body: CalendarEventRequestBody | null): 
     idempotencyKey: typeof body.idempotencyKey === "string" && body.idempotencyKey
       ? body.idempotencyKey.slice(0, 200)
       : undefined,
+    recurrence,
+    recurrenceSeriesId,
+    recurrenceId,
+    recurrenceScope,
   };
+}
+
+function optionalRichText(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string" || value.length > 500_000 || !value.startsWith(PLATE_NOTE_PREFIX)) {
+    throw new CalendarValidationError("富文本备注格式无效");
+  }
+  return encodeNoteContent(decodeNoteContent(value));
 }
 
 export function parseCalendarRange(url: URL): { from: string; to: string; calendarIds?: readonly string[] } {
@@ -83,4 +122,35 @@ function optionalText(value: unknown, maximum: number, label: string): string | 
     throw new CalendarValidationError(`${label}内容过长`);
   }
   return value.trim() || undefined;
+}
+
+function parseRecurrence(value: unknown): CalendarRecurrenceRule | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new CalendarValidationError("重复规则无效");
+  }
+  const rule = value as Partial<CalendarRecurrenceRule>;
+  try {
+    return normalizeCalendarRecurrence({
+      frequency: rule.frequency!,
+      interval: rule.interval!,
+      weekDays: Array.isArray(rule.weekDays) ? rule.weekDays : undefined,
+      end: rule.end!,
+      until: typeof rule.until === "string" ? rule.until : undefined,
+      count: typeof rule.count === "number" ? rule.count : undefined,
+    });
+  } catch (error) {
+    throw new CalendarValidationError(error instanceof Error ? error.message : "重复规则无效");
+  }
+}
+
+function optionalIdentifier(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, 500) : undefined;
+}
+
+function parseRecurrenceScope(value: unknown): CalendarRecurrenceEditScope {
+  if (value === undefined || value === "occurrence") return "occurrence";
+  if (value === "following" || value === "series") return value;
+  throw new CalendarValidationError("重复日程修改范围无效");
 }

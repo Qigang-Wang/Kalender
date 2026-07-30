@@ -302,12 +302,15 @@ export interface CalendarSummary {
   readonly providerData?: Readonly<Record<string, unknown>>;
 }
 
+export type CalendarAvailability = "free" | "tentative" | "busy" | "oof" | "working_elsewhere";
+
 export interface CalendarEvent {
   readonly id: string;
   readonly providerEventId: string;
   readonly calendarId: string;
   readonly title: string;
   readonly description?: string;
+  readonly descriptionContent?: string;
   readonly location?: string;
   readonly start: ISODateTime;
   readonly end: ISODateTime;
@@ -316,7 +319,26 @@ export interface CalendarEvent {
   readonly attendees: readonly MailAddress[];
   readonly meetingUrl?: string;
   readonly status: "confirmed" | "tentative" | "cancelled";
+  readonly availability?: CalendarAvailability;
+  readonly recurrence?: CalendarRecurrenceRule;
+  readonly recurrenceSeriesId?: string;
+  readonly recurrenceId?: ISODateTime;
+  readonly recurrenceException?: boolean;
   readonly providerData?: Readonly<Record<string, unknown>>;
+}
+
+export type CalendarRecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly";
+export type CalendarRecurrenceEnd = "never" | "until" | "count";
+export type CalendarRecurrenceEditScope = "occurrence" | "following" | "series";
+
+export interface CalendarRecurrenceRule {
+  readonly frequency: CalendarRecurrenceFrequency;
+  readonly interval: number;
+  /** ISO weekday numbers: Monday = 1, Sunday = 7. */
+  readonly weekDays?: readonly number[];
+  readonly end: CalendarRecurrenceEnd;
+  readonly until?: ISODateTime;
+  readonly count?: number;
 }
 
 export interface ListCalendarEventsInput {
@@ -332,13 +354,19 @@ export interface UpsertCalendarEventInput {
   readonly calendarId: string;
   readonly title: string;
   readonly description?: string;
+  readonly descriptionContent?: string;
   readonly location?: string;
   readonly start: ISODateTime;
   readonly end: ISODateTime;
   readonly timeZone?: string;
   readonly allDay?: boolean;
   readonly attendees?: readonly MailAddress[];
+  readonly availability?: CalendarAvailability;
   readonly idempotencyKey?: string;
+  readonly recurrence?: CalendarRecurrenceRule | null;
+  readonly recurrenceSeriesId?: string;
+  readonly recurrenceId?: ISODateTime;
+  readonly recurrenceScope?: CalendarRecurrenceEditScope;
 }
 
 export interface CalendarProvider {

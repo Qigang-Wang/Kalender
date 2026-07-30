@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { AlertCircle, CalendarDays, ChevronDown, Folder, FolderPlus, Link2, ListChecks, LoaderCircle, Mail, NotebookPen, Pencil } from "lucide-react";
+import { AlertCircle, CalendarDays, Folder, FolderPlus, Link2, ListChecks, LoaderCircle, Mail, NotebookPen, Pencil } from "lucide-react";
 import { useEffect, useState } from "react";
+
+import { AppSelect } from "../app-select";
 
 interface ClientProject {
   readonly id: string;
@@ -178,8 +180,8 @@ export function ProjectAssociationControl({
     <label className="project-association-control">
       <Folder size={14} />
       <span>所属项目</span>
-      <select aria-label="所属项目" value={projectId} disabled={busy} onChange={(event) => void changeProject(event.target.value)}><option value="">无项目</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select>
-      {busy ? <LoaderCircle className="spin" size={13} /> : <ChevronDown size={13} />}
+      <AppSelect ariaLabel="所属项目" size="compact" variant="ghost" value={projectId} disabled={busy} onValueChange={(nextProjectId) => void changeProject(nextProjectId)} options={[{ value: "", label: "无项目" }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} />
+      {busy && <LoaderCircle className="spin" size={13} />}
       {error && <small>{error}</small>}
     </label>
   );

@@ -1,6 +1,6 @@
 # 数据库迁移与回滚
 
-Kalender 使用 PGlite 保存本地数据。数据库升级采用只增不改的版本化迁移，定义位于
+Kalender 使用 PostgreSQL 保存数据。数据库升级采用只增不改的版本化迁移，定义位于
 `apps/web/src/server/database.ts`，执行器位于
 `apps/web/src/server/database-migrations.ts`。
 
@@ -15,16 +15,13 @@ Kalender 使用 PGlite 保存本地数据。数据库升级采用只增不改的
 
 ## 启动流程
 
-1. 打开 `.data/postgres`；
+1. 通过 `DATABASE_URL` 连接 PostgreSQL；
 2. 创建或读取 `schema_migrations`；
 3. 校验已有版本、名称和校验值；
-4. 如果旧数据库存在待执行迁移，在 `.data/automatic-backups` 创建
-   `pre-migration-v<from>-to-v<to>-<timestamp>.tgz` 和对应 JSON 清单；
-5. 在单个事务内按版本顺序执行全部待处理迁移；
-6. 提交后应用才开始访问业务表。
+4. 在单个事务内按版本顺序执行全部待处理迁移；
+5. 提交后应用才开始访问业务表。
 
-全新空数据库不会创建无意义的迁移前快照。已经是最新版本的数据库重复启动不会重复执行
-SQL，也不会生成额外快照。
+全新空数据库会直接建立最新 schema。已经是最新版本的数据库重复启动不会重复执行 SQL。
 
 ## 状态检查
 
@@ -42,14 +39,12 @@ npm run db:migrations:status
 
 如果迁移成功但新版本应用出现语义问题：
 
-1. 停止 Kalender 和所有可能打开 PGlite 的进程；
-2. 保留当前 `.data/postgres`，不要覆盖或删除；
-3. 保留对应的迁移前 `.tgz` 与 JSON 清单；
-4. 使用修复后的应用验证快照，或在独立目录通过 PGlite `loadDataDir` 加载快照并检查数据；
-5. 只有验证通过后才交换数据库目录；需要回到旧 Schema 时，同时运行兼容该 Schema 的旧应用版本。
+1. 停止 Kalender 和后台同步进程；
+2. 使用部署环境的 PostgreSQL 备份、`pg_dump` 或托管数据库快照恢复；
+3. 使用修复后的应用验证恢复后的数据库；
+4. 需要回到旧 Schema 时，同时运行兼容该 Schema 的旧应用版本。
 
-迁移前快照只覆盖数据库。草稿附件和主密钥不会被迁移 SQL 修改；完整灾难恢复仍应使用设置页
-导出的 ZIP 备份。
+PostgreSQL 备份只覆盖数据库。草稿附件和主密钥需要与数据库备份一起纳入部署级备份流程。
 
 ## 新增迁移
 

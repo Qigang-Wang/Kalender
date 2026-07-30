@@ -220,6 +220,7 @@ export function parseIcsEvents(ics: string, sourceUrl: string, etag?: string): r
       attendees,
       meetingUrl: optionalPropertyValue(properties, "URL"),
       status: statusValue === "CANCELLED" ? "cancelled" : statusValue === "TENTATIVE" ? "tentative" : "confirmed",
+      availability: propertyValue(properties, "TRANSP").toUpperCase() === "TRANSPARENT" ? "free" : "busy",
       etag,
       sourceUrl,
       providerData: { providerId: "caldav", sourceUrl, etag },

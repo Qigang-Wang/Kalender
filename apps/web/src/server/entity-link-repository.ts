@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { getDatabase } from "./database";
+import { getUserScope } from "./user-scope";
 
 export const entityKinds = ["mail", "calendar", "task", "note", "project"] as const;
 export type EntityKind = (typeof entityKinds)[number];
@@ -56,6 +57,7 @@ export async function saveEntityLink(input: SaveEntityLinkInput): Promise<Stored
     throw new EntityLinkRepositoryError("ENTITY_LINK_SELF", "不能把对象关联到自身", 400);
   }
   const database = await getDatabase();
+  const scope = await getUserScope();
   const [sourceExists, targetExists] = await Promise.all([
     entityExists(input.sourceKind, input.sourceId),
     entityExists(input.targetKind, input.targetId),
@@ -69,16 +71,17 @@ export async function saveEntityLink(input: SaveEntityLinkInput): Promise<Stored
       WHERE relation = $1
         AND ((source_kind = $2 AND source_id = $3 AND target_kind = $4 AND target_id = $5)
           OR (source_kind = $4 AND source_id = $5 AND target_kind = $2 AND target_id = $3))
+        ${scope.active ? "AND user_id = $6" : ""}
       LIMIT 1`,
-    [input.relation, input.sourceKind, input.sourceId, input.targetKind, input.targetId],
+    scope.active ? [input.relation, input.sourceKind, input.sourceId, input.targetKind, input.targetId, scope.userId] : [input.relation, input.sourceKind, input.sourceId, input.targetKind, input.targetId],
   );
   if (existing.rows[0]) return mapLink(existing.rows[0]);
 
   const result = await database.query<LinkRow>(
-    `INSERT INTO entity_links (id, source_kind, source_id, target_kind, target_id, relation)
-     VALUES ($1,$2,$3,$4,$5,$6)
+    `INSERT INTO entity_links (id, user_id, source_kind, source_id, target_kind, target_id, relation)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
      RETURNING id, source_kind, source_id, target_kind, target_id, relation, created_at`,
-    [randomUUID(), input.sourceKind, input.sourceId, input.targetKind, input.targetId, input.relation],
+    [randomUUID(), scope.valueOrNull(), input.sourceKind, input.sourceId, input.targetKind, input.targetId, input.relation],
   );
   const saved = result.rows[0];
   if (!saved) throw new EntityLinkRepositoryError("ENTITY_LINK_SAVE_FAILED", "无法保存对象关联", 500);
@@ -87,12 +90,14 @@ export async function saveEntityLink(input: SaveEntityLinkInput): Promise<Stored
 
 export async function listRelatedEntities(kind: EntityKind, entityId: string): Promise<readonly RelatedEntity[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<LinkRow>(
     `SELECT id, source_kind, source_id, target_kind, target_id, relation, created_at
        FROM entity_links
-      WHERE (source_kind = $1 AND source_id = $2) OR (target_kind = $1 AND target_id = $2)
+      WHERE ((source_kind = $1 AND source_id = $2) OR (target_kind = $1 AND target_id = $2))
+        ${scope.active ? "AND user_id = $3" : ""}
       ORDER BY created_at DESC`,
-    [kind, entityId],
+    scope.active ? [kind, entityId, scope.userId] : [kind, entityId],
   );
   const related = await Promise.all(result.rows.map(async (row): Promise<RelatedEntity | undefined> => {
     const currentIsSource = row.source_kind === kind && row.source_id === entityId;
@@ -115,15 +120,20 @@ export async function listRelatedEntities(kind: EntityKind, entityId: string): P
 
 export async function deleteEntityLink(linkId: string): Promise<boolean> {
   const database = await getDatabase();
-  const result = await database.query<{ id: string }>("DELETE FROM entity_links WHERE id = $1 RETURNING id", [linkId]);
+  const scope = await getUserScope();
+  const result = await database.query<{ id: string }>(
+    `DELETE FROM entity_links WHERE id = $1${scope.active ? " AND user_id = $2" : ""} RETURNING id`,
+    scope.active ? [linkId, scope.userId] : [linkId],
+  );
   return Boolean(result.rows[0]);
 }
 
 export async function deleteEntityLinksFor(kind: EntityKind, entityId: string): Promise<void> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   await database.query(
-    "DELETE FROM entity_links WHERE (source_kind = $1 AND source_id = $2) OR (target_kind = $1 AND target_id = $2)",
-    [kind, entityId],
+    `DELETE FROM entity_links WHERE ((source_kind = $1 AND source_id = $2) OR (target_kind = $1 AND target_id = $2))${scope.active ? " AND user_id = $3" : ""}`,
+    scope.active ? [kind, entityId, scope.userId] : [kind, entityId],
   );
 }
 
@@ -140,28 +150,44 @@ async function entityExists(kind: EntityKind, entityId: string): Promise<boolean
 
 async function resolveEntityDetails(kind: EntityKind, entityId: string): Promise<EntityDetails | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   if (kind === "mail") {
-    const result = await database.query<{ subject: string; received_at: string | Date }>("SELECT subject, received_at FROM mail_messages WHERE id = $1 LIMIT 1", [entityId]);
+    const result = await database.query<{ subject: string; received_at: string | Date }>(
+      `SELECT m.subject, m.received_at FROM mail_messages m JOIN accounts a ON a.id = m.account_id WHERE m.id = $1${scope.active ? " AND a.user_id = $2" : ""} LIMIT 1`,
+      scope.active ? [entityId, scope.userId] : [entityId],
+    );
     const row = result.rows[0];
     return row ? { title: row.subject, meta: "邮件", href: `/inbox?message=${encodeURIComponent(entityId)}` } : undefined;
   }
   if (kind === "calendar") {
-    const result = await database.query<{ title: string; starts_at: string | Date }>("SELECT title, starts_at FROM calendar_events WHERE id = $1 LIMIT 1", [entityId]);
+    const result = await database.query<{ title: string; starts_at: string | Date }>(
+      `SELECT e.title, e.starts_at FROM calendar_events e JOIN calendars c ON c.id = e.calendar_id WHERE e.id = $1${scope.active ? " AND c.user_id = $2" : ""} LIMIT 1`,
+      scope.active ? [entityId, scope.userId] : [entityId],
+    );
     const row = result.rows[0];
     const start = row ? toIso(row.starts_at) : undefined;
     return row && start ? { title: row.title, meta: "日程", href: `/calendar?event=${encodeURIComponent(entityId)}&date=${encodeURIComponent(start)}` } : undefined;
   }
   if (kind === "task") {
-    const result = await database.query<{ title: string; status: string }>("SELECT title, status FROM tasks WHERE id = $1 LIMIT 1", [entityId]);
+    const result = await database.query<{ title: string; status: string }>(
+      `SELECT title, status FROM tasks WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+      scope.active ? [entityId, scope.userId] : [entityId],
+    );
     const row = result.rows[0];
     return row ? { title: row.title, meta: row.status === "done" ? "任务 · 已完成" : "任务", href: `/tasks?task=${encodeURIComponent(entityId)}` } : undefined;
   }
   if (kind === "note") {
-    const result = await database.query<{ title: string; note_type: string }>("SELECT title, note_type FROM notes WHERE id = $1 LIMIT 1", [entityId]);
+    const result = await database.query<{ title: string; note_type: string }>(
+      `SELECT title, note_type FROM notes WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+      scope.active ? [entityId, scope.userId] : [entityId],
+    );
     const row = result.rows[0];
     return row ? { title: row.title, meta: row.note_type === "meeting" ? "会议笔记" : "笔记", href: `/notes?note=${encodeURIComponent(entityId)}` } : undefined;
   }
-  const result = await database.query<{ name: string; status: string }>("SELECT name, status FROM projects WHERE id = $1 LIMIT 1", [entityId]);
+  const result = await database.query<{ name: string; status: string }>(
+    `SELECT name, status FROM projects WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [entityId, scope.userId] : [entityId],
+  );
   const row = result.rows[0];
   return row ? { title: row.name, meta: row.status === "archived" ? "项目 · 已归档" : "项目", href: `/projects?project=${encodeURIComponent(entityId)}` } : undefined;
 }

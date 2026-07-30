@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Archive,
   AlertCircle,
@@ -16,25 +17,30 @@ import {
   ChevronRight,
   Circle,
   Clock3,
+  Copy,
   DatabaseBackup,
   Download,
   FileText,
-  FileArchive,
   Folder,
   GripVertical,
   FolderPlus,
   HardDrive,
   Inbox,
   ImageIcon,
+  Keyboard,
   LayoutGrid,
   Link2,
   ListChecks,
+  LogOut,
   LoaderCircle,
   Mail,
   MapPin,
   MoreHorizontal,
+  Monitor,
+  Moon,
   NotebookPen,
   Pause,
+  Palette,
   Paperclip,
   Pencil,
   Play,
@@ -47,8 +53,11 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  Sun,
   Trash2,
   Upload,
+  UserRound,
+  Users,
   WandSparkles,
   WifiOff,
   X,
@@ -56,6 +65,9 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { ContextMenu } from "./context-menu";
+import { AppSelect } from "./app-select";
+import { MailSignatureSettings } from "./mail-signature-settings";
+import { readThemePreference, saveThemePreference } from "./theme-controller";
 import { TransientToast } from "./workspace-shared";
 import {
   createClientEntityLink,
@@ -67,13 +79,23 @@ import type { TaskView } from "./pages/tasks-page";
 
 export type { TaskView } from "./pages/tasks-page";
 import { GlobalCommandBar } from "./global-command-bar";
+import { WorkspaceAssistantProvider, useWorkspaceAssistant } from "./workspace-assistant-context";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
+import { appConfirm, appPrompt } from "@/components/app-dialog-provider";
+import {
+  SyncSettingsProvider,
+  useSyncSettings,
+  type ClientSyncSettings,
+} from "@/components/sync-settings-context";
+import { useVisiblePageRefresh } from "@/hooks/use-visible-page-refresh";
 import {
   resolveContextCommands,
+  type CalendarAccountCommandId,
   type CalendarEventCommandId,
   type CalendarSlotCommandId,
   type ContextCommandId,
+  type MailAccountCommandId,
   type MailMessageCommandId,
   type MailFolderCommandId,
   type NoteCommandId,
@@ -161,6 +183,7 @@ interface SidebarMailAccount {
   readonly color: string;
   readonly unreadCount: number;
   readonly lastSyncAt?: string;
+  readonly syncStatus: "idle" | "syncing" | "ready" | "error" | "paused";
 }
 
 interface SidebarMailFolder {
@@ -181,7 +204,10 @@ interface SidebarCalendarSource {
   readonly color?: string;
   readonly readOnly: boolean;
   readonly primary: boolean;
-  readonly providerData?: { readonly providerId?: string };
+  readonly providerData?: {
+    readonly providerId?: string;
+    readonly accountId?: string;
+  };
 }
 
 interface SidebarTaskSummary {
@@ -216,6 +242,20 @@ interface SidebarProjectAreaMenuState {
   readonly returnFocus?: HTMLElement | null;
 }
 
+interface SidebarMailAccountMenuState {
+  readonly accountId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly returnFocus?: HTMLElement | null;
+}
+
+interface SidebarCalendarMenuState {
+  readonly calendarId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly returnFocus?: HTMLElement | null;
+}
+
 const navigation: ReadonlyArray<{
   section: WorkspaceSection;
   label: string;
@@ -244,23 +284,63 @@ const sidebarTaskViews: ReadonlyArray<{
   { view: "matrix", label: "四象限", icon: LayoutGrid },
 ];
 
-const pageCopy: Record<WorkspaceSection, { title: string; subtitle: string; assistant: string }> = {
-  today: { title: "Today", subtitle: "当天日程、需要推进的任务和未读邮件。", assistant: "每日简报" },
-  inbox: { title: "统一收件箱", subtitle: "两个账户 · 16 封未读", assistant: "邮件助手" },
-  calendar: { title: "日历", subtitle: "在周视图和月视图中管理时间", assistant: "日程建议" },
-  tasks: { title: "Today Tasks", subtitle: "从沟通到执行的统一任务列表", assistant: "任务建议" },
-  projects: { title: "Projects", subtitle: "把任务、笔记和专注时间组织成可推进的项目", assistant: "项目建议" },
-  notes: { title: "Notes", subtitle: "按项目组织思考、会议与行动记录", assistant: "笔记助手" },
-  ai: { title: "AI Command", subtitle: "真实流式对话；当前阶段不读取或修改工作区数据。", assistant: "安全边界" },
-  settings: { title: "连接账户", subtitle: "统一管理邮箱和日历连接。", assistant: "连接安全" },
+type SettingsTab = "appearance" | "profile" | "users" | "diagnostics" | "jobs" | "operations" | "sync" | "mail" | "calendar" | "shortcuts" | "ai" | "backup" | "todo";
+
+const settingsNavigation: ReadonlyArray<{
+  tab: SettingsTab;
+  label: string;
+  icon: typeof Inbox;
+  adminOnly?: boolean;
+  badge?: string;
+}> = [
+  { tab: "appearance", label: "外观", icon: Palette },
+  { tab: "profile", label: "个人", icon: UserRound },
+  { tab: "users", label: "用户", icon: Users, adminOnly: true },
+  { tab: "diagnostics", label: "诊断", icon: ShieldCheck, adminOnly: true },
+  { tab: "jobs", label: "任务", icon: Clock3 },
+  { tab: "operations", label: "运维", icon: HardDrive, adminOnly: true },
+  { tab: "sync", label: "同步", icon: RefreshCw },
+  { tab: "mail", label: "邮件", icon: Mail },
+  { tab: "calendar", label: "日历", icon: CalendarDays },
+  { tab: "shortcuts", label: "快捷键", icon: Keyboard },
+  { tab: "ai", label: "AI", icon: WandSparkles },
+  { tab: "backup", label: "备份", icon: DatabaseBackup },
+  { tab: "todo", label: "ToDo", icon: ListChecks, badge: "预留" },
+];
+
+function visibleSettingsNavigation(role: AppRole) {
+  return settingsNavigation.filter((item) => !item.adminOnly || role === "admin");
+}
+
+function normalizeSettingsTab(value: string | null | undefined, role: AppRole): SettingsTab {
+  const visibleTabs = new Set(visibleSettingsNavigation(role).map((item) => item.tab));
+  return visibleTabs.has(value as SettingsTab) ? value as SettingsTab : "appearance";
+}
+
+const pageAssistantTitles: Record<WorkspaceSection, string> = {
+  today: "每日简报",
+  inbox: "邮件助手",
+  calendar: "日程建议",
+  tasks: "任务建议",
+  projects: "项目建议",
+  notes: "笔记助手",
+  ai: "安全边界",
+  settings: "连接安全",
 };
 
 const DEFAULT_SIDEBAR_WIDTH = 176;
 const MIN_SIDEBAR_WIDTH = 156;
 const MAX_SIDEBAR_WIDTH = 420;
 const SIDEBAR_WIDTH_STORAGE_KEY = "kalender:workspace-sidebar-width";
+const CONTEXT_ASSISTANT_STORAGE_KEY = "kalender:context-assistant-open";
+const DEFAULT_CONTEXT_ASSISTANT_WIDTH = 320;
+const MIN_CONTEXT_ASSISTANT_WIDTH = 280;
+const MAX_CONTEXT_ASSISTANT_WIDTH = 560;
+const CONTEXT_ASSISTANT_WIDTH_STORAGE_KEY = "kalender:context-assistant-width";
 const MAIL_MESSAGE_DRAG_TYPE = "application/x-kalender-mail-message";
 const MAIL_MESSAGE_MOVED_EVENT = "kalender:mail-message-moved";
+const MAIL_SYNCED_EVENT = "kalender:mail-synced";
+const CALENDAR_SYNCED_EVENT = "kalender:calendar-synced";
 const TASKS_CHANGED_EVENT = "kalender:tasks-changed";
 const PROJECTS_CHANGED_EVENT = "kalender:projects-changed";
 const OPEN_PROJECT_DIALOG_EVENT = "kalender:open-project-dialog";
@@ -289,26 +369,38 @@ interface MailFolderConfirmation {
   readonly danger?: boolean;
 }
 
+type AppRole = "admin" | "user" | "viewer";
+
 function clampSidebarWidth(width: number) {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(width)));
 }
 
-export function WorkspaceApp({
-  section,
-  initialMessageId,
-  initialMailFolderId,
-  initialTaskId,
-  initialTaskView,
-  initialCreateTask,
-  initialScheduleTaskId,
-  initialEventId,
-  initialCalendarDate,
-  initialNoteId,
-  initialProjectId,
-}: {
+function clampContextAssistantWidth(width: number) {
+  return Math.min(MAX_CONTEXT_ASSISTANT_WIDTH, Math.max(MIN_CONTEXT_ASSISTANT_WIDTH, Math.round(width)));
+}
+
+async function logout() {
+  await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+  window.location.assign("/login");
+}
+
+function userInitialFor(displayName: string, email: string): string {
+  const source = displayName.trim() || email.trim();
+  return source.slice(0, 1).toUpperCase() || "U";
+}
+
+interface WorkspaceAppProps {
   readonly section: WorkspaceSection;
+  readonly currentUser: {
+    readonly id: string;
+    readonly displayName: string;
+    readonly email: string;
+    readonly role: AppRole;
+  };
   readonly initialMessageId?: string;
   readonly initialMailFolderId?: string;
+  readonly initialMailCorrespondent?: string;
+  readonly initialComposeTo?: string;
   readonly initialTaskId?: string;
   readonly initialTaskView?: TaskView;
   readonly initialCreateTask?: boolean;
@@ -317,9 +409,35 @@ export function WorkspaceApp({
   readonly initialCalendarDate?: string;
   readonly initialNoteId?: string;
   readonly initialProjectId?: string;
-}) {
+}
+
+export function WorkspaceApp(props: WorkspaceAppProps) {
+  return <SyncSettingsProvider><WorkspaceAppContent {...props} /></SyncSettingsProvider>;
+}
+
+function WorkspaceAppContent({
+  section,
+  currentUser,
+  initialMessageId,
+  initialMailFolderId,
+  initialMailCorrespondent,
+  initialComposeTo,
+  initialTaskId,
+  initialTaskView,
+  initialCreateTask,
+  initialScheduleTaskId,
+  initialEventId,
+  initialCalendarDate,
+  initialNoteId,
+  initialProjectId,
+}: WorkspaceAppProps) {
   useVisualViewportLayout();
+  const searchParams = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantPreferenceLoaded, setAssistantPreferenceLoaded] = useState(false);
+  const [assistantWidth, setAssistantWidth] = useState(DEFAULT_CONTEXT_ASSISTANT_WIDTH);
+  const [assistantWidthLoaded, setAssistantWidthLoaded] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const [sidebarWidthLoaded, setSidebarWidthLoaded] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -327,7 +445,13 @@ export function WorkspaceApp({
   const [sidebarMailFolders, setSidebarMailFolders] = useState<readonly SidebarMailFolder[]>([]);
   const [sidebarMailUnreadCount, setSidebarMailUnreadCount] = useState(0);
   const [expandedMailAccounts, setExpandedMailAccounts] = useState<ReadonlySet<string>>(() => new Set());
+  const [sidebarMailAccountMenu, setSidebarMailAccountMenu] = useState<SidebarMailAccountMenuState>();
+  const [sidebarMailSyncBusyId, setSidebarMailSyncBusyId] = useState<string>();
+  const [sidebarMailNotice, setSidebarMailNotice] = useState<string>();
   const [sidebarCalendars, setSidebarCalendars] = useState<readonly SidebarCalendarSource[]>();
+  const [sidebarCalendarMenu, setSidebarCalendarMenu] = useState<SidebarCalendarMenuState>();
+  const [sidebarCalendarSyncBusyId, setSidebarCalendarSyncBusyId] = useState<string>();
+  const [sidebarCalendarNotice, setSidebarCalendarNotice] = useState<string>();
   const [sidebarTasks, setSidebarTasks] = useState<readonly SidebarTaskSummary[]>();
   const [sidebarProjects, setSidebarProjects] = useState<readonly SidebarProjectSummary[]>();
   const [sidebarProjectMenu, setSidebarProjectMenu] = useState<SidebarProjectMenuState>();
@@ -337,9 +461,54 @@ export function WorkspaceApp({
   const [sidebarProjectNotice, setSidebarProjectNotice] = useState<string>();
   const [collapsedProjectAreas, setCollapsedProjectAreas] = useState<ReadonlySet<string>>(() => new Set());
   const userMenuRef = useRef<HTMLDivElement>(null);
-  const copy = pageCopy[section];
+  const activeSettingsTab = normalizeSettingsTab(searchParams.get("tab"), currentUser.role);
+  const visibleSettingItems = visibleSettingsNavigation(currentUser.role);
   const sidebarUnreadCount = sidebarMailAccounts?.reduce((total, account) => total + account.unreadCount, 0)
     ?? sidebarMailUnreadCount;
+  const userInitial = userInitialFor(currentUser.displayName, currentUser.email);
+  const assistantAvailable = section === "inbox" || section === "calendar" || section === "tasks";
+
+  useEffect(() => {
+    try {
+      setAssistantOpen(window.localStorage.getItem(CONTEXT_ASSISTANT_STORAGE_KEY) === "true");
+    } catch {
+      // The assistant remains collapsed when browser storage is unavailable.
+    } finally {
+      setAssistantPreferenceLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!assistantPreferenceLoaded) return;
+    try {
+      window.localStorage.setItem(CONTEXT_ASSISTANT_STORAGE_KEY, String(assistantOpen));
+    } catch {
+      // The current session still keeps the chosen state.
+    }
+  }, [assistantOpen, assistantPreferenceLoaded]);
+
+  useEffect(() => {
+    try {
+      const storedWidth = Number(window.localStorage.getItem(CONTEXT_ASSISTANT_WIDTH_STORAGE_KEY));
+      if (Number.isFinite(storedWidth) && storedWidth > 0) setAssistantWidth(clampContextAssistantWidth(storedWidth));
+    } catch {
+      // Keep the default width when browser storage is unavailable.
+    } finally {
+      setAssistantWidthLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!assistantWidthLoaded) return;
+    const timer = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(CONTEXT_ASSISTANT_WIDTH_STORAGE_KEY, String(assistantWidth));
+      } catch {
+        // Resizing still works when browser storage is unavailable.
+      }
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [assistantWidth, assistantWidthLoaded]);
 
   useEffect(() => {
     try {
@@ -382,8 +551,8 @@ export function WorkspaceApp({
 
   const refreshSidebarMail = useCallback(async () => {
     const [accountPayload, folderPayload] = await Promise.all([
-      workspaceFetch("/api/mail-accounts").then((response) => response.json()) as Promise<{ readonly accounts?: readonly { readonly id: string; readonly displayName: string; readonly color: string; readonly lastSyncAt?: string }[] }>,
-      workspaceFetch("/api/mail-folders").then((response) => response.json()) as Promise<{ readonly folders?: readonly SidebarMailFolder[] }>,
+      workspaceFetch("/api/mail-accounts", {}, 0).then((response) => response.json()) as Promise<{ readonly accounts?: readonly Omit<SidebarMailAccount, "unreadCount">[] }>,
+      workspaceFetch("/api/mail-folders", {}, 0).then((response) => response.json()) as Promise<{ readonly folders?: readonly SidebarMailFolder[] }>,
     ]);
     const folders = folderPayload.folders ?? [];
     const accounts = (accountPayload.accounts ?? []).map((account) => ({
@@ -397,6 +566,40 @@ export function WorkspaceApp({
     setExpandedMailAccounts((current) => current.size ? current : new Set(accounts.map((account) => account.id)));
   }, []);
 
+  const syncSidebarMailAccount = async (account: SidebarMailAccount) => {
+    if (sidebarMailSyncBusyId || account.syncStatus === "syncing" || account.syncStatus === "paused") return;
+    setSidebarMailSyncBusyId(account.id);
+    setSidebarMailNotice(`正在同步“${account.displayName}”…`);
+    try {
+      const response = await fetch(`/api/mail-accounts/${encodeURIComponent(account.id)}/sync`, { method: "POST" });
+      const payload = await response.json() as {
+        readonly ok?: boolean;
+        readonly message?: string;
+        readonly sync?: { readonly messagesProcessed?: number; readonly messagesRemoved?: number };
+      };
+      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "邮箱同步失败");
+      await refreshSidebarMail();
+      window.dispatchEvent(new Event(MAIL_SYNCED_EVENT));
+      const changedCount = (payload.sync?.messagesProcessed ?? 0) + (payload.sync?.messagesRemoved ?? 0);
+      setSidebarMailNotice(
+        changedCount > 0
+          ? `已同步“${account.displayName}”，更新 ${changedCount} 封邮件`
+          : `已同步“${account.displayName}”，没有新的变化`,
+      );
+    } catch (error) {
+      setSidebarMailNotice(error instanceof Error ? error.message : "邮箱同步失败");
+    } finally {
+      setSidebarMailSyncBusyId(undefined);
+    }
+  };
+
+  const refreshSidebarMailSummary = useCallback(async () => {
+    const response = await workspaceFetch("/api/mail-summary", {}, 0);
+    const payload = await response.json() as { readonly ok?: boolean; readonly unreadCount?: number };
+    if (!response.ok || !payload.ok) throw new Error("无法读取未读邮件数量");
+    setSidebarMailUnreadCount(payload.unreadCount ?? 0);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     if (section === "inbox") {
@@ -406,25 +609,62 @@ export function WorkspaceApp({
     } else {
       setSidebarMailAccounts(undefined);
       setSidebarMailFolders([]);
-      void workspaceFetch("/api/mail-summary")
-        .then(async (response) => {
-          const payload = await response.json() as { readonly ok?: boolean; readonly unreadCount?: number };
-          if (!response.ok || !payload.ok) throw new Error("无法读取未读邮件数量");
-          if (!cancelled) setSidebarMailUnreadCount(payload.unreadCount ?? 0);
-        })
+      void refreshSidebarMailSummary()
         .catch(() => {
           if (!cancelled) setSidebarMailUnreadCount(0);
         });
     }
     return () => { cancelled = true; };
-  }, [refreshSidebarMail, section]);
+  }, [refreshSidebarMail, refreshSidebarMailSummary, section]);
+
+  const refreshVisibleSidebarMail = useCallback(async () => {
+    if (section === "inbox") await refreshSidebarMail();
+    else await refreshSidebarMailSummary();
+  }, [refreshSidebarMail, refreshSidebarMailSummary, section]);
+  useVisiblePageRefresh(refreshVisibleSidebarMail);
 
   const refreshSidebarCalendars = useCallback(async () => {
-    const response = await workspaceFetch("/api/calendars");
+    const response = await workspaceFetch("/api/calendars", {}, 0);
     const payload = await response.json() as { readonly ok?: boolean; readonly calendars?: readonly SidebarCalendarSource[] };
     if (!response.ok || !payload.ok) throw new Error("无法读取日历来源");
     setSidebarCalendars(payload.calendars ?? []);
   }, []);
+
+  const refreshSidebarCalendar = async (calendar: SidebarCalendarSource) => {
+    if (sidebarCalendarSyncBusyId) return;
+    setSidebarCalendarMenu(undefined);
+    setSidebarCalendarSyncBusyId(calendar.id);
+    setSidebarCalendarNotice(`正在刷新“${calendar.name}”…`);
+    try {
+      const accountId = calendar.providerData?.accountId;
+      let eventsProcessed: number | undefined;
+      let mailSynced = false;
+      if (accountId) {
+        const response = await fetch(`/api/calendar-accounts/${encodeURIComponent(accountId)}/sync`, { method: "POST" });
+        const payload = await response.json() as {
+          readonly ok?: boolean;
+          readonly message?: string;
+          readonly sync?: { readonly eventsProcessed?: number };
+          readonly mailSync?: unknown;
+        };
+        if (!response.ok || !payload.ok) throw new Error(payload.message ?? "日历刷新失败");
+        eventsProcessed = payload.sync?.eventsProcessed;
+        mailSynced = Boolean(payload.mailSync);
+      }
+      await refreshSidebarCalendars();
+      window.dispatchEvent(new Event(CALENDAR_SYNCED_EVENT));
+      if (mailSynced) window.dispatchEvent(new Event(MAIL_SYNCED_EVENT));
+      setSidebarCalendarNotice(
+        eventsProcessed === undefined
+          ? `已刷新“${calendar.name}”`
+          : `已刷新“${calendar.name}”，读取 ${eventsProcessed} 项日程`,
+      );
+    } catch (error) {
+      setSidebarCalendarNotice(error instanceof Error ? error.message : "日历刷新失败");
+    } finally {
+      setSidebarCalendarSyncBusyId(undefined);
+    }
+  };
 
   const refreshSidebarTasks = useCallback(async () => {
     const response = await workspaceFetch("/api/tasks?includeCompleted=true");
@@ -544,7 +784,7 @@ export function WorkspaceApp({
     }
   };
 
-  const handleSidebarProjectCommand = (commandId: ProjectCommandId) => {
+  const handleSidebarProjectCommand = async (commandId: ProjectCommandId) => {
     const project = sidebarProjectMenuTarget;
     if (!project) return;
     if (commandId === "project.open") window.location.assign(`/projects?project=${encodeURIComponent(project.id)}`);
@@ -557,14 +797,33 @@ export function WorkspaceApp({
     } else if (commandId === "project.copy-link") {
       const href = new URL(`/projects?project=${encodeURIComponent(project.id)}`, window.location.origin).toString();
       if (navigator.clipboard) {
-        void navigator.clipboard.writeText(href)
-          .then(() => setSidebarProjectNotice("项目链接已复制"))
-          .catch(() => window.prompt("复制项目链接", href));
+        try {
+          await navigator.clipboard.writeText(href);
+          setSidebarProjectNotice("项目链接已复制");
+        } catch {
+          await appPrompt({
+            title: "复制项目链接",
+            description: "浏览器未允许自动写入剪贴板，请手动复制下面的地址。",
+            defaultValue: href,
+            confirmLabel: "关闭",
+            selectOnFocus: true,
+          });
+        }
       } else {
-        window.prompt("复制项目链接", href);
+        await appPrompt({
+          title: "复制项目链接",
+          description: "请手动复制下面的地址。",
+          defaultValue: href,
+          confirmLabel: "关闭",
+          selectOnFocus: true,
+        });
       }
     } else if (commandId === "project.archive") {
-      if (window.confirm(`归档项目“${project.name}”？关联内容会保留，之后可以恢复。`)) {
+      if (await appConfirm({
+        title: `归档项目“${project.name}”？`,
+        description: "关联内容会保留，之后可以恢复该项目。",
+        confirmLabel: "归档项目",
+      })) {
         void updateSidebarProject(project, { status: "archived" }, `已归档“${project.name}”`);
       }
     } else if (commandId === "project.restore") {
@@ -572,7 +831,7 @@ export function WorkspaceApp({
     }
   };
 
-  const handleSidebarProjectAreaCommand = (commandId: ProjectAreaCommandId) => {
+  const handleSidebarProjectAreaCommand = async (commandId: ProjectAreaCommandId) => {
     const areaName = sidebarProjectAreaMenu?.areaName;
     if (!areaName) return;
     if (commandId === "project-area.create-project") {
@@ -580,6 +839,58 @@ export function WorkspaceApp({
         detail: { areaName: areaName === "未分类" ? undefined : areaName },
       }));
       setSidebarOpen(false);
+      return;
+    }
+    if (commandId === "project-area.rename") {
+      if (areaName === "未分类") return;
+      const projectsInArea = sidebarProjects?.filter((project) => project.areaName === areaName).length ?? 0;
+      const input = await appPrompt({
+        title: "重命名领域",
+        description: `“${areaName}”中的 ${projectsInArea} 个项目会使用新名称；关联任务、笔记和日程不会改变。`,
+        defaultValue: areaName,
+        placeholder: "输入新的领域名称",
+        confirmLabel: "重命名",
+        selectOnFocus: true,
+      });
+      if (input === null) return;
+      const name = input.trim();
+      if (!name || name.length > 100) {
+        setSidebarProjectNotice("领域名称需要 1–100 个字符");
+        return;
+      }
+      if (name === "未分类") {
+        setSidebarProjectNotice("“未分类”是系统分组，不能作为领域名称");
+        return;
+      }
+      if (name === areaName) return;
+      setSidebarProjectBusyId(`area:${areaName}`);
+      try {
+        const response = await fetch("/api/projects/areas", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ previousName: areaName, name }),
+        });
+        const payload = await response.json() as {
+          readonly ok?: boolean;
+          readonly result?: { readonly projectsUpdated?: number };
+          readonly message?: string;
+        };
+        if (!response.ok || !payload.ok) throw new Error(payload.message ?? "无法重命名领域");
+        setCollapsedProjectAreas((current) => {
+          if (!current.has(areaName)) return current;
+          const next = new Set(current);
+          next.delete(areaName);
+          next.add(name);
+          return next;
+        });
+        await refreshSidebarProjects();
+        window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
+        setSidebarProjectNotice(`已将“${areaName}”重命名为“${name}”，更新 ${payload.result?.projectsUpdated ?? projectsInArea} 个项目`);
+      } catch (error) {
+        setSidebarProjectNotice(error instanceof Error ? error.message : "无法重命名领域");
+      } finally {
+        setSidebarProjectBusyId(undefined);
+      }
       return;
     }
     if (commandId === "project-area.toggle") {
@@ -594,6 +905,7 @@ export function WorkspaceApp({
   };
 
   return (
+    <WorkspaceAssistantProvider>
     <div className="app-shell" style={{ "--workspace-sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
         <div className="brand-row">
@@ -612,6 +924,23 @@ export function WorkspaceApp({
           ))}
         </nav>
 
+        {section === "settings" && <div className="account-block sidebar-context-block settings-sidebar-block">
+          <nav className="sidebar-settings-links" aria-label="设置分类">
+            {visibleSettingItems.map(({ tab, label, icon: Icon, badge }) => (
+              <Link
+                className={activeSettingsTab === tab ? "active" : ""}
+                href={`/settings?tab=${tab}`}
+                key={tab}
+                onClick={() => setSidebarOpen(false)}
+              >
+                <Icon size={14} />
+                <span>{label}</span>
+                {badge && <em>{badge}</em>}
+              </Link>
+            ))}
+          </nav>
+        </div>}
+
         {section === "inbox" && <div className="account-block">
           <p className="eyebrow">邮箱账户</p>
           {sidebarMailAccounts === undefined ? <small>正在读取账户…</small> : sidebarMailAccounts.length ? <>
@@ -621,13 +950,38 @@ export function WorkspaceApp({
                 <button
                   className="mail-account-toggle"
                   aria-expanded={expanded}
+                  aria-haspopup="menu"
                   onClick={() => setExpandedMailAccounts((current) => {
                     const next = new Set(current);
                     if (next.has(account.id)) next.delete(account.id); else next.add(account.id);
                     return next;
                   })}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setSidebarProjectMenu(undefined);
+                    setSidebarProjectAreaMenu(undefined);
+                    setSidebarMailAccountMenu({
+                      accountId: account.id,
+                      x: event.clientX,
+                      y: event.clientY,
+                      returnFocus: event.currentTarget,
+                    });
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+                    event.preventDefault();
+                    const bounds = event.currentTarget.getBoundingClientRect();
+                    setSidebarMailAccountMenu({
+                      accountId: account.id,
+                      x: bounds.right - 12,
+                      y: bounds.bottom + 4,
+                      returnFocus: event.currentTarget,
+                    });
+                  }}
                 >
-                  <ChevronDown className={expanded ? "" : "collapsed"} size={13} />
+                  {sidebarMailSyncBusyId === account.id
+                    ? <LoaderCircle className="spin" size={13} />
+                    : <ChevronDown className={expanded ? "" : "collapsed"} size={13} />}
                   <i className="account-dot" style={{ background: account.color }} />
                   <strong>{account.displayName}</strong>
                   {account.unreadCount > 0 && <span>{account.unreadCount}</span>}
@@ -648,8 +1002,25 @@ export function WorkspaceApp({
         {section === "calendar" && <div className="account-block sidebar-context-block">
           <p className="eyebrow">日历来源</p>
           {sidebarCalendars === undefined ? <small>正在读取日历…</small> : sidebarCalendars.length
-            ? <div className="sidebar-calendar-list">{sidebarCalendars.map((calendar) => <div className="sidebar-calendar-source" key={calendar.id}>
-              <i style={{ background: calendar.color ?? "#86bdf5" }} />
+            ? <div className="sidebar-calendar-list">{sidebarCalendars.map((calendar) => <div
+              className="sidebar-calendar-source"
+              key={calendar.id}
+              role="button"
+              tabIndex={0}
+              aria-label={`${calendar.name} 日历操作`}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setSidebarCalendarMenu({
+                  calendarId: calendar.id,
+                  x: event.clientX,
+                  y: event.clientY,
+                  returnFocus: event.currentTarget,
+                });
+              }}
+            >
+              {sidebarCalendarSyncBusyId === calendar.id
+                ? <LoaderCircle className="spin" size={13} />
+                : <i style={{ background: calendar.color ?? "#86bdf5" }} />}
               <span><strong>{calendar.name}</strong><small>{sidebarCalendarSourceLabel(calendar)}</small></span>
               {calendar.primary && <em>默认</em>}
             </div>)}</div>
@@ -735,6 +1106,9 @@ export function WorkspaceApp({
               <Link href="/settings" role="menuitem" onClick={() => { setUserMenuOpen(false); setSidebarOpen(false); }}>
                 <Settings size={16} /><span><strong>账户设置</strong><small>邮件、日历与服务连接</small></span>
               </Link>
+              <button type="button" role="menuitem" onClick={() => void logout()}>
+                <LogOut size={16} /><span><strong>退出登录</strong><small>结束当前工作台会话</small></span>
+              </button>
             </div>
           )}
           <button
@@ -743,8 +1117,8 @@ export function WorkspaceApp({
             aria-haspopup="menu"
             onClick={() => setUserMenuOpen((value) => !value)}
           >
-            <div className="avatar">A</div>
-            <div><strong>Adam</strong><span>个人空间</span></div>
+            <div className="avatar">{userInitial}</div>
+            <div><strong>{currentUser.displayName}</strong><span>{roleLabel(currentUser.role)}</span></div>
             <ChevronDown className={userMenuOpen ? "user-menu-chevron-open" : ""} size={15} />
           </button>
         </div>
@@ -754,20 +1128,76 @@ export function WorkspaceApp({
       {sidebarOpen && <button className="sidebar-scrim" aria-label="关闭导航" onClick={() => setSidebarOpen(false)} />}
 
       <section className="workspace">
-        <GlobalCommandBar onOpenSidebar={() => setSidebarOpen(true)} />
+        <GlobalCommandBar
+          onOpenSidebar={() => setSidebarOpen(true)}
+          assistantAvailable={assistantAvailable}
+          assistantOpen={assistantOpen}
+          onToggleAssistant={() => setAssistantOpen((open) => !open)}
+        />
 
-        <div className={`page-grid ${section === "notes" ? "notes-page-grid" : ""} ${section === "today" ? "today-page-grid" : ""} ${section === "projects" ? "projects-page-grid" : ""}`}>
+        <div
+          className={`page-grid ${section === "notes" ? "notes-page-grid" : ""} ${section === "today" ? "today-page-grid" : ""} ${section === "projects" ? "projects-page-grid" : ""} ${section === "calendar" ? "calendar-page-grid" : ""} ${section === "tasks" ? "tasks-page-grid" : ""} ${assistantAvailable && assistantOpen ? "context-assistant-open" : ""}`}
+          style={{ "--context-assistant-width": `${assistantWidth}px` } as CSSProperties}
+        >
           <main className="page-main">
-            {(section === "today" || section === "settings") && <header className="page-heading">
-              <div><h1>{copy.title}</h1><p>{copy.subtitle}</p></div>
-              <PageAction section={section} />
-            </header>}
-            <PageContent section={section} initialMessageId={initialMessageId} initialMailFolderId={initialMailFolderId} initialTaskId={initialTaskId} initialTaskView={initialTaskView} initialCreateTask={initialCreateTask} initialScheduleTaskId={initialScheduleTaskId} initialEventId={initialEventId} initialCalendarDate={initialCalendarDate} initialNoteId={initialNoteId} initialProjectId={initialProjectId} />
+            <PageContent section={section} currentUser={currentUser} initialMessageId={initialMessageId} initialMailFolderId={initialMailFolderId} initialMailCorrespondent={initialMailCorrespondent} initialComposeTo={initialComposeTo} initialTaskId={initialTaskId} initialTaskView={initialTaskView} initialCreateTask={initialCreateTask} initialScheduleTaskId={initialScheduleTaskId} initialEventId={initialEventId} initialCalendarDate={initialCalendarDate} initialNoteId={initialNoteId} initialProjectId={initialProjectId} onOpenAssistant={() => setAssistantOpen(true)} />
           </main>
-          {section !== "notes" && section !== "today" && section !== "projects" && <AssistantPanel title={copy.assistant} section={section} />}
+          {assistantAvailable && assistantOpen && <>
+            <button className="assistant-scrim" type="button" aria-label="关闭上下文助手" onClick={() => setAssistantOpen(false)} />
+            <ContextAssistantResizeHandle width={assistantWidth} onChange={setAssistantWidth} />
+            <AssistantPanel title={pageAssistantTitles[section]} section={section} onClose={() => setAssistantOpen(false)} />
+          </>}
         </div>
       </section>
       <MobileBottomNav section={section} unreadCount={sidebarUnreadCount} />
+      {sidebarMailAccountMenu && sidebarMailAccounts?.find((account) => account.id === sidebarMailAccountMenu.accountId) && (() => {
+        const account = sidebarMailAccounts.find((item) => item.id === sidebarMailAccountMenu.accountId)!;
+        const busy = sidebarMailSyncBusyId === account.id || account.syncStatus === "syncing";
+        return <ContextMenu
+          anchor={{ x: sidebarMailAccountMenu.x, y: sidebarMailAccountMenu.y }}
+          ariaLabel={`邮箱账户操作：${account.displayName}`}
+          commands={[{
+            id: "mail-account.sync",
+            label: busy ? "正在同步…" : "立即同步",
+            group: "primary",
+            risk: "external-write",
+            icon: "refresh",
+            disabledReason: account.syncStatus === "paused" ? "账户已暂停" : busy ? "同步进行中" : undefined,
+          }]}
+          heading={account.displayName}
+          returnFocus={sidebarMailAccountMenu.returnFocus}
+          testId="mail-account-context-menu"
+          onClose={() => setSidebarMailAccountMenu(undefined)}
+          onSelect={(commandId) => {
+            if ((commandId as MailAccountCommandId) === "mail-account.sync") void syncSidebarMailAccount(account);
+          }}
+        />;
+      })()}
+      {sidebarMailNotice && <TransientToast message={sidebarMailNotice} onClose={() => setSidebarMailNotice(undefined)} duration={4_000} testId="mail-account-sync-notice" />}
+      {sidebarCalendarMenu && sidebarCalendars?.find((calendar) => calendar.id === sidebarCalendarMenu.calendarId) && (() => {
+        const calendar = sidebarCalendars.find((item) => item.id === sidebarCalendarMenu.calendarId)!;
+        const busy = sidebarCalendarSyncBusyId === calendar.id;
+        return <ContextMenu
+          anchor={{ x: sidebarCalendarMenu.x, y: sidebarCalendarMenu.y }}
+          ariaLabel={`日历操作：${calendar.name}`}
+          commands={[{
+            id: "calendar-account.sync",
+            label: busy ? "正在刷新…" : "立即刷新",
+            group: "primary",
+            risk: calendar.providerData?.accountId ? "external-write" : "read",
+            icon: "refresh",
+            disabledReason: busy ? "刷新进行中" : undefined,
+          }]}
+          heading={calendar.name}
+          returnFocus={sidebarCalendarMenu.returnFocus}
+          testId="calendar-account-context-menu"
+          onClose={() => setSidebarCalendarMenu(undefined)}
+          onSelect={(commandId) => {
+            if ((commandId as CalendarAccountCommandId) === "calendar-account.sync") void refreshSidebarCalendar(calendar);
+          }}
+        />;
+      })()}
+      {sidebarCalendarNotice && <TransientToast message={sidebarCalendarNotice} onClose={() => setSidebarCalendarNotice(undefined)} duration={4_000} testId="calendar-account-sync-notice" />}
       {sidebarProjectMenu && sidebarProjectMenuTarget && <ContextMenu
         anchor={{ x: sidebarProjectMenu.x, y: sidebarProjectMenu.y }}
         ariaLabel={`项目操作：${sidebarProjectMenuTarget.name}`}
@@ -789,6 +1219,7 @@ export function WorkspaceApp({
         ariaLabel={`领域操作：${sidebarProjectAreaMenu.areaName}`}
         commands={[
           { id: "project-area.create-project", label: "在此领域新建项目", group: "primary", risk: "local-write", icon: "folder" },
+          { id: "project-area.rename", label: "重命名领域", group: "primary", risk: "local-write", icon: "edit", disabledReason: sidebarProjectAreaMenu.areaName === "未分类" ? "系统分组不能重命名" : sidebarProjectBusyId ? "操作进行中" : undefined },
           { id: "project-area.toggle", label: collapsedProjectAreas.has(sidebarProjectAreaMenu.areaName) ? "展开领域" : "折叠领域", group: "organize", risk: "read", icon: collapsedProjectAreas.has(sidebarProjectAreaMenu.areaName) ? "eye" : "eye-off" },
           { id: "project-area.collapse-others", label: "折叠其他领域", group: "organize", risk: "read", icon: "archive" },
         ]}
@@ -796,7 +1227,7 @@ export function WorkspaceApp({
         returnFocus={sidebarProjectAreaMenu.returnFocus}
         testId="project-area-context-menu"
         onClose={() => setSidebarProjectAreaMenu(undefined)}
-        onSelect={(commandId) => handleSidebarProjectAreaCommand(commandId as ProjectAreaCommandId)}
+        onSelect={(commandId) => void handleSidebarProjectAreaCommand(commandId as ProjectAreaCommandId)}
       />}
       {sidebarProjectAreaTarget && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => {
         if (event.target === event.currentTarget && !sidebarProjectBusyId) setSidebarProjectAreaTargetId(undefined);
@@ -822,6 +1253,7 @@ export function WorkspaceApp({
         </section>
       </div>}
     </div>
+    </WorkspaceAssistantProvider>
   );
 }
 
@@ -893,6 +1325,83 @@ function SidebarResizeHandle({
       tabIndex={0}
       title="拖动调整宽度；双击恢复默认"
       onDoubleClick={() => onChange(DEFAULT_SIDEBAR_WIDTH)}
+      onKeyDown={handleKeyDown}
+      onPointerCancel={handlePointerEnd}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+    />
+  );
+}
+
+function ContextAssistantResizeHandle({
+  width,
+  onChange,
+}: {
+  readonly width: number;
+  readonly onChange: (width: number) => void;
+}) {
+  const dragState = useRef<{
+    readonly pointerId: number;
+    readonly startX: number;
+    readonly startWidth: number;
+    previewWidth: number;
+  } | undefined>(undefined);
+
+  const finishResize = useCallback((element?: HTMLDivElement, pointerId?: number) => {
+    if (element && pointerId !== undefined && element.hasPointerCapture(pointerId)) element.releasePointerCapture(pointerId);
+    dragState.current = undefined;
+    document.body.classList.remove("assistant-is-resizing");
+  }, []);
+
+  useEffect(() => () => document.body.classList.remove("assistant-is-resizing"), []);
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    dragState.current = { pointerId: event.pointerId, startX: event.clientX, startWidth: width, previewWidth: width };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.classList.add("assistant-is-resizing");
+    event.preventDefault();
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragState.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    drag.previewWidth = clampContextAssistantWidth(drag.startWidth - (event.clientX - drag.startX));
+    event.currentTarget.closest<HTMLElement>(".page-grid")?.style.setProperty("--context-assistant-width", `${drag.previewWidth}px`);
+  };
+
+  const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragState.current;
+    if (drag?.pointerId !== event.pointerId) return;
+    finishResize(event.currentTarget, event.pointerId);
+    onChange(drag.previewWidth);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    let nextWidth: number | undefined;
+    const step = event.shiftKey ? 24 : 8;
+    if (event.key === "ArrowLeft") nextWidth = width + step;
+    if (event.key === "ArrowRight") nextWidth = width - step;
+    if (event.key === "Home") nextWidth = MIN_CONTEXT_ASSISTANT_WIDTH;
+    if (event.key === "End") nextWidth = MAX_CONTEXT_ASSISTANT_WIDTH;
+    if (nextWidth === undefined) return;
+    event.preventDefault();
+    onChange(clampContextAssistantWidth(nextWidth));
+  };
+
+  return (
+    <div
+      className="assistant-resize-handle"
+      role="separator"
+      aria-label="调整邮件与助手的宽度"
+      aria-orientation="vertical"
+      aria-valuemin={MIN_CONTEXT_ASSISTANT_WIDTH}
+      aria-valuemax={MAX_CONTEXT_ASSISTANT_WIDTH}
+      aria-valuenow={width}
+      tabIndex={0}
+      title="拖动调整宽度；双击恢复默认"
+      onDoubleClick={() => onChange(DEFAULT_CONTEXT_ASSISTANT_WIDTH)}
       onKeyDown={handleKeyDown}
       onPointerCancel={handlePointerEnd}
       onPointerDown={handlePointerDown}
@@ -1006,12 +1515,17 @@ function MailFolderTree({
     }
   };
 
-  const handleFolderCommand = (commandId: MailFolderCommandId) => {
+  const handleFolderCommand = async (commandId: MailFolderCommandId) => {
     const folder = accountFolders.find((item) => item.id === folderMenu?.folderId);
     setFolderMenu(undefined);
     if (!folder) return;
     if (commandId === "mail-folder.create-child" || commandId === "mail-folder.create-sibling") {
-      const name = window.prompt(commandId === "mail-folder.create-child" ? `在“${mailFolderLabel(folder)}”中新建子文件夹` : "新建同级文件夹");
+      const name = await appPrompt({
+        title: commandId === "mail-folder.create-child" ? "新建子文件夹" : "新建同级文件夹",
+        description: commandId === "mail-folder.create-child" ? `位置：“${mailFolderLabel(folder)}”` : undefined,
+        placeholder: "输入文件夹名称",
+        confirmLabel: "创建",
+      });
       if (!name?.trim()) return;
       const parentFolderId = commandId === "mail-folder.create-child" ? folder.id : folder.parentId;
       void runFolderRequest(folder.id, "/api/mail-folders", {
@@ -1022,7 +1536,13 @@ function MailFolderTree({
       return;
     }
     if (commandId === "mail-folder.rename") {
-      const name = window.prompt("重命名文件夹", folder.name);
+      const name = await appPrompt({
+        title: "重命名文件夹",
+        defaultValue: folder.name,
+        placeholder: "输入文件夹名称",
+        confirmLabel: "重命名",
+        selectOnFocus: true,
+      });
       if (!name?.trim() || name.trim() === folder.name) return;
       void runFolderRequest(folder.id, `/api/mail-folders/${encodeURIComponent(folder.id)}`, {
         method: "PATCH",
@@ -1553,16 +2073,13 @@ function SidebarProjectLink({
   </Link>;
 }
 
-function PageAction({ section }: { readonly section: WorkspaceSection }) {
-  if (section === "today") return <span className="count-badge">实时数据</span>;
-  if (section === "settings") return <span className="model-badge">凭据不写入日志</span>;
-  return null;
-}
-
 function PageContent({
   section,
+  currentUser,
   initialMessageId,
   initialMailFolderId,
+  initialMailCorrespondent,
+  initialComposeTo,
   initialTaskId,
   initialTaskView,
   initialCreateTask,
@@ -1571,10 +2088,19 @@ function PageContent({
   initialCalendarDate,
   initialNoteId,
   initialProjectId,
+  onOpenAssistant,
 }: {
   readonly section: WorkspaceSection;
+  readonly currentUser: {
+    readonly id: string;
+    readonly displayName: string;
+    readonly email: string;
+    readonly role: AppRole;
+  };
   readonly initialMessageId?: string;
   readonly initialMailFolderId?: string;
+  readonly initialMailCorrespondent?: string;
+  readonly initialComposeTo?: string;
   readonly initialTaskId?: string;
   readonly initialTaskView?: TaskView;
   readonly initialCreateTask?: boolean;
@@ -1583,44 +2109,1261 @@ function PageContent({
   readonly initialCalendarDate?: string;
   readonly initialNoteId?: string;
   readonly initialProjectId?: string;
+  readonly onOpenAssistant: () => void;
 }) {
   switch (section) {
     case "today": return <TodayPage />;
-    case "inbox": return <InboxPage initialMessageId={initialMessageId} initialFolderId={initialMailFolderId} />;
+    case "inbox": return <InboxPage initialMessageId={initialMessageId} initialFolderId={initialMailFolderId} initialCorrespondent={initialMailCorrespondent} initialComposeTo={initialComposeTo} onOpenAssistant={onOpenAssistant} />;
     case "calendar": return <CalendarPage initialEventId={initialEventId} initialCalendarDate={initialCalendarDate} />;
     case "tasks": return <TasksPage initialTaskId={initialTaskId} initialTaskView={initialTaskView} initialCreateTask={initialCreateTask} initialProjectId={initialProjectId} initialScheduleTaskId={initialScheduleTaskId} />;
     case "projects": return <ProjectsPage initialProjectId={initialProjectId} />;
     case "notes": return <NotesPage initialNoteId={initialNoteId} />;
     case "ai": return <AiPage />;
-    case "settings": return <SettingsPage />;
+    case "settings": return <SettingsPage currentUser={currentUser} />;
   }
 }
 
-type SettingsTab = "mail" | "calendar" | "ai" | "backup" | "todo";
+type WorkspaceUser = {
+  readonly id: string;
+  readonly displayName: string;
+  readonly email: string;
+  readonly role: AppRole;
+};
 
-function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("mail");
+function SettingsPage({ currentUser }: { readonly currentUser: WorkspaceUser }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeTab = normalizeSettingsTab(searchParams.get("tab"), currentUser.role);
   return (
     <div className="settings-page">
-      <nav className="settings-tabs" aria-label="设置分类">
-        <button className={activeTab === "mail" ? "active" : ""} onClick={() => setActiveTab("mail")}><Mail size={16} />邮件</button>
-        <button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}><CalendarDays size={16} />日历</button>
-        <button className={activeTab === "ai" ? "active" : ""} onClick={() => setActiveTab("ai")}><WandSparkles size={16} />AI</button>
-        <button className={activeTab === "backup" ? "active" : ""} onClick={() => setActiveTab("backup")}><DatabaseBackup size={16} />备份</button>
-        <button className={activeTab === "todo" ? "active" : ""} onClick={() => setActiveTab("todo")}><ListChecks size={16} />ToDo<span>预留</span></button>
-      </nav>
-      {activeTab === "mail" && <MailAccountSettings onManageExchange={() => setActiveTab("calendar")} />}
-      {activeTab === "calendar" && <CalendarAccountSettings />}
-      {activeTab === "ai" && <AiProviderSettings />}
-      {activeTab === "backup" && <BackupSettings />}
-      {activeTab === "todo" && (
-        <section className="settings-placeholder panel">
-          <div className="assistant-icon"><ListChecks size={17} /></div>
-          <div><h2>ToDo 服务连接</h2><p>这里将用于连接 Microsoft To Do、Todoist 等服务。当前任务仍保存在 Kalender 本地。</p></div>
-          <span className="step-badge">后续阶段</span>
-        </section>
-      )}
+      <div className="settings-content">
+        {activeTab === "appearance" && <AppearanceSettings />}
+        {activeTab === "profile" && <ProfileSettings currentUser={currentUser} />}
+        {activeTab === "users" && currentUser.role === "admin" && <UserManagementSettings currentUser={currentUser} />}
+        {activeTab === "diagnostics" && currentUser.role === "admin" && <WorkspaceDiagnosticsSettings />}
+        {activeTab === "jobs" && <JobCenterSettings currentUser={currentUser} />}
+        {activeTab === "operations" && currentUser.role === "admin" && <OperationsSettings />}
+        {activeTab === "sync" && <SyncSettings />}
+        {activeTab === "mail" && <MailAccountSettings onManageExchange={() => router.push("/settings?tab=calendar")} />}
+        {activeTab === "calendar" && <CalendarAccountSettings />}
+        {activeTab === "shortcuts" && <ShortcutsSettings />}
+        {activeTab === "ai" && <><AiAutomationSettings /><AiProviderSettings /></>}
+        {activeTab === "backup" && <BackupSettings />}
+        {activeTab === "todo" && (
+          <section className="settings-placeholder panel">
+            <div className="assistant-icon"><ListChecks size={17} /></div>
+            <div><h2>ToDo 服务连接</h2><p>这里将用于连接 Microsoft To Do、Todoist 等服务。当前任务仍保存在 Kalender 本地。</p></div>
+            <span className="step-badge">后续阶段</span>
+          </section>
+        )}
+      </div>
     </div>
+  );
+}
+
+const shortcutGroups = [
+  {
+    title: "全局",
+    description: "在工作台任意位置可用，输入框和编辑器内除外。",
+    shortcuts: [
+      { keys: ["Ctrl/Cmd", "K"], action: "打开全局搜索" },
+      { keys: ["Esc"], action: "关闭搜索、菜单或当前确认弹窗" },
+    ],
+  },
+  {
+    title: "搜索",
+    description: "全局搜索结果和结果菜单。",
+    shortcuts: [
+      { keys: ["Enter"], action: "打开当前搜索结果" },
+      { keys: ["Esc"], action: "关闭搜索面板" },
+      { keys: ["菜单键"], action: "打开搜索结果操作菜单" },
+      { keys: ["Shift", "F10"], action: "打开搜索结果操作菜单" },
+    ],
+  },
+  {
+    title: "上下文菜单",
+    description: "适用于已经打开的操作菜单。",
+    shortcuts: [
+      { keys: ["↑↓"], action: "在菜单项之间移动焦点" },
+      { keys: ["Home"], action: "跳到第一个菜单项" },
+      { keys: ["End"], action: "跳到最后一个菜单项" },
+      { keys: ["Esc"], action: "关闭菜单并恢复焦点" },
+    ],
+  },
+  {
+    title: "左侧导航",
+    description: "聚焦左侧导航宽度调节条后可用。",
+    shortcuts: [
+      { keys: ["←"], action: "缩小左侧导航" },
+      { keys: ["→"], action: "放大左侧导航" },
+      { keys: ["Shift", "←/→"], action: "以更大步进调整左侧导航宽度" },
+      { keys: ["Home"], action: "设置为最小宽度" },
+      { keys: ["End"], action: "设置为最大宽度" },
+    ],
+  },
+  {
+    title: "邮件",
+    description: "聚焦邮件列表或邮件线程后可用。",
+    shortcuts: [
+      { keys: ["↑↓"], action: "选择上一封或下一封邮件" },
+      { keys: ["Shift", "↑↓"], action: "连续选择多封邮件" },
+      { keys: ["Ctrl/Cmd", "点击"], action: "增减选择单封邮件" },
+      { keys: ["Shift", "点击"], action: "从上次选择位置连续选择" },
+      { keys: ["Ctrl/Cmd", "A"], action: "全选当前筛选结果" },
+      { keys: ["Esc"], action: "清除邮件多选" },
+      { keys: ["Enter"], action: "打开当前选中的邮件" },
+      { keys: ["Delete/Entf"], action: "删除当前邮件或已多选的邮件" },
+      { keys: ["菜单键"], action: "打开邮件操作菜单" },
+      { keys: ["Shift", "F10"], action: "打开邮件操作菜单" },
+      { keys: ["Enter"], action: "展开或收起聚焦的邮件线程" },
+      { keys: ["Space"], action: "展开或收起聚焦的邮件线程" },
+    ],
+  },
+  {
+    title: "日历",
+    description: "聚焦日历事件后可用。",
+    shortcuts: [
+      { keys: ["菜单键"], action: "打开日历事件操作菜单" },
+      { keys: ["Shift", "F10"], action: "打开日历事件操作菜单" },
+      { keys: ["Shift", "右键"], action: "保留浏览器原生右键菜单" },
+    ],
+  },
+  {
+    title: "项目计划",
+    description: "项目甘特图和计划条目。",
+    shortcuts: [
+      { keys: ["Ctrl", "滚轮"], action: "缩放项目甘特图时间轴" },
+      { keys: ["Enter"], action: "编辑聚焦的计划任务" },
+      { keys: ["Space"], action: "编辑聚焦的计划任务" },
+      { keys: ["菜单键"], action: "打开计划任务操作菜单" },
+      { keys: ["Shift", "F10"], action: "打开计划任务操作菜单" },
+    ],
+  },
+  {
+    title: "笔记",
+    description: "笔记列表和富文本编辑器。",
+    shortcuts: [
+      { keys: ["菜单键"], action: "打开笔记操作菜单" },
+      { keys: ["Shift", "F10"], action: "打开笔记操作菜单" },
+      { keys: ["Ctrl/Cmd", "B"], action: "加粗" },
+      { keys: ["Ctrl/Cmd", "I"], action: "斜体" },
+      { keys: ["Ctrl/Cmd", "U"], action: "下划线" },
+      { keys: ["Ctrl/Cmd", "E"], action: "行内代码" },
+      { keys: ["Ctrl/Cmd", "Shift", "X"], action: "删除线" },
+      { keys: ["Ctrl/Cmd", ","], action: "下标" },
+      { keys: ["Ctrl/Cmd", "."], action: "上标" },
+      { keys: ["Ctrl/Cmd", "Shift", "H"], action: "高亮" },
+      { keys: ["Ctrl/Cmd", "Shift", "M"], action: "添加评论草稿" },
+    ],
+  },
+  {
+    title: "设置与运维",
+    description: "任务中心和备份历史列表。",
+    shortcuts: [
+      { keys: ["菜单键"], action: "打开后台任务操作菜单" },
+      { keys: ["Shift", "F10"], action: "打开后台任务操作菜单" },
+      { keys: ["菜单键"], action: "打开备份历史操作菜单" },
+      { keys: ["Shift", "F10"], action: "打开备份历史操作菜单" },
+      { keys: ["Esc"], action: "关闭用户菜单或文件夹编辑浮层" },
+    ],
+  },
+  {
+    title: "编辑器块级格式",
+    description: "在笔记编辑器和邮件正文编辑器中使用。",
+    shortcuts: [
+      { keys: ["Ctrl/Cmd", "Alt", "1-6"], action: "切换为 1 至 6 级标题" },
+      { keys: ["Ctrl/Cmd", "Alt", "8"], action: "切换代码块" },
+      { keys: ["Ctrl/Cmd", "Shift", "."], action: "切换引用块" },
+      { keys: ["Ctrl/Cmd", "Enter"], action: "在当前块后插入退出换行" },
+      { keys: ["Ctrl/Cmd", "Shift", "Enter"], action: "在当前块前插入退出换行" },
+    ],
+  },
+  {
+    title: "编辑器 AI 与工具弹层",
+    description: "Plate 编辑器内的 AI、评论、媒体和输入弹层。",
+    shortcuts: [
+      { keys: ["Tab"], action: "接受 AI 补全文本" },
+      { keys: ["Ctrl/Cmd", "→"], action: "接受 AI 补全的下一个词" },
+      { keys: ["Ctrl", "Space"], action: "触发 AI 补全建议" },
+      { keys: ["Esc"], action: "拒绝 AI 补全或停止编辑器 AI 输出" },
+      { keys: ["Enter"], action: "提交编辑器 AI 输入" },
+      { keys: ["Backspace"], action: "在空 AI 输入中关闭 AI 菜单" },
+      { keys: ["↓"], action: "打开媒体上传按钮的附加菜单" },
+      { keys: ["Enter"], action: "确认媒体 URL 或字号输入" },
+      { keys: ["Enter"], action: "提交评论回复" },
+      { keys: ["Shift", "Enter"], action: "在评论回复中换行" },
+    ],
+  },
+  {
+    title: "AI Command",
+    description: "AI Command 对话输入框。",
+    shortcuts: [
+      { keys: ["Enter"], action: "发送当前消息" },
+      { keys: ["Shift", "Enter"], action: "在消息中换行" },
+    ],
+  },
+] as const;
+
+function ShortcutsSettings() {
+  return (
+    <section className="shortcuts-settings panel">
+      <div className="settings-section-heading">
+        <div><h2>快捷键</h2><p>把界面里的键盘提示集中放在这里，减少列表头部的信息负担。</p></div>
+        <span className="step-badge">操作参考</span>
+      </div>
+      <div className="shortcuts-layout">
+        {shortcutGroups.map((group) => (
+          <section className="shortcut-card" key={group.title}>
+            <header>
+              <div className="assistant-icon"><Keyboard size={16} /></div>
+              <div><h3>{group.title}</h3><p>{group.description}</p></div>
+            </header>
+            <div className="shortcut-list">
+              {group.shortcuts.map((shortcut) => (
+                <div className="shortcut-row" key={`${group.title}:${shortcut.action}`}>
+                  <span>{shortcut.keys.map((key) => <kbd key={key}>{key}</kbd>)}</span>
+                  <strong>{shortcut.action}</strong>
+                </div>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+interface ManagedUser extends WorkspaceUser {
+  readonly disabledAt?: string;
+  readonly lastLoginAt?: string;
+  readonly sessionVersion: number;
+  readonly mustChangePassword: boolean;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+interface ManagedInvitation {
+  readonly id: string;
+  readonly email: string;
+  readonly displayName?: string;
+  readonly role: AppRole;
+  readonly inviteUrl?: string;
+  readonly acceptedAt?: string;
+  readonly revokedAt?: string;
+  readonly expiresAt: string;
+  readonly createdAt: string;
+}
+
+interface WorkspaceDiagnosticUser {
+  readonly userId: string;
+  readonly displayName: string;
+  readonly email: string;
+  readonly role: AppRole;
+  readonly disabledAt?: string;
+  readonly counts: Readonly<Record<string, number>>;
+}
+
+interface WorkspaceDiagnosticPayload {
+  readonly users: readonly WorkspaceDiagnosticUser[];
+  readonly unownedCounts: Readonly<Record<string, number>>;
+  readonly totalUnowned: number;
+}
+
+interface AppJobPayload {
+  readonly id: string;
+  readonly kind: string;
+  readonly status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  readonly title: string;
+  readonly progress: number;
+  readonly errorMessage?: string;
+  readonly logLines: readonly string[];
+  readonly attempts: number;
+  readonly maxAttempts: number;
+  readonly createdAt: string;
+  readonly startedAt?: string;
+  readonly finishedAt?: string;
+}
+
+interface ContextMenuState {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly returnFocus?: HTMLElement | null;
+}
+
+function JobCenterSettings({ currentUser }: { readonly currentUser: WorkspaceUser }) {
+  const [jobs, setJobs] = useState<readonly AppJobPayload[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("active");
+  const [menu, setMenu] = useState<ContextMenuState>();
+  const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error"; readonly message: string }>();
+
+  const loadJobs = useCallback(async () => {
+    try {
+      const status = filter === "active" ? "" : `?status=${encodeURIComponent(filter)}`;
+      const response = await fetch(`/api/jobs${status}`, { cache: "no-store" });
+      const payload = await response.json() as { readonly ok?: boolean; readonly jobs?: readonly AppJobPayload[]; readonly message?: string };
+      if (!response.ok || !payload.ok || !payload.jobs) throw new Error(payload.message || "无法读取任务");
+      setJobs(filter === "active" ? payload.jobs.filter((job) => job.status === "queued" || job.status === "running" || job.status === "failed") : payload.jobs);
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法读取任务" });
+    } finally {
+      setLoading(false);
+    }
+  }, [filter]);
+
+  useEffect(() => {
+    void loadJobs();
+    const timer = window.setInterval(() => void loadJobs(), 5000);
+    return () => window.clearInterval(timer);
+  }, [loadJobs]);
+
+  const updateJob = async (job: AppJobPayload, action: "cancel" | "retry") => {
+    try {
+      const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "任务操作失败");
+      setFeedback({ kind: "success", message: action === "retry" ? "任务已重新排队" : "任务已取消" });
+      await loadJobs();
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "任务操作失败" });
+    }
+  };
+
+  const menuJob = menu ? jobs.find((job) => job.id === menu.id) : undefined;
+  const jobCommands: readonly ResolvedContextCommand[] = menuJob ? [
+    { id: "job.copy-id", label: "复制任务 ID", group: "primary", risk: "read", icon: "copy" },
+    { id: "job.copy-logs", label: "复制日志", group: "primary", risk: "read", icon: "info", disabledReason: menuJob.logLines.length ? undefined : "暂无日志" },
+    { id: "job.retry", label: "重新排队", group: "state", risk: "local-write", icon: "restore", disabledReason: menuJob.status === "failed" || menuJob.status === "cancelled" ? undefined : "只有失败或取消的任务可重试" },
+    { id: "job.cancel", label: "取消任务", group: "danger", risk: "local-write", icon: "trash", disabledReason: menuJob.status === "queued" ? undefined : "只能取消排队任务" },
+  ] : [];
+
+  const openJobMenu = (event: ReactMouseEvent<HTMLElement>, job: AppJobPayload) => {
+    event.preventDefault();
+    setMenu({ id: job.id, x: event.clientX, y: event.clientY, returnFocus: event.currentTarget });
+  };
+
+  const selectJobCommand = (commandId: ContextCommandId) => {
+    if (!menuJob) return;
+    if (commandId === "job.copy-id") void copyText(menuJob.id, "任务 ID 已复制", setFeedback);
+    if (commandId === "job.copy-logs") void copyText(menuJob.logLines.join("\n"), "任务日志已复制", setFeedback);
+    if (commandId === "job.retry") void updateJob(menuJob, "retry");
+    if (commandId === "job.cancel") void updateJob(menuJob, "cancel");
+  };
+
+  return (
+    <section className="job-center-settings panel">
+      <div className="settings-section-heading">
+        <div><h2>任务中心</h2><p>{currentUser.role === "admin" ? "查看所有后台任务、进度和失败日志。" : "查看由你触发的后台任务。"}</p></div>
+        <span className="step-badge">{loading ? "读取中" : `${jobs.length} 个任务`}</span>
+      </div>
+      <div className="job-toolbar">
+        {["active", "queued", "running", "failed", "succeeded", "cancelled"].map((item) => (
+          <button key={item} className={filter === item ? "active" : ""} onClick={() => { setLoading(true); setFilter(item); }}>{jobFilterLabel(item)}</button>
+        ))}
+        <button className="secondary-button" disabled={loading} onClick={() => { setLoading(true); void loadJobs(); }}><RefreshCw size={14} />刷新</button>
+      </div>
+      <div className="job-list">
+        {jobs.length ? jobs.map((job) => (
+          <article
+            key={job.id}
+            className={`job-row ${job.status}`}
+            tabIndex={0}
+            onContextMenu={(event) => openJobMenu(event, job)}
+            onKeyDown={(event) => {
+              if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+              event.preventDefault();
+              const bounds = event.currentTarget.getBoundingClientRect();
+              setMenu({ id: job.id, x: bounds.right - 12, y: bounds.top + 28, returnFocus: event.currentTarget });
+            }}
+          >
+            <header>
+              <div><strong>{job.title}</strong><small>{jobKindLabel(job.kind)} · {formatAccountTime(job.createdAt)}</small></div>
+              <span>{jobStatusLabel(job.status)}</span>
+            </header>
+            <div className="job-progress"><i><b style={{ width: `${job.progress}%` }} /></i><small>{job.progress}%</small></div>
+            {job.errorMessage && <p>{job.errorMessage}</p>}
+            {job.logLines.length > 0 && <details><summary>日志</summary>{job.logLines.slice(0, 8).map((line, index) => <code key={`${job.id}-${index}`}>{line}</code>)}</details>}
+            <footer>
+              {job.status === "queued" && <button className="ghost-button" onClick={() => void updateJob(job, "cancel")}><X size={13} />取消</button>}
+              {(job.status === "failed" || job.status === "cancelled") && <button className="secondary-button" onClick={() => void updateJob(job, "retry")}><RefreshCw size={13} />重试</button>}
+            </footer>
+          </article>
+        )) : <div className="accounts-empty">{loading ? "正在读取任务…" : "暂无任务"}</div>}
+      </div>
+      {feedback && <div className={`user-settings-feedback ${feedback.kind}`}>{feedback.message}</div>}
+      {menu && menuJob && (
+        <ContextMenu
+          anchor={{ x: menu.x, y: menu.y }}
+          ariaLabel={`任务操作：${menuJob.title}`}
+          commands={jobCommands}
+          heading={menuJob.title}
+          returnFocus={menu.returnFocus}
+          testId="job-context-menu"
+          onClose={() => setMenu(undefined)}
+          onSelect={selectJobCommand}
+        />
+      )}
+    </section>
+  );
+}
+
+interface OperationsPayload {
+  readonly database: { readonly connected: boolean; readonly currentVersion: number; readonly latestVersion: number; readonly pendingVersions: readonly number[] };
+  readonly dataDirectory: { readonly path: string; readonly writable: boolean };
+  readonly masterKey: { readonly configured: boolean };
+  readonly environment: {
+    readonly backupPasswordConfigured: boolean;
+    readonly healthcheckTokenConfigured: boolean;
+    readonly aiAutoExecutionEnabled: boolean;
+  };
+  readonly storage: {
+    readonly layout: readonly {
+      readonly id: string;
+      readonly label: string;
+      readonly path: string;
+      readonly exists: boolean;
+      readonly writable: boolean;
+      readonly bytes: number;
+      readonly files: number;
+    }[];
+    readonly dockerRecommendation: readonly string[];
+  };
+  readonly jobs: { readonly queued: number; readonly running: number; readonly failed: number };
+  readonly recentErrors: readonly {
+    readonly id: string;
+    readonly source: "job" | "audit";
+    readonly title: string;
+    readonly message: string;
+    readonly createdAt: string;
+  }[];
+  readonly backup: BackupStatusPayload;
+}
+
+function OperationsSettings() {
+  const [operations, setOperations] = useState<OperationsPayload>();
+  const [feedback, setFeedback] = useState<string>();
+
+  const loadOperations = useCallback(async () => {
+    try {
+      const response = await fetch("/api/admin/diagnostics", { cache: "no-store" });
+      const payload = await response.json() as { readonly ok?: boolean; readonly operations?: OperationsPayload; readonly message?: string };
+      if (!response.ok || !payload.ok || !payload.operations) throw new Error(payload.message || "无法读取运维状态");
+      setOperations(payload.operations);
+      setFeedback(undefined);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "无法读取运维状态");
+    }
+  }, []);
+
+  useEffect(() => { void loadOperations(); }, [loadOperations]);
+
+  return (
+    <section className="operations-settings panel">
+      <div className="settings-section-heading">
+        <div><h2>运维状态</h2><p>数据库、迁移、任务队列、备份工具和数据目录的运行状态。</p></div>
+        <button className="secondary-button" onClick={() => void loadOperations()}><RefreshCw size={14} />刷新</button>
+      </div>
+      {operations ? (
+        <>
+          <div className="operations-grid">
+            <article><span><DatabaseBackup size={17} /></span><small>数据库</small><strong>{operations.database.connected ? "已连接" : "异常"}</strong><p>v{operations.database.currentVersion} / v{operations.database.latestVersion}{operations.database.pendingVersions.length ? ` · 待迁移 ${operations.database.pendingVersions.join(", ")}` : ""}</p></article>
+            <article><span><Clock3 size={17} /></span><small>任务队列</small><strong>{operations.jobs.running} 运行 · {operations.jobs.queued} 排队</strong><p>{operations.jobs.failed} 个失败</p></article>
+            <article><span><HardDrive size={17} /></span><small>数据目录</small><strong>{operations.dataDirectory.writable ? "可写" : "不可写"}</strong><p>{operations.dataDirectory.path}</p></article>
+            <article><span><ShieldCheck size={17} /></span><small>主密钥</small><strong>{operations.masterKey.configured ? "环境变量" : "未配置"}</strong><p>KALENDER_MASTER_KEY</p></article>
+            <article><span><DatabaseBackup size={17} /></span><small>备份工具</small><strong>{operations.backup.strategy?.tools.pgDump && operations.backup.strategy.tools.pgRestore ? "pg_dump/restore 可用" : "工具缺失"}</strong><p>{operations.backup.strategy?.backupDirectory}</p></article>
+            <article><span><Paperclip size={17} /></span><small>附件</small><strong>{operations.backup.attachmentFiles} 个</strong><p>{formatFileSize(operations.backup.attachmentBytes)}</p></article>
+          </div>
+          <div className="operations-detail-grid">
+            <section>
+              <h3>环境变量</h3>
+              <div className="operations-check-list">
+                <span className={operations.environment.aiAutoExecutionEnabled ? "ready" : ""}><Check size={13} />AI 自动执行入口：{operations.environment.aiAutoExecutionEnabled ? "开启" : "关闭"}</span>
+                <span className={operations.environment.backupPasswordConfigured ? "ready" : ""}>{operations.environment.backupPasswordConfigured ? <Check size={13} /> : <AlertCircle size={13} />}自动加密密码：{operations.environment.backupPasswordConfigured ? "已配置" : "未配置"}</span>
+                <span className={operations.environment.healthcheckTokenConfigured ? "ready" : ""}><ShieldCheck size={13} />健康检查令牌：{operations.environment.healthcheckTokenConfigured ? "已配置" : "公开轻量检查"}</span>
+              </div>
+            </section>
+            <section>
+              <h3>存储目录</h3>
+              <div className="operations-storage-list">
+                {operations.storage.layout.map((item) => (
+                  <article key={item.id}>
+                    <div><strong>{item.label}</strong><small>{item.path}</small></div>
+                    <span>{item.exists ? "存在" : "未创建"} · {item.writable ? "可写" : "不可写"} · {formatFileSize(item.bytes)} · {item.files} 文件</span>
+                  </article>
+                ))}
+              </div>
+            </section>
+            <section>
+              <h3>最近错误</h3>
+              <div className="operations-error-list">
+                {operations.recentErrors.length ? operations.recentErrors.map((item) => (
+                  <article key={item.id}><strong>{item.title}</strong><small>{formatAccountTime(item.createdAt)}</small><p>{item.message}</p></article>
+                )) : <div className="accounts-empty">最近没有失败任务</div>}
+              </div>
+            </section>
+            <section>
+              <h3>Docker 文件夹建议</h3>
+              <div className="operations-recommendation-list">
+                {operations.storage.dockerRecommendation.map((item) => <p key={item}>{item}</p>)}
+              </div>
+            </section>
+          </div>
+        </>
+      ) : <div className="accounts-empty">{feedback ?? "正在读取运维状态…"}</div>}
+      {feedback && <div className="user-settings-feedback error">{feedback}</div>}
+    </section>
+  );
+}
+
+const backgroundSyncIntervals = [
+  { value: 60_000, label: "1 分钟" },
+  { value: 3 * 60_000, label: "3 分钟" },
+  { value: 5 * 60_000, label: "5 分钟" },
+  { value: 10 * 60_000, label: "10 分钟" },
+  { value: 15 * 60_000, label: "15 分钟" },
+  { value: 30 * 60_000, label: "30 分钟" },
+] as const;
+
+const clientRefreshIntervals = [
+  { value: 15_000, label: "15 秒" },
+  { value: 30_000, label: "30 秒" },
+  { value: 60_000, label: "1 分钟" },
+  { value: 2 * 60_000, label: "2 分钟" },
+] as const;
+
+function SyncSettings() {
+  const { settings, loading, canEdit, error, save } = useSyncSettings();
+  const [draft, setDraft] = useState<ClientSyncSettings>(settings);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error"; readonly message: string }>();
+
+  useEffect(() => { setDraft(settings); }, [settings]);
+
+  const changed = syncSettingsChanged(settings, draft);
+  const activeServices = Number(draft.mailSyncEnabled) + Number(draft.calendarSyncEnabled);
+
+  const saveSettings = async () => {
+    if (!canEdit || saving || !changed) return;
+    setSaving(true);
+    setFeedback(undefined);
+    try {
+      const saved = await save(draft);
+      setDraft(saved);
+      setFeedback({ kind: "success", message: "同步设置已保存，后台定时器与页面刷新频率已立即更新。" });
+    } catch (saveError) {
+      setFeedback({ kind: "error", message: saveError instanceof Error ? saveError.message : "无法保存同步设置" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="sync-settings panel" aria-labelledby="sync-settings-title">
+      <div className="settings-section-heading">
+        <div>
+          <h2 id="sync-settings-title">自动同步</h2>
+          <p>统一控制服务器后台同步和浏览器中的实时数据刷新，修改后无需重启服务。</p>
+        </div>
+        <span className="step-badge">{loading ? "读取中" : `${activeServices}/2 项运行`}</span>
+      </div>
+
+      <div className="sync-settings-notice">
+        <RefreshCw size={17} />
+        <div>
+          <strong>工作区级设置</strong>
+          <span>后台同步会更新所有已启用账户；隐藏页面不会反复刷新，重新打开页面时会立即获取最新数据。</span>
+        </div>
+      </div>
+
+      <div className="sync-settings-group">
+        <header>
+          <div><h3>后台数据同步</h3><p>由服务器连接邮件与日历服务，即使浏览器页面关闭也会继续运行。</p></div>
+          <span>{activeServices ? "运行中" : "已暂停"}</span>
+        </header>
+        <SyncSettingsRow
+          icon={<Mail size={17} />}
+          title="邮件自动同步"
+          description="更新文件夹、未读状态和邮件索引。"
+          enabled={draft.mailSyncEnabled}
+          intervalMs={draft.mailSyncIntervalMs}
+          intervals={backgroundSyncIntervals}
+          disabled={loading || saving || !canEdit}
+          onEnabledChange={(mailSyncEnabled) => setDraft((current) => ({ ...current, mailSyncEnabled }))}
+          onIntervalChange={(mailSyncIntervalMs) => setDraft((current) => ({ ...current, mailSyncIntervalMs }))}
+        />
+        <SyncSettingsRow
+          icon={<CalendarDays size={17} />}
+          title="日历自动同步"
+          description="更新远程日历、事件变更和参与者信息。"
+          enabled={draft.calendarSyncEnabled}
+          intervalMs={draft.calendarSyncIntervalMs}
+          intervals={backgroundSyncIntervals}
+          disabled={loading || saving || !canEdit}
+          onEnabledChange={(calendarSyncEnabled) => setDraft((current) => ({ ...current, calendarSyncEnabled }))}
+          onIntervalChange={(calendarSyncIntervalMs) => setDraft((current) => ({ ...current, calendarSyncIntervalMs }))}
+        />
+      </div>
+
+      <div className="sync-settings-group">
+        <header>
+          <div><h3>界面自动刷新</h3><p>后台同步完成后，自动让邮件、日历和侧边栏显示最新本地数据。</p></div>
+          <span>{draft.clientRefreshEnabled ? "已开启" : "已关闭"}</span>
+        </header>
+        <SyncSettingsRow
+          icon={<Monitor size={17} />}
+          title="可见页面刷新"
+          description="仅在页面可见时轮询；切回窗口时立即刷新一次。"
+          enabled={draft.clientRefreshEnabled}
+          intervalMs={draft.clientRefreshIntervalMs}
+          intervals={clientRefreshIntervals}
+          disabled={loading || saving || !canEdit}
+          onEnabledChange={(clientRefreshEnabled) => setDraft((current) => ({ ...current, clientRefreshEnabled }))}
+          onIntervalChange={(clientRefreshIntervalMs) => setDraft((current) => ({ ...current, clientRefreshIntervalMs }))}
+        />
+      </div>
+
+      {(feedback || error) && (
+        <div className={`sync-settings-feedback ${feedback?.kind === "success" ? "success" : "error"}`} role="status">
+          {feedback?.kind === "success" ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
+          <span>{feedback?.message ?? error}</span>
+        </div>
+      )}
+
+      <footer className="sync-settings-actions">
+        <span>{canEdit ? changed ? "有尚未保存的修改" : "当前设置已生效" : "只有管理员可以修改这些设置"}</span>
+        <button
+          type="button"
+          className="primary-button"
+          disabled={!canEdit || loading || saving || !changed}
+          onClick={() => void saveSettings()}
+        >
+          {saving ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}
+          保存设置
+        </button>
+      </footer>
+    </section>
+  );
+}
+
+function SyncSettingsRow({
+  icon,
+  title,
+  description,
+  enabled,
+  intervalMs,
+  intervals,
+  disabled,
+  onEnabledChange,
+  onIntervalChange,
+}: {
+  readonly icon: ReactNode;
+  readonly title: string;
+  readonly description: string;
+  readonly enabled: boolean;
+  readonly intervalMs: number;
+  readonly intervals: readonly { readonly value: number; readonly label: string }[];
+  readonly disabled: boolean;
+  readonly onEnabledChange: (enabled: boolean) => void;
+  readonly onIntervalChange: (intervalMs: number) => void;
+}) {
+  return (
+    <div className={`sync-settings-row ${enabled ? "enabled" : ""}`}>
+      <span className="sync-settings-row-icon">{icon}</span>
+      <div className="sync-settings-row-copy"><strong>{title}</strong><small>{description}</small></div>
+      <label className="sync-settings-interval">
+        <span>频率</span>
+        <AppSelect
+          ariaLabel={`${title}同步频率`}
+          size="compact"
+          value={String(intervalMs)}
+          disabled={disabled || !enabled}
+          onValueChange={(value) => onIntervalChange(Number(value))}
+          options={intervals.map((interval) => ({ value: String(interval.value), label: interval.label }))}
+        />
+      </label>
+      <label className="sync-settings-toggle">
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={disabled}
+          onChange={(event) => onEnabledChange(event.target.checked)}
+        />
+        <span aria-hidden="true"><i /></span>
+        <em>{enabled ? "开启" : "关闭"}</em>
+      </label>
+    </div>
+  );
+}
+
+function syncSettingsChanged(current: ClientSyncSettings, draft: ClientSyncSettings): boolean {
+  return current.mailSyncEnabled !== draft.mailSyncEnabled
+    || current.mailSyncIntervalMs !== draft.mailSyncIntervalMs
+    || current.calendarSyncEnabled !== draft.calendarSyncEnabled
+    || current.calendarSyncIntervalMs !== draft.calendarSyncIntervalMs
+    || current.clientRefreshEnabled !== draft.clientRefreshEnabled
+    || current.clientRefreshIntervalMs !== draft.clientRefreshIntervalMs;
+}
+
+interface AuditEventPayload {
+  readonly id: string;
+  readonly actorEmail?: string;
+  readonly actorDisplayName?: string;
+  readonly targetEmail?: string;
+  readonly targetDisplayName?: string;
+  readonly action: string;
+  readonly metadata: Readonly<Record<string, unknown>>;
+  readonly createdAt: string;
+}
+
+type ThemeMode = "system" | "light" | "dark";
+type LightThemeTone = "light-fog" | "light-warm" | "light-blue";
+type DarkThemeTone = "dark-pro";
+
+function AppearanceSettings() {
+  const [preference, setPreference] = useState(() => readThemePreference());
+  const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error"; readonly message: string }>();
+
+  const saveAppearance = (next = preference) => {
+    try {
+      saveThemePreference(next);
+      setPreference(next);
+      setFeedback({ kind: "success", message: "外观设置已保存" });
+    } catch {
+      setFeedback({ kind: "error", message: "无法保存外观设置" });
+    }
+  };
+
+  const setMode = (mode: ThemeMode) => {
+    const next = { ...preference, mode };
+    setPreference(next);
+    saveAppearance(next);
+  };
+
+  const setLightTone = (lightTone: LightThemeTone) => {
+    const next = { ...preference, lightTone };
+    setPreference(next);
+    saveAppearance(next);
+  };
+
+  const setDarkTone = (darkTone: DarkThemeTone) => {
+    const next = { ...preference, darkTone };
+    setPreference(next);
+    saveAppearance(next);
+  };
+
+  return (
+    <section className="appearance-settings panel">
+      <div className="settings-section-heading">
+        <div><h2>外观</h2><p>选择默认模式和色调预设；主题会保存在当前浏览器。</p></div>
+        <span className="step-badge">{appearanceModeLabel(preference.mode)}</span>
+      </div>
+      <div className="appearance-layout">
+        <section>
+          <h3>模式</h3>
+          <div className="appearance-choice-grid mode">
+            <button className={preference.mode === "system" ? "active" : ""} onClick={() => setMode("system")}><Monitor size={17} /><strong>跟随系统</strong><small>自动匹配设备深浅模式</small></button>
+            <button className={preference.mode === "light" ? "active" : ""} onClick={() => setMode("light")}><Sun size={17} /><strong>浅色</strong><small>默认使用浅色办公界面</small></button>
+            <button className={preference.mode === "dark" ? "active" : ""} onClick={() => setMode("dark")}><Moon size={17} /><strong>深色</strong><small>适合夜间或弱光环境</small></button>
+          </div>
+        </section>
+        <section>
+          <h3>浅色色调</h3>
+          <div className="appearance-choice-grid tone">
+            {[
+              { id: "light-fog" as const, title: "雾灰", text: "现代、专业、默认推荐", swatches: ["#f5f7f8", "#ffffff", "#4f8fcf", "#4f9d69"] },
+              { id: "light-warm" as const, title: "暖白", text: "柔和、亲切、适合长时间阅读", swatches: ["#fbfaf7", "#ffffff", "#5e8fb8", "#8f7659"] },
+              { id: "light-blue" as const, title: "蓝灰", text: "企业、稳重、适合运维视角", swatches: ["#eef3f6", "#ffffff", "#2d78b8", "#27a3a3"] },
+            ].map((tone) => (
+              <button key={tone.id} className={preference.lightTone === tone.id ? "active" : ""} onClick={() => setLightTone(tone.id)}>
+                <span className="appearance-swatches">{tone.swatches.map((color) => <i key={color} style={{ background: color }} />)}</span>
+                <strong>{tone.title}</strong>
+                <small>{tone.text}</small>
+              </button>
+            ))}
+          </div>
+        </section>
+        <section>
+          <h3>深色色调</h3>
+          <div className="appearance-choice-grid tone single">
+            <button className={preference.darkTone === "dark-pro" ? "active" : ""} onClick={() => setDarkTone("dark-pro")}>
+              <span className="appearance-swatches">{["#151817", "#222725", "#76b7f2", "#d8a24e"].map((color) => <i key={color} style={{ background: color }} />)}</span>
+              <strong>专业深色</strong>
+              <small>保留深色习惯，但提升层次和对比</small>
+            </button>
+          </div>
+        </section>
+        <section className="appearance-preview">
+          <h3>预览</h3>
+          <div>
+            <article>
+              <header><span /><strong>今日</strong><small>系统健康</small></header>
+              <p>5 个日程 · 8 项任务 · 12 封未读</p>
+              <button>查看工作台</button>
+            </article>
+            <article>
+              <header><span /><strong>备份</strong><small>自动策略</small></header>
+              <p>下次执行 02:00 · 保留 14 份</p>
+              <button>立即备份</button>
+            </article>
+          </div>
+        </section>
+      </div>
+      {feedback && <div className={`user-settings-feedback ${feedback.kind}`}>{feedback.message}</div>}
+    </section>
+  );
+}
+
+function appearanceModeLabel(mode: ThemeMode): string {
+  return mode === "system" ? "跟随系统" : mode === "light" ? "浅色" : "深色";
+}
+
+function ProfileSettings({ currentUser }: { readonly currentUser: WorkspaceUser }) {
+  const [displayName, setDisplayName] = useState(currentUser.displayName);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error"; readonly message: string }>();
+
+  async function saveProfile() {
+    if (newPassword && newPassword !== confirmPassword) {
+      setFeedback({ kind: "error", message: "两次输入的新密码不一致" });
+      return;
+    }
+    setBusy(true);
+    setFeedback(undefined);
+    try {
+      const response = await fetch("/api/users/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          displayName,
+          currentPassword: currentPassword || undefined,
+          newPassword: newPassword || undefined,
+        }),
+      });
+      const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
+      if (!response.ok) throw new Error(payload?.message || "无法更新个人账号");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setFeedback({ kind: "success", message: "个人账号已更新" });
+      window.setTimeout(() => window.location.reload(), 800);
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法更新个人账号" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="profile-settings panel" aria-labelledby="profile-settings-title">
+      <div className="settings-section-heading">
+        <div><h2 id="profile-settings-title">个人账号</h2><p>这里修改的是进入工作台的本地账号，不会影响已连接的邮箱或日历服务。</p></div>
+        <span className="step-badge">{roleLabel(currentUser.role)}</span>
+      </div>
+      <div className="account-form profile-form">
+        <label><span>昵称</span><input value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoComplete="name" /></label>
+        <label><span>登录邮箱</span><input value={currentUser.email} disabled /></label>
+        <label><span>当前密码</span><input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" placeholder="修改密码时必填" /></label>
+        <label><span>新密码</span><input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" placeholder="至少 8 个字符" /></label>
+        <label><span>确认新密码</span><input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" /></label>
+      </div>
+      {feedback && <div className={`user-settings-feedback ${feedback.kind}`} role="status">{feedback.message}</div>}
+      <footer className="settings-actions">
+        <button className="primary-button" disabled={busy || displayName.trim().length < 2 || Boolean(newPassword) !== Boolean(currentPassword)} onClick={() => void saveProfile()}>
+          {busy ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}{busy ? "正在保存…" : "保存个人账号"}
+        </button>
+      </footer>
+    </section>
+  );
+}
+
+function UserManagementSettings({ currentUser }: { readonly currentUser: WorkspaceUser }) {
+  const [users, setUsers] = useState<readonly ManagedUser[]>([]);
+  const [invitations, setInvitations] = useState<readonly ManagedInvitation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string>();
+  const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error"; readonly message: string }>();
+  const [draft, setDraft] = useState({ displayName: "", email: "", password: "", role: "user" as AppRole, mustChangePassword: true });
+  const [inviteDraft, setInviteDraft] = useState({ displayName: "", email: "", role: "user" as AppRole });
+  const [editing, setEditing] = useState<Record<string, { displayName: string; email: string; role: AppRole; password: string; mustChangePassword: boolean }>>({});
+
+  const loadUsers = useCallback(async () => {
+    try {
+      const [usersResponse, invitationsResponse] = await Promise.all([
+        fetch("/api/users", { cache: "no-store" }),
+        fetch("/api/invitations", { cache: "no-store" }),
+      ]);
+      const usersPayload = await usersResponse.json().catch(() => null) as { readonly users?: readonly ManagedUser[]; readonly message?: string } | null;
+      const invitationsPayload = await invitationsResponse.json().catch(() => null) as { readonly invitations?: readonly ManagedInvitation[]; readonly message?: string } | null;
+      if (!usersResponse.ok) throw new Error(usersPayload?.message || "无法读取用户");
+      if (!invitationsResponse.ok) throw new Error(invitationsPayload?.message || "无法读取邀请");
+      setUsers(usersPayload?.users ?? []);
+      setInvitations(invitationsPayload?.invitations ?? []);
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法读取用户" });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadUsers(); }, [loadUsers]);
+
+  async function createUser() {
+    setBusyId("create");
+    setFeedback(undefined);
+    try {
+      const response = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+      const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
+      if (!response.ok) throw new Error(payload?.message || "无法创建用户");
+      setDraft({ displayName: "", email: "", password: "", role: "user", mustChangePassword: true });
+      await loadUsers();
+      setFeedback({ kind: "success", message: "用户已创建" });
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法创建用户" });
+    } finally {
+      setBusyId(undefined);
+    }
+  }
+
+  async function patchUser(user: ManagedUser, changes: Partial<{ displayName: string; email: string; role: AppRole; password: string; disabled: boolean; mustChangePassword: boolean }>) {
+    setBusyId(user.id);
+    setFeedback(undefined);
+    try {
+      const response = await fetch(`/api/users/${encodeURIComponent(user.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(changes),
+      });
+      const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
+      if (!response.ok) throw new Error(payload?.message || "无法更新用户");
+      await loadUsers();
+      setFeedback({ kind: "success", message: "用户已更新" });
+      if ("displayName" in changes || "email" in changes || "role" in changes || "password" in changes) {
+        setEditing((current) => {
+          const next = { ...current };
+          delete next[user.id];
+          return next;
+        });
+      }
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法更新用户" });
+    } finally {
+      setBusyId(undefined);
+    }
+  }
+
+  async function createInvitation() {
+    setBusyId("invite");
+    setFeedback(undefined);
+    try {
+      const response = await fetch("/api/invitations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(inviteDraft),
+      });
+      const payload = await response.json().catch(() => null) as { readonly invitation?: ManagedInvitation; readonly message?: string } | null;
+      if (!response.ok || !payload?.invitation) throw new Error(payload?.message || "无法创建邀请");
+      setInviteDraft({ displayName: "", email: "", role: "user" });
+      await navigator.clipboard?.writeText(payload.invitation.inviteUrl ?? "").catch(() => undefined);
+      await loadUsers();
+      setFeedback({ kind: "success", message: payload.invitation.inviteUrl ? "邀请已创建，链接已复制" : "邀请已创建" });
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法创建邀请" });
+    } finally {
+      setBusyId(undefined);
+    }
+  }
+
+  async function revokeInvitation(invitation: ManagedInvitation) {
+    setBusyId(invitation.id);
+    setFeedback(undefined);
+    try {
+      const response = await fetch(`/api/invitations/${encodeURIComponent(invitation.id)}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
+      if (!response.ok) throw new Error(payload?.message || "无法撤销邀请");
+      await loadUsers();
+      setFeedback({ kind: "success", message: "邀请已撤销" });
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法撤销邀请" });
+    } finally {
+      setBusyId(undefined);
+    }
+  }
+
+  return (
+    <section className="user-management-settings panel" aria-labelledby="user-management-title">
+      <div className="settings-section-heading">
+        <div><h2 id="user-management-title">用户管理</h2><p>创建可登录工作台的本地账号。每个用户登录后只会看到自己的邮箱、日历、任务、笔记和 AI 配置。</p></div>
+        <span className="step-badge">{users.filter((user) => !user.disabledAt).length} 个可用用户</span>
+      </div>
+
+      <div className="account-form user-create-form">
+        <label><span>昵称</span><input value={draft.displayName} onChange={(event) => setDraft({ ...draft, displayName: event.target.value })} /></label>
+        <label><span>邮箱</span><input type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
+        <label><span>初始密码</span><input type="password" value={draft.password} onChange={(event) => setDraft({ ...draft, password: event.target.value })} autoComplete="new-password" /></label>
+        <label><span>角色</span><AppSelect ariaLabel="用户角色" value={draft.role} onValueChange={(role) => setDraft({ ...draft, role: role as AppRole })} options={roleOptions()} /></label>
+        <label className="secure-toggle"><input type="checkbox" checked={draft.mustChangePassword} onChange={(event) => setDraft({ ...draft, mustChangePassword: event.target.checked })} /><span>首次登录必须改密码</span></label>
+      </div>
+      <footer className="settings-actions">
+        <button className="primary-button" disabled={busyId === "create" || draft.displayName.trim().length < 2 || !draft.email.includes("@") || draft.password.length < 8} onClick={() => void createUser()}>
+          {busyId === "create" ? <LoaderCircle className="spin" size={15} /> : <Plus size={15} />}{busyId === "create" ? "正在创建…" : "创建用户"}
+        </button>
+      </footer>
+
+      <div className="account-form user-create-form">
+        <label><span>邀请昵称</span><input value={inviteDraft.displayName} onChange={(event) => setInviteDraft({ ...inviteDraft, displayName: event.target.value })} /></label>
+        <label><span>邀请邮箱</span><input type="email" value={inviteDraft.email} onChange={(event) => setInviteDraft({ ...inviteDraft, email: event.target.value })} /></label>
+        <label><span>邀请角色</span><AppSelect ariaLabel="邀请角色" value={inviteDraft.role} onValueChange={(role) => setInviteDraft({ ...inviteDraft, role: role as AppRole })} options={roleOptions()} /></label>
+        <div className="settings-actions inline"><button className="secondary-button" disabled={busyId === "invite" || !inviteDraft.email.includes("@")} onClick={() => void createInvitation()}>{busyId === "invite" ? <LoaderCircle className="spin" size={15} /> : <Mail size={15} />}{busyId === "invite" ? "正在创建…" : "创建邀请链接"}</button></div>
+      </div>
+
+      {invitations.some((invitation) => !invitation.acceptedAt && !invitation.revokedAt) && <div className="user-list invitation-list">
+        {invitations.filter((invitation) => !invitation.acceptedAt && !invitation.revokedAt).map((invitation) => (
+          <article className="saved-account-card user-card" key={invitation.id}>
+            <div className="saved-account-color" />
+            <div className="saved-account-main">
+              <div className="saved-account-title">
+                <div><strong>{invitation.displayName || invitation.email}</strong><span>{invitation.email}</span></div>
+                <span className="sync-status sync-status-syncing">{roleLabel(invitation.role)}</span>
+              </div>
+              <div className="saved-account-meta"><span>过期于 {formatAccountTime(invitation.expiresAt)}</span><span>创建于 {formatAccountTime(invitation.createdAt)}</span></div>
+              <div className="saved-account-actions">
+                {invitation.inviteUrl && <button className="ghost-button" onClick={() => void navigator.clipboard?.writeText(invitation.inviteUrl!)}><Link2 size={14} />复制链接</button>}
+                <button className="ghost-button danger-button" disabled={busyId === invitation.id} onClick={() => void revokeInvitation(invitation)}>{busyId === invitation.id ? <LoaderCircle className="spin" size={14} /> : <X size={14} />}撤销</button>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>}
+
+      <div className="user-list">
+        {loading ? <div className="accounts-empty"><LoaderCircle className="spin" size={18} />正在读取用户…</div> : users.map((user) => {
+          const edit = editing[user.id];
+          const disabled = Boolean(user.disabledAt);
+          const busy = busyId === user.id;
+          return (
+            <article className={`saved-account-card user-card ${disabled ? "disabled" : ""}`} key={user.id}>
+              <div className="saved-account-color" />
+              <div className="saved-account-main">
+                <div className="saved-account-title">
+                  <div><strong>{user.displayName}</strong><span>{user.email}</span></div>
+                  <span className={`sync-status ${disabled ? "sync-status-paused" : "sync-status-ready"}`}>{disabled ? "已禁用" : roleLabel(user.role)}</span>
+                </div>
+                <div className="saved-account-meta">
+                  <span>创建于 {formatAccountTime(user.createdAt)}</span>
+                  <span>更新于 {formatAccountTime(user.updatedAt)}</span>
+                  <span>最近登录 {user.lastLoginAt ? formatAccountTime(user.lastLoginAt) : "从未登录"}</span>
+                  <span>Session v{user.sessionVersion}</span>
+                  {user.mustChangePassword && <span>需改密码</span>}
+                  {user.id === currentUser.id && <span>当前账号</span>}
+                </div>
+                {edit && (
+                  <div className="account-form user-edit-form">
+                    <label><span>昵称</span><input value={edit.displayName} onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, displayName: event.target.value } })} /></label>
+                    <label><span>邮箱</span><input type="email" value={edit.email} onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, email: event.target.value } })} /></label>
+                    <label><span>重置密码</span><input type="password" value={edit.password} placeholder="留空则不修改" onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, password: event.target.value } })} /></label>
+                    <label><span>角色</span><AppSelect ariaLabel={`${user.displayName}的角色`} value={edit.role} onValueChange={(role) => setEditing({ ...editing, [user.id]: { ...edit, role: role as AppRole } })} options={roleOptions()} /></label>
+                    <label className="secure-toggle"><input type="checkbox" checked={edit.mustChangePassword} onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, mustChangePassword: event.target.checked } })} /><span>要求改密</span></label>
+                  </div>
+                )}
+                <div className="saved-account-actions">
+                  {edit ? <>
+                    <button className="primary-button" disabled={busy || edit.displayName.trim().length < 2 || !edit.email.includes("@") || (edit.password.length > 0 && edit.password.length < 8)} onClick={() => void patchUser(user, { displayName: edit.displayName, email: edit.email, role: edit.role, password: edit.password || undefined, mustChangePassword: edit.mustChangePassword })}>{busy ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}保存</button>
+                    <button className="ghost-button" disabled={busy} onClick={() => setEditing((current) => { const next = { ...current }; delete next[user.id]; return next; })}>取消</button>
+                  </> : <>
+                    <button className="ghost-button" disabled={busy} onClick={() => setEditing({ ...editing, [user.id]: { displayName: user.displayName, email: user.email, role: user.role, password: "", mustChangePassword: user.mustChangePassword } })}><Pencil size={14} />编辑</button>
+                    <button className={`ghost-button ${disabled ? "" : "danger-button"}`} disabled={busy || user.id === currentUser.id} onClick={() => void patchUser(user, { disabled: !disabled })}>
+                      {busy ? <LoaderCircle className="spin" size={14} /> : disabled ? <Play size={14} /> : <Pause size={14} />}{disabled ? "启用" : "禁用"}
+                    </button>
+                  </>}
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      {feedback && <div className={`user-settings-feedback ${feedback.kind}`} role="status">{feedback.message}</div>}
+    </section>
+  );
+}
+
+function WorkspaceDiagnosticsSettings() {
+  const [diagnostic, setDiagnostic] = useState<WorkspaceDiagnosticPayload>();
+  const [auditEvents, setAuditEvents] = useState<readonly AuditEventPayload[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [assigning, setAssigning] = useState(false);
+  const [targetUserId, setTargetUserId] = useState("");
+  const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error"; readonly message: string }>();
+
+  const loadDiagnostics = useCallback(async () => {
+    try {
+      const response = await fetch("/api/admin/diagnostics", { cache: "no-store" });
+      const payload = await response.json().catch(() => null) as {
+        readonly diagnostic?: WorkspaceDiagnosticPayload;
+        readonly auditEvents?: readonly AuditEventPayload[];
+        readonly message?: string;
+      } | null;
+      if (!response.ok || !payload?.diagnostic) throw new Error(payload?.message || "无法读取诊断数据");
+      setDiagnostic(payload.diagnostic);
+      setAuditEvents(payload.auditEvents ?? []);
+      setTargetUserId((current) => current || payload.diagnostic?.users.find((user) => !user.disabledAt)?.userId || "");
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法读取诊断数据" });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadDiagnostics(); }, [loadDiagnostics]);
+
+  async function assignUnownedData() {
+    if (!targetUserId || assigning) return;
+    const target = diagnostic?.users.find((user) => user.userId === targetUserId);
+    if (!await appConfirm({
+      title: "分配未归属历史数据？",
+      description: `这些数据将分配给“${target?.displayName ?? "选中用户"}”。`,
+      confirmLabel: "确认分配",
+    })) return;
+    setAssigning(true);
+    setFeedback(undefined);
+    try {
+      const response = await fetch("/api/admin/diagnostics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetUserId }),
+      });
+      const payload = await response.json().catch(() => null) as { readonly diagnostic?: WorkspaceDiagnosticPayload; readonly message?: string } | null;
+      if (!response.ok || !payload?.diagnostic) throw new Error(payload?.message || "无法分配历史数据");
+      setDiagnostic(payload.diagnostic);
+      setFeedback({ kind: "success", message: "未归属历史数据已分配" });
+      await loadDiagnostics();
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法分配历史数据" });
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  const unownedEntries = Object.entries(diagnostic?.unownedCounts ?? {}).filter(([, count]) => count > 0);
+  return (
+    <section className="workspace-diagnostics-settings panel" aria-labelledby="workspace-diagnostics-title">
+      <div className="settings-section-heading">
+        <div><h2 id="workspace-diagnostics-title">数据隔离诊断</h2><p>按用户查看工作区数据归属，并处理迁移前留下的未归属数据。</p></div>
+        <button className="secondary-button" disabled={loading} onClick={() => { setLoading(true); void loadDiagnostics(); }}>
+          {loading ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}刷新
+        </button>
+      </div>
+
+      <div className="diagnostic-summary">
+        <article><span><Users size={17} /></span><div><small>用户</small><strong>{loading ? "…" : diagnostic?.users.length ?? 0}</strong></div></article>
+        <article><span><ShieldCheck size={17} /></span><div><small>未归属数据</small><strong>{loading ? "…" : diagnostic?.totalUnowned ?? 0}</strong></div></article>
+        <article><span><DatabaseBackup size={17} /></span><div><small>审计事件</small><strong>{loading ? "…" : auditEvents.length}</strong></div></article>
+      </div>
+
+      {unownedEntries.length > 0 && <div className="diagnostic-unowned">
+        <div>
+          <strong>未归属历史数据</strong>
+          <p>{unownedEntries.map(([key, count]) => `${diagnosticLabel(key)} ${count}`).join(" · ")}</p>
+        </div>
+        <div>
+          <AppSelect ariaLabel="选择历史数据目标用户" size="compact" value={targetUserId} onValueChange={setTargetUserId} options={[{ value: "", label: "选择用户" }, ...(diagnostic?.users ?? []).filter((user) => !user.disabledAt).map((user) => ({ value: user.userId, label: `${user.displayName} · ${user.email}` }))]} />
+          <button className="primary-button" disabled={assigning || !targetUserId} onClick={() => void assignUnownedData()}>
+            {assigning ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}{assigning ? "正在分配…" : "分配"}
+          </button>
+        </div>
+      </div>}
+
+      <div className="diagnostic-user-grid">
+        {loading ? <div className="accounts-empty"><LoaderCircle className="spin" size={18} />正在读取诊断数据…</div> : (diagnostic?.users ?? []).map((user) => (
+          <article className={`diagnostic-user-card ${user.disabledAt ? "disabled" : ""}`} key={user.userId}>
+            <header>
+              <div><strong>{user.displayName}</strong><span>{user.email}</span></div>
+              <em>{user.disabledAt ? "已禁用" : roleLabel(user.role)}</em>
+            </header>
+            <div className="diagnostic-counts">
+              {diagnosticCoreCounts(user.counts).map(([key, count]) => <span key={key}><small>{diagnosticLabel(key)}</small><strong>{count}</strong></span>)}
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <div className="diagnostic-audit">
+        <h3>最近审计</h3>
+        {auditEvents.length ? auditEvents.map((event) => (
+          <article key={event.id}>
+            <span>{auditActionLabel(event.action)}</span>
+            <strong>{event.actorDisplayName ?? event.actorEmail ?? "系统"}</strong>
+            <small>{event.targetDisplayName || event.targetEmail ? `目标：${event.targetDisplayName ?? event.targetEmail}` : "无目标"} · {formatAccountTime(event.createdAt)}</small>
+          </article>
+        )) : <div className="accounts-empty">暂无审计事件</div>}
+      </div>
+
+      {feedback && <div className={`user-settings-feedback ${feedback.kind}`} role="status">{feedback.message}</div>}
+    </section>
+  );
+}
+
+function AiAutomationSettings() {
+  const [settings, setSettings] = useState<{ readonly autoExecutionEnabled: boolean; readonly highRiskAutoEnabled: boolean }>();
+  const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error"; readonly message: string }>();
+  const [saving, setSaving] = useState(false);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const response = await fetch("/api/ai/actions/settings", { cache: "no-store" });
+      const payload = await response.json() as { readonly ok?: boolean; readonly settings?: typeof settings; readonly message?: string };
+      if (!response.ok || !payload.ok || !payload.settings) throw new Error(payload.message || "无法读取 AI 自动执行设置");
+      setSettings(payload.settings);
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法读取 AI 自动执行设置" });
+    }
+  }, []);
+
+  useEffect(() => { void loadSettings(); }, [loadSettings]);
+
+  const save = async (next: { readonly autoExecutionEnabled: boolean; readonly highRiskAutoEnabled: boolean }) => {
+    setSaving(true);
+    try {
+      const response = await fetch("/api/ai/actions/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+      const payload = await response.json() as { readonly ok?: boolean; readonly settings?: typeof settings; readonly message?: string };
+      if (!response.ok || !payload.ok || !payload.settings) throw new Error(payload.message || "无法保存 AI 自动执行设置");
+      setSettings(payload.settings);
+      setFeedback({ kind: "success", message: "AI 自动执行设置已保存" });
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法保存 AI 自动执行设置" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const current = settings ?? { autoExecutionEnabled: false, highRiskAutoEnabled: false };
+  return (
+    <section className="ai-automation-settings panel">
+      <div className="settings-section-heading">
+        <div><h2>AI 自动执行</h2><p>允许 AI 在任务中心中执行受控工具；所有写入和外部动作都会进入审计日志。</p></div>
+        <span className="step-badge">{current.autoExecutionEnabled ? "已开启" : "关闭"}</span>
+      </div>
+      <div className="ai-automation-grid">
+        <label><input type="checkbox" checked={current.autoExecutionEnabled} disabled={saving} onChange={(event) => void save({ ...current, autoExecutionEnabled: event.target.checked, highRiskAutoEnabled: event.target.checked ? current.highRiskAutoEnabled : false })} /><span><strong>允许自动写入</strong><small>创建任务、笔记、日程和邮件草稿。</small></span></label>
+        <label><input type="checkbox" checked={current.highRiskAutoEnabled} disabled={saving || !current.autoExecutionEnabled} onChange={(event) => void save({ ...current, highRiskAutoEnabled: event.target.checked })} /><span><strong>允许高风险外部动作</strong><small>发送邮件、归档/删除/移动邮件等动作。</small></span></label>
+      </div>
+      {feedback && <div className={`user-settings-feedback ${feedback.kind}`}>{feedback.message}</div>}
+    </section>
   );
 }
 
@@ -1628,18 +3371,97 @@ interface BackupStatusPayload {
   readonly databaseBytes: number;
   readonly attachmentBytes: number;
   readonly attachmentFiles: number;
-  readonly keySource: "file" | "environment" | "none";
+  readonly keySource: "environment" | "none";
   readonly counts: Readonly<Record<string, number>>;
+  readonly mailCache: {
+    readonly totalMessages: number;
+    readonly cachedBodies: number;
+    readonly cachedBodyBytes: number;
+  };
   readonly latestAutomaticBackupAt?: string;
+  readonly automatic: AutomaticBackupPayload;
+  readonly strategy?: BackupStrategyPayload;
+  readonly artifacts?: readonly BackupArtifactPayload[];
+}
+
+interface AutomaticBackupPayload {
+  readonly enabled: boolean;
+  readonly intervalHours: number;
+  readonly retentionCount: number;
+  readonly encryptAutomatic: boolean;
+  readonly encryptionPasswordConfigured: boolean;
+  readonly nextRunAt?: string;
+  readonly lastEnqueuedAt?: string;
+  readonly lastCompletedAt?: string;
+  readonly updatedAt?: string;
+}
+
+interface BackupStrategyPayload {
+  readonly recommendedMailPolicy: BackupMailPolicyPayload;
+  readonly backupDirectory: string;
+  readonly attachmentDirectory: string;
+  readonly tools: {
+    readonly pgDump: boolean;
+    readonly pgRestore: boolean;
+    readonly tar: boolean;
+    readonly openssl: boolean;
+  };
+  readonly coverage: readonly BackupCoveragePayload[];
+  readonly options?: readonly BackupPolicyOptionPayload[];
+  readonly backupCommands: readonly BackupCommandPayload[];
+  readonly restoreCommands: readonly BackupCommandPayload[];
+  readonly warnings: readonly string[];
+}
+
+type BackupMailPolicyPayload = "lightweight" | "full-archive" | "configuration-only";
+
+interface BackupPolicyOptionPayload {
+  readonly policy: BackupMailPolicyPayload;
+  readonly label: string;
+  readonly description: string;
+  readonly recommended: boolean;
+  readonly available: boolean;
+  readonly disabledReason?: string;
+  readonly coverage: readonly BackupCoveragePayload[];
+}
+
+interface BackupCoveragePayload {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly included: boolean;
+}
+
+interface BackupCommandPayload {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string;
+  readonly command: string;
+}
+
+interface BackupArtifactPayload {
+  readonly id: string;
+  readonly filename: string;
+  readonly sizeBytes: number;
+  readonly checksumSha256: string;
+  readonly encrypted: boolean;
+  readonly mailPolicy?: BackupMailPolicyPayload;
+  readonly source: "server" | "upload" | "safety";
+  readonly restoredAt?: string;
+  readonly createdAt: string;
 }
 
 function BackupSettings() {
   const [status, setStatus] = useState<BackupStatusPayload>();
   const [loading, setLoading] = useState(true);
-  const [operation, setOperation] = useState<"export" | "inspect" | "restore">();
-  const [selectedFile, setSelectedFile] = useState<File>();
+  const [copiedCommandId, setCopiedCommandId] = useState<string>();
+  const [backupPassword, setBackupPassword] = useState("");
+  const [encryptBackup, setEncryptBackup] = useState(true);
+  const [selectedBackupPolicy, setSelectedBackupPolicy] = useState<BackupMailPolicyPayload>("lightweight");
+  const [automaticDraft, setAutomaticDraft] = useState<AutomaticBackupPayload>();
+  const [busyBackupId, setBusyBackupId] = useState<string>();
+  const [artifactMenu, setArtifactMenu] = useState<ContextMenuState>();
   const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error" | "info"; readonly message: string }>();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -1647,6 +3469,13 @@ function BackupSettings() {
       const payload = await response.json() as { readonly ok?: boolean; readonly status?: BackupStatusPayload; readonly message?: string };
       if (!response.ok || !payload.ok || !payload.status) throw new Error(payload.message || "无法读取备份状态");
       setStatus(payload.status);
+      setAutomaticDraft(payload.status.automatic);
+      setSelectedBackupPolicy((current) => {
+        const options = payload.status?.strategy?.options ?? [];
+        return options.some((option) => option.policy === current)
+          ? current
+          : payload.status?.strategy?.recommendedMailPolicy ?? "lightweight";
+      });
     } catch (error) {
       setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法读取备份状态" });
     } finally {
@@ -1656,164 +3485,345 @@ function BackupSettings() {
 
   useEffect(() => { void loadStatus(); }, [loadStatus]);
 
-  const downloadBackup = async () => {
-    if (operation) return;
-    setOperation("export");
-    setFeedback({ kind: "info", message: "正在创建一致性数据库快照…" });
+  const copyCommand = async (command: BackupCommandPayload) => {
     try {
-      const response = await fetch("/api/backups/export", { cache: "no-store" });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
-        throw new Error(payload?.message || "无法创建完整备份");
-      }
-      const blob = await response.blob();
-      const disposition = response.headers.get("content-disposition") ?? "";
-      const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `Kalender-backup-${new Date().toISOString().slice(0, 10)}.zip`;
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      anchor.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-      setFeedback({ kind: "success", message: `完整备份“${filename}”已开始下载` });
+      await navigator.clipboard?.writeText(command.command);
+      setCopiedCommandId(command.id);
+      setFeedback({ kind: "success", message: `已复制“${command.title}”命令` });
+      window.setTimeout(() => setCopiedCommandId((current) => current === command.id ? undefined : current), 1_600);
+    } catch {
+      setFeedback({ kind: "error", message: "无法复制命令，请手动选择文本" });
+    }
+  };
+
+  const createBackup = async () => {
+    if (encryptBackup && backupPassword.length < 8) {
+      setFeedback({ kind: "error", message: "加密备份密码至少需要 8 个字符" });
+      return;
+    }
+    setBusyBackupId("create");
+    try {
+      const response = await fetch("/api/backups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ encrypted: encryptBackup, mailPolicy: selectedBackupPolicy, password: encryptBackup ? backupPassword : undefined }),
+      });
+      const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "无法创建备份任务");
+      setFeedback({ kind: "success", message: "备份任务已创建，可在任务中心查看进度" });
       await loadStatus();
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法创建完整备份" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法创建备份任务" });
     } finally {
-      setOperation(undefined);
+      setBusyBackupId(undefined);
     }
   };
 
-  const restoreBackup = async () => {
-    if (!selectedFile || operation) return;
-    const confirmed = window.confirm(
-      `从“${selectedFile.name}”恢复？\n\n当前数据库会先自动备份，然后由上传的备份完整替换。恢复期间请不要关闭页面。`,
-    );
-    if (!confirmed) return;
-    setOperation("restore");
-    setFeedback({ kind: "info", message: "正在校验备份并准备安全恢复…" });
+  const uploadBackup = async (file: File) => {
+    setBusyBackupId("upload");
     try {
-      const response = await fetch("/api/backups/restore", {
+      const response = await fetch("/api/backups/upload", {
         method: "POST",
-        headers: { "Content-Type": "application/zip" },
-        body: selectedFile,
-      });
-      const payload = await response.json().catch(() => null) as {
-        readonly ok?: boolean;
-        readonly message?: string;
-        readonly restored?: { readonly safetyBackupFilename?: string };
-      } | null;
-      if (!response.ok || !payload?.ok) throw new Error(payload?.message || "无法恢复备份");
-      setFeedback({
-        kind: "success",
-        message: `${payload.message || "备份恢复完成"}${payload.restored?.safetyBackupFilename ? `；恢复前副本：${payload.restored.safetyBackupFilename}` : ""}`,
-      });
-      setSelectedFile(undefined);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      window.setTimeout(() => window.location.reload(), 1_800);
-    } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法恢复备份" });
-      setOperation(undefined);
-    }
-  };
-
-  const inspectBackupFile = async (file: File) => {
-    if (operation) return;
-    setOperation("inspect");
-    setSelectedFile(undefined);
-    setFeedback({ kind: "info", message: `正在验证 ${file.name} 的校验和和数据库结构…` });
-    try {
-      const response = await fetch("/api/backups/inspect", {
-        method: "POST",
-        headers: { "Content-Type": "application/zip" },
+        headers: { "Content-Type": "application/octet-stream", "X-Backup-Filename": file.name },
         body: file,
       });
-      const payload = await response.json().catch(() => null) as {
-        readonly ok?: boolean;
-        readonly message?: string;
-        readonly inspection?: {
-          readonly manifest?: { readonly createdAt?: string };
-          readonly counts?: Readonly<Record<string, number>>;
-        };
-      } | null;
-      if (!response.ok || !payload?.ok || !payload.inspection) throw new Error(payload?.message || "备份验证失败");
-      setSelectedFile(file);
-      setFeedback({
-        kind: "success",
-        message: `备份验证通过 · ${payload.inspection.counts?.calendar_events ?? 0} 项日程 · 创建于 ${payload.inspection.manifest?.createdAt ? formatAccountTime(payload.inspection.manifest.createdAt) : "未知时间"}`,
-      });
+      const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "无法上传备份");
+      setFeedback({ kind: "success", message: "备份文件已上传并加入历史" });
+      await loadStatus();
     } catch (error) {
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "备份验证失败" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法上传备份" });
     } finally {
-      setOperation(undefined);
+      setBusyBackupId(undefined);
+    }
+  };
+
+  const restoreArtifact = async (artifact: BackupArtifactPayload) => {
+    if (!await appConfirm({
+      title: `恢复备份“${artifact.filename}”？`,
+      description: "系统会先创建恢复前安全备份，然后替换当前数据库和附件。",
+      confirmLabel: "恢复备份",
+      tone: "danger",
+    })) return;
+    if (artifact.encrypted && backupPassword.length < 8) {
+      setFeedback({ kind: "error", message: "恢复加密备份需要输入备份密码" });
+      return;
+    }
+    setBusyBackupId(artifact.id);
+    try {
+      const response = await fetch(`/api/backups/${encodeURIComponent(artifact.id)}/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmed: true, password: artifact.encrypted ? backupPassword : undefined }),
+      });
+      const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "无法创建恢复任务");
+      setFeedback({ kind: "success", message: "恢复任务已创建，可在任务中心查看进度" });
+      await loadStatus();
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法创建恢复任务" });
+    } finally {
+      setBusyBackupId(undefined);
+    }
+  };
+
+  const saveAutomaticSettings = async () => {
+    const draft = automaticDraft ?? status?.automatic;
+    if (!draft) return;
+    setBusyBackupId("automatic");
+    try {
+      const response = await fetch("/api/backups", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: draft.enabled,
+          intervalHours: draft.intervalHours,
+          retentionCount: draft.retentionCount,
+          encryptAutomatic: draft.encryptAutomatic,
+        }),
+      });
+      const payload = await response.json() as { readonly ok?: boolean; readonly settings?: AutomaticBackupPayload; readonly message?: string };
+      if (!response.ok || !payload.ok || !payload.settings) throw new Error(payload.message || "无法保存自动备份设置");
+      setAutomaticDraft(payload.settings);
+      setStatus((current) => current ? { ...current, automatic: payload.settings! } : current);
+      setFeedback({ kind: "success", message: "自动备份设置已保存" });
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法保存自动备份设置" });
+    } finally {
+      setBusyBackupId(undefined);
     }
   };
 
   const totalBytes = (status?.databaseBytes ?? 0) + (status?.attachmentBytes ?? 0);
+  const strategy = status?.strategy;
+  const toolsReady = Boolean(strategy?.tools.pgDump && strategy.tools.pgRestore && strategy.tools.tar);
+  const backupOptions = strategy?.options ?? [{
+    policy: "lightweight" as const,
+    label: "轻量工作区快照",
+    description: "备份数据库和草稿附件。",
+    recommended: true,
+    available: true,
+    coverage: strategy?.coverage ?? [],
+  }];
+  const selectedBackupOption = backupOptions.find((option) => option.policy === selectedBackupPolicy) ?? backupOptions[0];
+  const selectedCoverage = selectedBackupOption?.coverage.length ? selectedBackupOption.coverage : strategy?.coverage ?? [];
+  const selectedPolicyAvailable = selectedBackupOption?.available !== false;
+  const mailCache = status?.mailCache;
+  const mailCacheLabel = mailCache
+    ? `${mailCache.cachedBodies}/${mailCache.totalMessages} 封正文 · ${formatFileSize(mailCache.cachedBodyBytes)}`
+    : "—";
+  const toolItems = strategy ? [
+    { id: "pgDump", label: "pg_dump", ready: strategy.tools.pgDump },
+    { id: "pgRestore", label: "pg_restore", ready: strategy.tools.pgRestore },
+    { id: "tar", label: "tar", ready: strategy.tools.tar },
+    { id: "openssl", label: "openssl", ready: strategy.tools.openssl },
+  ] : [];
+  const automatic = automaticDraft ?? status?.automatic;
+  const artifactMenuItem = artifactMenu ? status?.artifacts?.find((artifact) => artifact.id === artifactMenu.id) : undefined;
+  const artifactCommands: readonly ResolvedContextCommand[] = artifactMenuItem ? [
+    { id: "backup.download", label: "下载备份文件", group: "primary", risk: "read", icon: "download" },
+    { id: "backup.copy-name", label: "复制文件名", group: "primary", risk: "read", icon: "copy" },
+    { id: "backup.copy-checksum", label: "复制 SHA256", group: "primary", risk: "read", icon: "info" },
+    { id: "backup.restore", label: "从此备份恢复", group: "danger", risk: "destructive", icon: "restore" },
+  ] : [];
+
+  const openArtifactMenu = (event: ReactMouseEvent<HTMLElement>, artifact: BackupArtifactPayload) => {
+    event.preventDefault();
+    setArtifactMenu({ id: artifact.id, x: event.clientX, y: event.clientY, returnFocus: event.currentTarget });
+  };
+
+  const selectArtifactCommand = (commandId: ContextCommandId) => {
+    if (!artifactMenuItem) return;
+    if (commandId === "backup.download") window.open(`/api/backups/${encodeURIComponent(artifactMenuItem.id)}/download`, "_blank", "noopener,noreferrer");
+    if (commandId === "backup.restore") void restoreArtifact(artifactMenuItem);
+    if (commandId === "backup.copy-name") void copyText(artifactMenuItem.filename, "备份文件名已复制", setFeedback);
+    if (commandId === "backup.copy-checksum") void copyText(artifactMenuItem.checksumSha256, "SHA256 已复制", setFeedback);
+  };
+
   return (
     <section className="backup-settings panel" aria-labelledby="backup-settings-title">
       <div className="settings-section-heading">
-        <div><h2 id="backup-settings-title">数据备份与恢复</h2><p>下载完整的 PGlite 数据库、主密钥和本地草稿附件；数据库损坏后可从此恢复。</p></div>
-        <span className="step-badge">本机完整快照</span>
+        <div><h2 id="backup-settings-title">备份中心</h2><p>使用 PostgreSQL 原生备份，草稿附件单独打包；邮件默认恢复后重新同步。</p></div>
+        <span className="step-badge">{loading ? "检查中" : toolsReady ? "可执行" : "需安装工具"}</span>
       </div>
 
       <div className="backup-summary" aria-label="当前数据概况">
-        <article><span><HardDrive size={17} /></span><div><small>预计备份数据</small><strong>{loading ? "正在计算…" : formatFileSize(totalBytes)}</strong></div></article>
+        <article><span><HardDrive size={17} /></span><div><small>预计核心数据</small><strong>{loading ? "正在计算…" : formatFileSize(totalBytes)}</strong></div></article>
         <article><span><NotebookPen size={17} /></span><div><small>笔记与任务</small><strong>{loading ? "—" : `${status?.counts.notes ?? 0} 篇 · ${status?.counts.tasks ?? 0} 项`}</strong></div></article>
-        <article><span><CalendarDays size={17} /></span><div><small>日历事件</small><strong>{loading ? "—" : `${status?.counts.calendar_events ?? 0} 项`}</strong></div></article>
+        <article><span><Mail size={17} /></span><div><small>邮件缓存</small><strong>{loading ? "—" : mailCacheLabel}</strong></div></article>
         <article><span><Paperclip size={17} /></span><div><small>草稿附件</small><strong>{loading ? "—" : `${status?.attachmentFiles ?? 0} 个 · ${formatFileSize(status?.attachmentBytes ?? 0)}`}</strong></div></article>
       </div>
 
+      <section className="backup-type-picker" aria-label="备份类型">
+        <header>
+          <div><h3>备份类型</h3><p>先选范围，再创建备份；不可用类型会说明缺少的后端能力。</p></div>
+          {selectedBackupOption && <span>{backupPolicyLabel(selectedBackupOption.policy)}</span>}
+        </header>
+        <div>
+          {backupOptions.map((option) => (
+            <button
+              type="button"
+              className={`${option.policy === selectedBackupPolicy ? "active" : ""} ${option.available ? "" : "unavailable"}`}
+              key={option.policy}
+              aria-pressed={option.policy === selectedBackupPolicy}
+              onClick={() => setSelectedBackupPolicy(option.policy)}
+            >
+              <span>{option.available ? <Check size={14} /> : <AlertCircle size={14} />}</span>
+              <strong>{option.label}{option.recommended && <em>推荐</em>}</strong>
+              <small>{option.description}</small>
+              {!option.available && option.disabledReason && <i>{option.disabledReason}</i>}
+            </button>
+          ))}
+        </div>
+      </section>
+
       <div className="backup-operation-grid">
         <article className="backup-operation-card">
-          <div className="backup-operation-icon"><Download size={20} /></div>
-          <div><h3>创建完整备份</h3><p>生成普通 ZIP 文件，保留数据库内部 ID、账户连接、关联关系、同步状态和本地附件。</p></div>
-          <button className="primary-button" disabled={Boolean(operation) || loading} onClick={() => void downloadBackup()}>
-            {operation === "export" ? <LoaderCircle className="spin" size={15} /> : <FileArchive size={15} />}{operation === "export" ? "正在生成…" : "下载完整 ZIP"}
-          </button>
+          <div className="backup-operation-icon"><DatabaseBackup size={20} /></div>
+          <div><h3>备份范围</h3><p>{selectedBackupOption?.description ?? "数据库负责结构化数据，本地文件只包含草稿附件。"}</p></div>
+          <div className="backup-coverage-list">
+            {selectedCoverage.map((item) => (
+              <div key={item.id} className={item.included ? "included" : ""}>
+                <span>{item.included ? <Check size={13} /> : <Circle size={13} />}</span>
+                <strong>{item.label}</strong>
+                <small>{item.description}</small>
+              </div>
+            )) ?? <div><span><LoaderCircle className="spin" size={13} /></span><strong>正在读取</strong><small>备份策略加载中</small></div>}
+          </div>
         </article>
 
-        <article className="backup-operation-card backup-restore-card">
-          <div className="backup-operation-icon"><Upload size={20} /></div>
-          <div><h3>从备份恢复</h3><p>上传此前下载的 ZIP。系统会先验证数据库和校验和，并自动保存当前数据库的保护副本。</p></div>
-          <input
-            ref={fileInputRef}
-            className="backup-file-input"
-            type="file"
-            accept=".zip,application/zip"
-            aria-label="选择 Kalender 备份 ZIP"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file && file.size > 512 * 1024 * 1024) {
-                setSelectedFile(undefined);
-                setFeedback({ kind: "error", message: "备份文件不能超过 512 MB" });
-                event.target.value = "";
-                return;
-              }
-              if (file) void inspectBackupFile(file);
-              else {
-                setSelectedFile(undefined);
-                setFeedback(undefined);
-              }
-            }}
-          />
-          <div className="backup-restore-actions">
-            <button className="secondary-button" disabled={Boolean(operation)} onClick={() => fileInputRef.current?.click()}>{operation === "inspect" ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}{operation === "inspect" ? "正在验证…" : "选择 ZIP"}</button>
-            <button className="danger-confirm-button" disabled={!selectedFile || Boolean(operation)} onClick={() => void restoreBackup()}>
-              {operation === "restore" && <LoaderCircle className="spin" size={15} />}{operation === "restore" ? "正在恢复…" : "恢复此备份"}
-            </button>
+        <article className="backup-operation-card">
+          <div className="backup-operation-icon"><ShieldCheck size={20} /></div>
+          <div><h3>环境检查</h3><p>备份命令不显示数据库密码；密钥状态只检查是否存在。</p></div>
+          <div className="backup-tool-grid">
+            {toolItems.map((tool) => (
+              <span key={tool.id} className={tool.ready ? "ready" : "missing"}>
+                {tool.ready ? <Check size={13} /> : <AlertCircle size={13} />}{tool.label}
+              </span>
+            ))}
           </div>
-          {selectedFile && <small className="backup-selected-file"><FileArchive size={13} />{selectedFile.name}<span>{formatFileSize(selectedFile.size)}</span></small>}
+          <div className={status?.keySource === "environment" ? "backup-key-state ready" : "backup-key-state missing"}>
+            {status?.keySource === "environment" ? <Check size={14} /> : <AlertCircle size={14} />}
+            <span>{status?.keySource === "environment" ? "已检测到 KALENDER_MASTER_KEY" : "未检测到 KALENDER_MASTER_KEY"}</span>
+          </div>
+          {strategy && <small className="backup-path-label">{strategy.backupDirectory}</small>}
         </article>
       </div>
 
+      <div className="backup-live-actions">
+        <article>
+          <header><DatabaseBackup size={18} /><div><h3>一键创建备份</h3><p>生成服务器历史文件，可下载，也可直接从历史恢复。</p></div></header>
+          <label className="secure-toggle"><input type="checkbox" checked={encryptBackup} onChange={(event) => setEncryptBackup(event.target.checked)} /><span>加密备份文件</span></label>
+          <input value={backupPassword} type="password" placeholder="备份密码（加密或恢复加密备份时使用）" onChange={(event) => setBackupPassword(event.target.value)} />
+          {!selectedPolicyAvailable && selectedBackupOption?.disabledReason && <small className="backup-risk">{selectedBackupOption.disabledReason}</small>}
+          {!encryptBackup && <small className="backup-risk">未加密备份会包含敏感配置和已缓存内容，请只保存在可信设备。</small>}
+          <button className="primary-button" disabled={Boolean(busyBackupId) || !selectedPolicyAvailable} onClick={() => void createBackup()}>{busyBackupId === "create" ? <LoaderCircle className="spin" size={14} /> : <DatabaseBackup size={14} />}创建{selectedBackupOption ? backupPolicyLabel(selectedBackupOption.policy) : "备份"}</button>
+        </article>
+        <article>
+          <header><Upload size={18} /><div><h3>上传备份文件</h3><p>上传 `.qgwbackup` 或 `.qgwbackup.enc` 后会出现在备份历史。</p></div></header>
+          <input type="file" accept=".qgwbackup,.enc,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadBackup(file); event.currentTarget.value = ""; }} />
+        </article>
+      </div>
+
+      {automatic && (
+        <div className="automatic-backup-card">
+          <header>
+            <div><h3>自动备份</h3><p>后台任务会按间隔创建服务器历史备份，并按保留数量清理旧自动备份。</p></div>
+            <span className={automatic.enabled ? "ready" : ""}>{automatic.enabled ? "已开启" : "未开启"}</span>
+          </header>
+          <div className="automatic-backup-controls">
+            <label><input type="checkbox" checked={automatic.enabled} onChange={(event) => setAutomaticDraft({ ...automatic, enabled: event.target.checked })} /><span>启用自动备份</span></label>
+            <label><span>间隔小时</span><input type="number" min={1} max={720} value={automatic.intervalHours} onChange={(event) => setAutomaticDraft({ ...automatic, intervalHours: Number(event.target.value) })} /></label>
+            <label><span>保留份数</span><input type="number" min={1} max={365} value={automatic.retentionCount} onChange={(event) => setAutomaticDraft({ ...automatic, retentionCount: Number(event.target.value) })} /></label>
+            <label><input type="checkbox" checked={automatic.encryptAutomatic} onChange={(event) => setAutomaticDraft({ ...automatic, encryptAutomatic: event.target.checked })} /><span>自动备份加密</span></label>
+            <button className="secondary-button" disabled={busyBackupId === "automatic"} onClick={() => void saveAutomaticSettings()}>{busyBackupId === "automatic" ? <LoaderCircle className="spin" size={13} /> : <Check size={13} />}保存策略</button>
+          </div>
+          <footer>
+            <small>下次执行：{automatic.enabled && automatic.nextRunAt ? formatAccountTime(automatic.nextRunAt) : "未计划"}</small>
+            <small>最近完成：{automatic.lastCompletedAt ? formatAccountTime(automatic.lastCompletedAt) : "暂无"}</small>
+            {automatic.encryptAutomatic && !automatic.encryptionPasswordConfigured && <small className="backup-risk">自动加密需要在服务器设置 KALENDER_BACKUP_PASSWORD。</small>}
+          </footer>
+        </div>
+      )}
+
+      <div className="backup-history">
+        <h3>备份历史</h3>
+        {status?.artifacts?.length ? status.artifacts.map((artifact) => (
+          <article
+            key={artifact.id}
+            tabIndex={0}
+            onContextMenu={(event) => openArtifactMenu(event, artifact)}
+            onKeyDown={(event) => {
+              if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+              event.preventDefault();
+              const bounds = event.currentTarget.getBoundingClientRect();
+              setArtifactMenu({ id: artifact.id, x: bounds.right - 12, y: bounds.top + 28, returnFocus: event.currentTarget });
+            }}
+          >
+            <div><strong>{artifact.filename}</strong><small>{backupPolicyLabel(artifact.mailPolicy ?? "lightweight")} · {artifact.source === "safety" ? "恢复前安全备份" : artifact.source === "upload" ? "上传文件" : "服务器创建"} · {artifact.encrypted ? "已加密" : "未加密"} · {formatAccountTime(artifact.createdAt)}</small></div>
+            <span>{formatFileSize(artifact.sizeBytes)}</span>
+            <a className="secondary-button" href={`/api/backups/${encodeURIComponent(artifact.id)}/download`}><Download size={13} />下载</a>
+            <button className="danger-confirm-button" disabled={Boolean(busyBackupId)} onClick={() => void restoreArtifact(artifact)}>{busyBackupId === artifact.id ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}恢复</button>
+          </article>
+        )) : <div className="accounts-empty">还没有备份历史</div>}
+      </div>
+
+      {strategy && (
+        <div className="backup-command-layout">
+          <BackupCommandGroup title="创建备份" commands={strategy.backupCommands} copiedCommandId={copiedCommandId} onCopy={copyCommand} />
+          <BackupCommandGroup title="恢复备份" commands={strategy.restoreCommands} copiedCommandId={copiedCommandId} onCopy={copyCommand} />
+        </div>
+      )}
+
       {feedback && <div className={`backup-feedback ${feedback.kind}`} role="status"><span>{feedback.message}</span><button aria-label="关闭提示" onClick={() => setFeedback(undefined)}><X size={13} /></button></div>}
+      {artifactMenu && artifactMenuItem && (
+        <ContextMenu
+          anchor={{ x: artifactMenu.x, y: artifactMenu.y }}
+          ariaLabel={`备份操作：${artifactMenuItem.filename}`}
+          commands={artifactCommands}
+          heading={artifactMenuItem.filename}
+          returnFocus={artifactMenu.returnFocus}
+          testId="backup-context-menu"
+          onClose={() => setArtifactMenu(undefined)}
+          onSelect={selectArtifactCommand}
+        />
+      )}
 
       <div className="backup-notes">
         <ShieldCheck size={16} />
-        <div><strong>备份 ZIP 不加密</strong><p>文件包含主密钥和账户连接信息，请只保存在你控制的设备或私人存储中。不要编辑 ZIP 内部文件。</p></div>
+        <div><strong>恢复依赖原始主密钥</strong><p>{strategy?.warnings.join(" ") ?? "请单独保存 KALENDER_MASTER_KEY，并在恢复前停止应用写入。"}</p></div>
         <small>{status?.latestAutomaticBackupAt ? `最近的恢复前副本：${formatAccountTime(status.latestAutomaticBackupAt)}` : "尚未创建恢复前副本"}</small>
+      </div>
+    </section>
+  );
+}
+
+function BackupCommandGroup({
+  title,
+  commands,
+  copiedCommandId,
+  onCopy,
+}: {
+  readonly title: string;
+  readonly commands: readonly BackupCommandPayload[];
+  readonly copiedCommandId?: string;
+  readonly onCopy: (command: BackupCommandPayload) => void;
+}) {
+  return (
+    <section className="backup-command-group">
+      <h3>{title}</h3>
+      <div>
+        {commands.map((command) => (
+          <article key={command.id}>
+            <header>
+              <div><strong>{command.title}</strong><small>{command.description}</small></div>
+              <button className="ghost-button" onClick={() => onCopy(command)}>
+                {copiedCommandId === command.id ? <Check size={13} /> : <Copy size={13} />}{copiedCommandId === command.id ? "已复制" : "复制"}
+              </button>
+            </header>
+            <pre><code>{command.command}</code></pre>
+          </article>
+        ))}
       </div>
     </section>
   );
@@ -1858,10 +3868,99 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function backupPolicyLabel(policy: BackupMailPolicyPayload): string {
+  if (policy === "configuration-only") return "仅配置备份";
+  if (policy === "full-archive") return "完整归档";
+  return "轻量备份";
+}
+
+async function copyText(
+  value: string,
+  successMessage: string,
+  setFeedback: (feedback: { readonly kind: "success" | "error"; readonly message: string }) => void,
+): Promise<void> {
+  try {
+    await navigator.clipboard?.writeText(value);
+    setFeedback({ kind: "success", message: successMessage });
+  } catch {
+    setFeedback({ kind: "error", message: "复制失败，请手动选择文本" });
+  }
+}
+
+function jobFilterLabel(value: string): string {
+  return { active: "活跃", queued: "排队", running: "运行", failed: "失败", succeeded: "成功", cancelled: "取消" }[value] ?? value;
+}
+
+function jobStatusLabel(value: string): string {
+  return { queued: "排队", running: "运行中", succeeded: "成功", failed: "失败", cancelled: "已取消" }[value] ?? value;
+}
+
+function jobKindLabel(value: string): string {
+  return {
+    "backup.create": "创建备份",
+    "backup.restore": "恢复备份",
+    "mail.sync": "邮件同步",
+    "calendar.sync": "日历同步",
+    "ai.action": "AI 动作",
+    maintenance: "维护",
+  }[value] ?? value;
+}
+
+function roleLabel(role: AppRole): string {
+  return role === "admin" ? "管理员" : role === "viewer" ? "只读用户" : "普通用户";
+}
+
+function roleOptions() {
+  return [
+    { value: "user", label: "普通用户" },
+    { value: "viewer", label: "只读用户" },
+    { value: "admin", label: "管理员" },
+  ];
+}
+
+function diagnosticLabel(key: string): string {
+  return ({
+    accounts: "邮箱账户",
+    calendar_accounts: "日历账户",
+    exchange_connections: "Exchange",
+    calendars: "日历",
+    calendar_events: "日程",
+    projects: "项目",
+    notes: "笔记",
+    tasks: "任务",
+    entity_links: "关联",
+    mail_drafts: "草稿",
+    mail_signatures: "邮件签名",
+    mail_draft_attachments: "草稿附件",
+    mail_messages: "邮件",
+    ai_providers: "AI Provider",
+    ai_conversations: "AI 对话",
+    ai_feature_bindings: "AI 绑定",
+    ai_messages: "AI 消息",
+  } as Record<string, string>)[key] ?? key;
+}
+
+function diagnosticCoreCounts(counts: Readonly<Record<string, number>>): readonly [string, number][] {
+  return ["accounts", "calendar_events", "projects", "tasks", "notes", "mail_messages", "ai_conversations"]
+    .map((key) => [key, counts[key] ?? 0] as [string, number]);
+}
+
+function auditActionLabel(action: string): string {
+  return ({
+    "auth.login": "登录",
+    "user.create": "创建用户",
+    "user.update": "更新用户",
+    "user.profile.update": "修改个人账号",
+    "workspace.assign-unowned": "分配历史数据",
+    "sync.settings.update": "修改同步设置",
+  } as Record<string, string>)[action] ?? action;
+}
+
 function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: () => void }) {
   const [accounts, setAccounts] = useState<readonly SavedMailAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
   const [online, setOnline] = useState(true);
+  const [syncEnabled, setSyncEnabled] = useState(true);
   const [syncIntervalMs, setSyncIntervalMs] = useState(3 * 60 * 1000);
   const [accountAction, setAccountAction] = useState<{ readonly id: string; readonly kind: AccountAction }>();
   const [accountFeedback, setAccountFeedback] = useState("");
@@ -1890,10 +3989,11 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
       const response = await fetch("/api/mail-accounts", { cache: "no-store" });
       const result = await response.json() as {
         readonly accounts?: readonly SavedMailAccount[];
-        readonly scheduler?: { readonly intervalMs?: number };
+        readonly scheduler?: { readonly enabled?: boolean; readonly intervalMs?: number };
       };
       if (!response.ok) throw new Error("无法读取邮箱账户");
       setAccounts(result.accounts ?? []);
+      if (typeof result.scheduler?.enabled === "boolean") setSyncEnabled(result.scheduler.enabled);
       if (result.scheduler?.intervalMs) setSyncIntervalMs(result.scheduler.intervalMs);
     } catch (error) {
       setAccountFeedback(error instanceof Error ? error.message : "无法读取邮箱账户");
@@ -1922,9 +4022,16 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
   }, []);
 
   async function performAccountAction(account: SavedMailAccount, kind: Exclude<AccountAction, "edit">) {
-    if (kind === "delete" && !window.confirm(account.providerId === "exchange-ews"
-      ? `移除“${account.displayName}”的邮件连接？\n\n本地邮件索引会被删除，日历连接和共享加密凭据将保留。`
-      : `删除“${account.displayName}”？\n\n该账户的加密凭据、邮件索引和同步记录都会从本机删除。`)) return;
+    if (kind === "delete" && !await appConfirm({
+      title: account.providerId === "exchange-ews"
+        ? `移除“${account.displayName}”的邮件连接？`
+        : `删除邮件账户“${account.displayName}”？`,
+      description: account.providerId === "exchange-ews"
+        ? "本地邮件索引会被删除，日历连接和共享加密凭据将保留。"
+        : "该账户的加密凭据、邮件索引和同步记录都会从本机删除。",
+      confirmLabel: account.providerId === "exchange-ews" ? "移除连接" : "删除账户",
+      tone: "danger",
+    })) return;
     setAccountAction({ id: account.id, kind });
     setAccountFeedback("");
     if (kind === "sync") {
@@ -2123,7 +4230,7 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
                     <span title={account.lastSyncAt ? formatAccountTime(account.lastSyncAt) : undefined}>
                       上次同步：{account.lastSyncAt ? formatAccountTime(account.lastSyncAt) : "尚未成功同步"}
                     </span>
-                    <span>自动同步：每 {formatSyncInterval(syncIntervalMs)}</span>
+                    <span>自动同步：{syncEnabled ? `每 ${formatSyncInterval(syncIntervalMs)}` : "已关闭"}</span>
                   </div>
                   {account.syncStatus === "syncing" && account.latestSyncRun?.status === "running" && (
                     <p className="account-sync-progress" aria-live="polite">
@@ -2149,6 +4256,8 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
       )}
       {accountFeedback && <div className="account-feedback" aria-live="polite">{accountFeedback}</div>}
     </section>
+
+    <MailSignatureSettings accounts={accounts} />
 
     <section className="account-settings panel" id="add-mail-account">
       <div className="settings-section-heading">
@@ -2250,6 +4359,8 @@ const calendarAccountColors = ["#86bdf5", "#f0a05e", "#9dd5ae", "#c7a6f2", "#f28
 function CalendarAccountSettings() {
   const [accounts, setAccounts] = useState<readonly SavedCalendarAccount[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncEnabled, setSyncEnabled] = useState(true);
+  const [syncIntervalMs, setSyncIntervalMs] = useState(3 * 60 * 1000);
   const [providerId, setProviderId] = useState<"caldav" | "ics" | "exchange">("caldav");
   const [displayName, setDisplayName] = useState("个人日历");
   const [serverUrl, setServerUrl] = useState("");
@@ -2266,9 +4377,15 @@ function CalendarAccountSettings() {
   const loadAccounts = useCallback(async () => {
     try {
       const response = await fetch("/api/calendar-accounts", { cache: "no-store" });
-      const payload = await response.json() as { readonly accounts?: readonly SavedCalendarAccount[]; readonly message?: string };
+      const payload = await response.json() as {
+        readonly accounts?: readonly SavedCalendarAccount[];
+        readonly scheduler?: { readonly enabled?: boolean; readonly intervalMs?: number };
+        readonly message?: string;
+      };
       if (!response.ok) throw new Error(payload.message || "无法读取日历账户");
       setAccounts(payload.accounts ?? []);
+      if (typeof payload.scheduler?.enabled === "boolean") setSyncEnabled(payload.scheduler.enabled);
+      if (payload.scheduler?.intervalMs) setSyncIntervalMs(payload.scheduler.intervalMs);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法读取日历账户");
     } finally {
@@ -2277,6 +4394,7 @@ function CalendarAccountSettings() {
   }, []);
 
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
+  useVisiblePageRefresh(loadAccounts, 10_000);
 
   const resetTest = () => setState({ kind: "idle" });
   const canTest = Boolean(displayName.trim() && (providerId === "ics"
@@ -2333,7 +4451,12 @@ function CalendarAccountSettings() {
   };
 
   const performAction = async (account: SavedCalendarAccount, kind: "sync" | "delete") => {
-    if (kind === "delete" && !window.confirm(`删除“${account.displayName}”？\n\n加密凭据和已同步的本地日历索引将从本机删除，远端日历不会受到影响。`)) return;
+    if (kind === "delete" && !await appConfirm({
+      title: `删除日历账户“${account.displayName}”？`,
+      description: "加密凭据和已同步的本地日历索引将从本机删除，远端日历不会受到影响。",
+      confirmLabel: "删除账户",
+      tone: "danger",
+    })) return;
     setAccountAction({ id: account.id, kind });
     setFeedback("");
     try {
@@ -2450,7 +4573,7 @@ function CalendarAccountSettings() {
                   <div><strong>{account.displayName}</strong><span>{account.providerId === "ics" ? "链接订阅" : account.providerId === "exchange" ? `${account.emailAddress || account.username} · 登录：${account.username}` : account.username}</span></div>
                   <span className={`sync-status sync-status-${account.syncStatus}`}>{account.syncStatus === "syncing" && <LoaderCircle className="spin" size={12} />}{accountStatusLabel(account.syncStatus)}</span>
                 </div>
-                <div className="saved-account-meta"><span>{account.providerId === "ics" ? "ICS 订阅 · 只读" : account.providerId === "exchange" ? `Exchange / RWTH · ${[account.mailEnabled && "邮件", account.calendarEnabled && "日历"].filter(Boolean).join(" + ") || "已暂停"}` : "CalDAV · 只读"}</span><span>{account.calendarsCount} 个日历</span><span>上次同步：{account.lastSyncAt ? formatAccountTime(account.lastSyncAt) : "尚未同步"}</span></div>
+                <div className="saved-account-meta"><span>{account.providerId === "ics" ? "ICS 订阅 · 只读" : account.providerId === "exchange" ? `Exchange / RWTH · ${[account.mailEnabled && "邮件", account.calendarEnabled && "日历"].filter(Boolean).join(" + ") || "已暂停"}` : "CalDAV · 只读"}</span><span>{account.calendarsCount} 个日历</span><span>上次同步：{account.lastSyncAt ? formatAccountTime(account.lastSyncAt) : "尚未同步"}</span><span>自动同步：{syncEnabled ? `每 ${formatSyncInterval(syncIntervalMs)}` : "已关闭"}</span></div>
                 {account.providerId === "exchange" && account.mailEnabled && (
                   <div className="saved-account-meta">
                     <span>邮件：{accountStatusLabel(account.mailSyncStatus ?? "idle")}</span>
@@ -2543,45 +4666,134 @@ function AiPage() {
   return <AiCommand />;
 }
 
-function AssistantPanel({ title, section }: { readonly title: string; readonly section: WorkspaceSection }) {
-  const suggestion: Record<WorkspaceSection, string> = {
-    today: "客户在等待今天的回复；完成后，11:00–12:30 有一段适合准备方案的专注时间。",
-    inbox: "这封邮件包含两个行动项：确认交付时间，以及发送新的演示链接。",
-    calendar: "周二上午有 90 分钟空档，可用于准备周三的项目演示。",
-    tasks: "当前三个任务中，客户交付确认会阻塞后续工作，建议优先处理。",
-    projects: "项目主页汇总目标、任务、笔记和时间安排；AI 项目建议会在受控写入阶段开放。",
-    notes: "检测到一个尚未进入任务系统的行动项：周二前发送演示链接。",
-    ai: "读取和分析可以自动进行；创建日程、发送邮件和删除数据需要确认。",
-    settings: "只有测试通过的账户才能保存。密码和令牌只在服务端内存中用于本次验证。",
-  };
-  if (section === "settings") {
+function AssistantPanel({
+  title,
+  section,
+  onClose,
+}: {
+  readonly title: string;
+  readonly section: WorkspaceSection;
+  readonly onClose: () => void;
+}) {
+  const { snapshot, sendCommand } = useWorkspaceAssistant();
+  const [confirmTask, setConfirmTask] = useState(false);
+  const mailSnapshot = section === "inbox" && snapshot?.kind === "mail" ? snapshot : undefined;
+  const selectedMessage = mailSnapshot?.message;
+  const mailResult = mailSnapshot?.result;
+  const result = mailResult?.messageId === selectedMessage?.id ? mailResult : undefined;
+
+  useEffect(() => setConfirmTask(false), [selectedMessage?.id, section]);
+
+  if (section !== "inbox") {
+    const EmptyIcon = section === "calendar" ? CalendarClock : ListChecks;
     return (
-      <aside className="assistant-panel connection-assistant">
-        <header><div className="assistant-icon"><ShieldCheck size={18} /></div><div><h2>{title}</h2><p>账户凭据与测试策略</p></div></header>
-        <section className="insight-block"><span>先测试，后保存</span><p>{suggestion.settings}</p></section>
-        <section className="suggestion-card"><h2><CheckCircle2 size={18} />测试内容</h2><p>验证登录身份、最小邮件读取权限、日历权限与响应耗时。测试不会发送邮件，也不会创建日程。</p></section>
+      <aside className="assistant-panel context-assistant-panel" aria-label={title}>
+        <AssistantHeader title={title} subtitle="上下文助手" onClose={onClose} />
+        <section className="assistant-empty-state">
+          <EmptyIcon size={22} />
+          <h3>当前页面还没有可用建议</h3>
+          <p>此模块尚未接入真实的{section === "calendar" ? "日程" : "任务"}上下文，因此不会生成或执行操作。</p>
+        </section>
       </aside>
     );
   }
-  if (section === "ai") {
-    return (
-      <aside className="assistant-panel ai-safety-assistant">
-        <header><div className="assistant-icon"><ShieldCheck size={18} /></div><div><h2>{title}</h2><p>阶段 2 · 纯对话模式</p></div></header>
-        <section className="insight-block"><span>目前不会访问工作区</span><p>模型只会收到当前对话内容，不会读取邮件、日历、任务或笔记，也不能创建、发送或删除任何内容。</p></section>
-        <section className="suggestion-card"><h2><CheckCircle2 size={18} />已经启用</h2><p>真实流式输出、停止生成、本地会话记录、模型选择，以及主模型在输出前失败时的一次备用回退。</p></section>
-      </aside>
-    );
-  }
+
   return (
-    <aside className="assistant-panel">
-      <header><div className="assistant-icon"><Sparkles size={18} /></div><div><h2>{title}</h2><p>基于已连接的邮件、日历、任务和笔记</p></div></header>
-      <section className="insight-block"><span>建议先确认交付时间</span><p>{suggestion[section]}</p></section>
-      <section className="source-block"><h3>数据来源</h3><Source icon={<Mail />} title="确认下周交付安排" meta="工作邮箱 · 今天" /><Source icon={<CalendarDays />} title="客户同步会议" meta="今天 15:30" /><Source icon={<NotebookPen />} title="项目评审笔记" meta="昨天更新" /></section>
-      <section className="suggestion-card"><h2><WandSparkles size={18} />建议操作</h2><p>创建任务“确认最终交付时间”，截止今天 13:00，并关联原邮件。</p><div><button className="primary-button">确认创建</button><button className="ghost-button">修改</button></div></section>
+    <aside className="assistant-panel context-assistant-panel" aria-label={title}>
+      <AssistantHeader title={title} subtitle="当前邮件上下文" onClose={onClose} />
+      {!mailSnapshot || mailSnapshot.loading ? (
+        <section className="assistant-empty-state" role="status">
+          <LoaderCircle className="spin" size={21} />
+          <h3>正在读取邮件上下文</h3>
+        </section>
+      ) : !mailSnapshot.hasAccounts ? (
+        <section className="assistant-empty-state">
+          <Mail size={22} />
+          <h3>尚未连接邮箱</h3>
+          <p>连接邮箱后，助手才能分析真实邮件内容。</p>
+          <Link className="secondary-button" href="/settings?tab=mail">连接邮箱</Link>
+        </section>
+      ) : !selectedMessage ? (
+        <section className="assistant-empty-state">
+          <Mail size={22} />
+          <h3>选择一封邮件</h3>
+          <p>选择邮件后可生成摘要、提取行动项或准备回复草稿。</p>
+        </section>
+      ) : (
+        <>
+          <section className="assistant-context-source">
+            <span>当前邮件</span>
+            <h3>{selectedMessage.subject}</h3>
+            <p>{selectedMessage.sender} &lt;{selectedMessage.senderAddress}&gt;</p>
+            <small>{selectedMessage.accountName} · {formatAssistantMailTime(selectedMessage.receivedAt)}</small>
+          </section>
+
+          <section className="assistant-mail-actions" aria-label="邮件 AI 操作">
+            <button disabled={Boolean(mailSnapshot.aiBusy)} onClick={() => sendCommand({ type: "mail.run-ai", action: "summarize" })}>
+              {mailSnapshot.aiBusy === "summarize" ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}
+              <span><strong>生成摘要</strong><small>概括请求、日期和风险</small></span>
+            </button>
+            <button disabled={Boolean(mailSnapshot.aiBusy)} onClick={() => sendCommand({ type: "mail.run-ai", action: "extract-actions" })}>
+              {mailSnapshot.aiBusy === "extract-actions" ? <LoaderCircle className="spin" size={16} /> : <ListChecks size={16} />}
+              <span><strong>提取行动项</strong><small>识别负责人和截止时间</small></span>
+            </button>
+            <button disabled={Boolean(mailSnapshot.aiBusy)} onClick={() => sendCommand({ type: "mail.run-ai", action: "draft-reply" })}>
+              {mailSnapshot.aiBusy === "draft-reply" ? <LoaderCircle className="spin" size={16} /> : <WandSparkles size={16} />}
+              <span><strong>准备回复草稿</strong><small>生成后仍需检查并手动发送</small></span>
+            </button>
+          </section>
+
+          {result && <section className="assistant-ai-result" aria-live="polite">
+            <header>
+              <div><Sparkles size={15} /><strong>{result.action === "summarize" ? "AI 摘要" : result.action === "extract-actions" ? "AI 行动项" : "AI 回复草稿"}</strong></div>
+              <button type="button" aria-label="关闭 AI 结果" title="关闭 AI 结果" onClick={() => sendCommand({ type: "mail.clear-result" })}><X size={14} /></button>
+            </header>
+            <small>{result.modelName}{result.usedFallback ? " · 已使用备用模型" : ""}</small>
+            <div>{result.text}</div>
+          </section>}
+
+          {mailSnapshot.notice && <div className="assistant-notice" role="status">{mailSnapshot.notice}</div>}
+
+          <section className="assistant-write-action">
+            <header><CheckCircle2 size={16} /><strong>关联到任务</strong></header>
+            <p>以邮件主题创建待整理任务，并保留返回原邮件的链接。</p>
+            {confirmTask ? <div className="assistant-confirm-row">
+              <button className="primary-button" disabled={mailSnapshot.actionBusy} onClick={() => {
+                sendCommand({ type: "mail.create-task" });
+                setConfirmTask(false);
+              }}>{mailSnapshot.actionBusy ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}确认创建</button>
+              <button className="ghost-button" disabled={mailSnapshot.actionBusy} onClick={() => setConfirmTask(false)}>取消</button>
+            </div> : <button className="secondary-button" disabled={mailSnapshot.actionBusy} onClick={() => setConfirmTask(true)}><Plus size={14} />创建关联任务</button>}
+          </section>
+        </>
+      )}
     </aside>
   );
 }
 
-function Source({ icon, title, meta }: { readonly icon: ReactNode; readonly title: string; readonly meta: string }) {
-  return <div className="source-row"><span>{icon}</span><div><strong>{title}</strong><small>{meta}</small></div></div>;
+function AssistantHeader({
+  title,
+  subtitle,
+  onClose,
+}: {
+  readonly title: string;
+  readonly subtitle: string;
+  readonly onClose: () => void;
+}) {
+  return <header>
+    <div className="assistant-icon"><Sparkles size={18} /></div>
+    <div><h2>{title}</h2><p>{subtitle}</p></div>
+    <button className="assistant-close" type="button" aria-label="收起上下文助手" title="收起上下文助手" onClick={onClose}><X size={16} /></button>
+  </header>;
+}
+
+function formatAssistantMailTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "时间未知";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }

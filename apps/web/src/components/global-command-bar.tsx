@@ -1,16 +1,27 @@
 "use client";
 
-import { CalendarDays, CheckCircle2, FileText, Inbox, ListChecks, LoaderCircle, Mail, Menu, NotebookPen, Plus, Search, X } from "lucide-react";
+import { CalendarDays, CheckCircle2, FileText, Folder, ListChecks, LoaderCircle, Mail, Menu, NotebookPen, PanelRightClose, PanelRightOpen, Plus, Search, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+
+import { ContextMenu } from "./context-menu";
+import type { ContextCommandId, ResolvedContextCommand } from "./context-commands";
+import { AppSelect } from "./app-select";
 
 interface SearchResult {
   readonly id: string;
-  readonly kind: "mail" | "task" | "calendar" | "note";
+  readonly kind: "mail" | "task" | "calendar" | "note" | "project" | "ai";
   readonly title: string;
   readonly subtitle: string;
   readonly snippet?: string;
   readonly href: string;
+}
+
+interface SearchContextMenuState {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly returnFocus?: HTMLElement | null;
 }
 
 type CaptureKind = "task" | "note" | "calendar";
@@ -23,7 +34,17 @@ interface WritableCalendar {
   readonly providerData?: { readonly providerId?: string };
 }
 
-export function GlobalCommandBar({ onOpenSidebar }: { readonly onOpenSidebar: () => void }) {
+export function GlobalCommandBar({
+  onOpenSidebar,
+  assistantAvailable = false,
+  assistantOpen = false,
+  onToggleAssistant,
+}: {
+  readonly onOpenSidebar: () => void;
+  readonly assistantAvailable?: boolean;
+  readonly assistantOpen?: boolean;
+  readonly onToggleAssistant?: () => void;
+}) {
   const router = useRouter();
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -33,6 +54,7 @@ export function GlobalCommandBar({ onOpenSidebar }: { readonly onOpenSidebar: ()
   const [results, setResults] = useState<readonly SearchResult[]>([]);
   const [error, setError] = useState("");
   const [captureOpen, setCaptureOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<SearchContextMenuState>();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -89,6 +111,32 @@ export function GlobalCommandBar({ onOpenSidebar }: { readonly onOpenSidebar: ()
     router.push(result.href);
   };
 
+  const contextResult = contextMenu ? results.find((result) => result.id === contextMenu.id) : undefined;
+  const searchCommands: readonly ResolvedContextCommand[] = contextResult ? [
+    { id: "search.open", label: "打开结果", group: "primary", risk: "read", icon: "open" },
+    { id: "search.copy-link", label: "复制链接", group: "primary", risk: "read", icon: "copy" },
+    { id: "search.copy-title", label: "复制标题", group: "primary", risk: "read", icon: "info" },
+  ] : [];
+
+  const openSearchMenu = (event: ReactMouseEvent<HTMLElement>, result: SearchResult) => {
+    event.preventDefault();
+    setContextMenu({ id: result.id, x: event.clientX, y: event.clientY, returnFocus: event.currentTarget });
+  };
+
+  const openSearchMenuFromKeyboard = (event: ReactKeyboardEvent<HTMLElement>, result: SearchResult) => {
+    if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+    event.preventDefault();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    setContextMenu({ id: result.id, x: bounds.right - 12, y: bounds.top + 28, returnFocus: event.currentTarget });
+  };
+
+  const selectSearchCommand = (commandId: ContextCommandId) => {
+    if (!contextResult) return;
+    if (commandId === "search.open") openResult(contextResult);
+    if (commandId === "search.copy-link") void copyCommandText(`${window.location.origin}${contextResult.href}`);
+    if (commandId === "search.copy-title") void copyCommandText(contextResult.title);
+  };
+
   return (
     <>
       <header className="command-bar">
@@ -110,8 +158,17 @@ export function GlobalCommandBar({ onOpenSidebar }: { readonly onOpenSidebar: ()
               ) : results.length ? (
                 <div className="command-results">
                   {results.map((result) => {
-                    const Icon = result.kind === "mail" ? Mail : result.kind === "task" ? ListChecks : result.kind === "calendar" ? CalendarDays : NotebookPen;
-                    return <button key={`${result.kind}:${result.id}`} onClick={() => openResult(result)}><span className={`command-result-icon ${result.kind}`}><Icon size={16} /></span><span><strong>{result.title}</strong><small>{result.subtitle}</small>{result.snippet && <em>{result.snippet}</em>}</span></button>;
+                    const Icon = result.kind === "mail" ? Mail : result.kind === "task" ? ListChecks : result.kind === "calendar" ? CalendarDays : result.kind === "project" ? Folder : result.kind === "ai" ? Sparkles : NotebookPen;
+                    return (
+                      <button
+                        key={`${result.kind}:${result.id}`}
+                        onClick={() => openResult(result)}
+                        onContextMenu={(event) => openSearchMenu(event, result)}
+                        onKeyDown={(event) => openSearchMenuFromKeyboard(event, result)}
+                      >
+                        <span className={`command-result-icon ${result.kind}`}><Icon size={16} /></span><span><strong>{result.title}</strong><small>{result.subtitle}</small>{result.snippet && <em>{result.snippet}</em>}</span>
+                      </button>
+                    );
                   })}
                 </div>
               ) : (
@@ -120,12 +177,38 @@ export function GlobalCommandBar({ onOpenSidebar }: { readonly onOpenSidebar: ()
               <footer><span><kbd>Enter</kbd> 打开结果</span><span><kbd>Esc</kbd> 关闭</span></footer>
             </section>
           )}
+          {contextMenu && contextResult && (
+            <ContextMenu
+              anchor={{ x: contextMenu.x, y: contextMenu.y }}
+              ariaLabel={`搜索结果操作：${contextResult.title}`}
+              commands={searchCommands}
+              heading={contextResult.title}
+              returnFocus={contextMenu.returnFocus}
+              testId="search-context-menu"
+              onClose={() => setContextMenu(undefined)}
+              onSelect={selectSearchCommand}
+            />
+          )}
         </div>
         <button className="quick-add" onClick={() => setCaptureOpen(true)}><Plus size={17} />快速记录</button>
+        {assistantAvailable && <button
+          className={`assistant-toggle ${assistantOpen ? "active" : ""}`}
+          type="button"
+          aria-label={assistantOpen ? "收起上下文助手" : "打开上下文助手"}
+          aria-pressed={assistantOpen}
+          title={assistantOpen ? "收起上下文助手" : "打开上下文助手"}
+          onClick={onToggleAssistant}
+        >
+          {assistantOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
+        </button>}
       </header>
       {captureOpen && <QuickCaptureDialog onClose={() => setCaptureOpen(false)} onCreated={(href) => { setCaptureOpen(false); router.push(href); }} />}
     </>
   );
+}
+
+async function copyCommandText(value: string): Promise<void> {
+  await navigator.clipboard?.writeText(value).catch(() => undefined);
 }
 
 function QuickCaptureDialog({ onClose, onCreated }: { readonly onClose: () => void; readonly onCreated: (href: string) => void }) {
@@ -189,7 +272,7 @@ function QuickCaptureDialog({ onClose, onCreated }: { readonly onClose: () => vo
           })}
         </nav>
         <label><span>标题</span><input autoFocus value={title} maxLength={240} onChange={(event) => setTitle(event.target.value)} placeholder={kind === "task" ? "要完成什么？" : kind === "note" ? "记下一个想法" : "日程名称"} /></label>
-        {kind === "calendar" && <div className="quick-capture-row"><label><span>开始时间</span><input type="datetime-local" value={startLocal} onChange={(event) => setStartLocal(event.target.value)} /></label><label><span>日历</span><select value={calendarId} onChange={(event) => setCalendarId(event.target.value)}>{calendars.map((calendar) => <option value={calendar.id} key={calendar.id}>{calendar.name}</option>)}</select></label></div>}
+        {kind === "calendar" && <div className="quick-capture-row"><label><span>开始时间</span><input type="datetime-local" value={startLocal} onChange={(event) => setStartLocal(event.target.value)} /></label><label><span>日历</span><AppSelect ariaLabel="快速记录日历" value={calendarId} onValueChange={setCalendarId} options={calendars.map((calendar) => ({ value: calendar.id, label: calendar.name }))} /></label></div>}
         <label><span>{kind === "task" ? "备注" : kind === "note" ? "正文" : "说明"}</span><textarea value={details} maxLength={10_000} onChange={(event) => setDetails(event.target.value)} placeholder="可选" /></label>
         {error && <div className="quick-capture-error" role="alert">{error}</div>}
         <footer><small>{kind === "task" ? "任务会进入 Inbox，稍后再设置优先级。" : kind === "note" ? "笔记创建后会直接打开编辑器。" : "快速日程默认持续 1 小时。"}</small><div><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button><button className="primary-button" disabled={busy || !title.trim()}>{busy && <LoaderCircle className="spin" size={14} />}保存</button></div></footer>

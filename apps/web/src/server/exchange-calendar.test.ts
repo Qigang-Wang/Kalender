@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -9,6 +9,7 @@ function assert(condition: unknown, message: string): asserts condition {
 async function main() {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "kalender-exchange-test-"));
   process.env.KALENDER_DATA_DIR = temporaryRoot;
+  process.env.KALENDER_MASTER_KEY = Buffer.alloc(32, 2).toString("base64");
 
   try {
     const {
@@ -59,7 +60,7 @@ async function main() {
             </t:CalendarItem>
             <t:CalendarItem><t:ItemId Id="event-2"/><t:Subject>全天安排</t:Subject>
               <t:Start>2026-07-24T00:00:00Z</t:Start><t:End>2026-07-25T00:00:00Z</t:End>
-              <t:IsAllDayEvent>true</t:IsAllDayEvent><t:IsCancelled>false</t:IsCancelled><t:LegacyFreeBusyStatus>Busy</t:LegacyFreeBusyStatus>
+              <t:IsAllDayEvent>true</t:IsAllDayEvent><t:IsCancelled>false</t:IsCancelled><t:LegacyFreeBusyStatus>OOF</t:LegacyFreeBusyStatus>
             </t:CalendarItem>
           </t:Items></m:RootFolder>
         </m:FindItemResponseMessage></m:ResponseMessages></m:FindItemResponse></s:Body>
@@ -69,8 +70,10 @@ async function main() {
     assert(events[0]?.title === "产品评审 & 演示", "XML entities in subjects are decoded");
     assert(events[0]?.description === "准备演示并确认下一步", "Exchange calendar body is parsed as event description");
     assert(events[0]?.status === "tentative", "tentative status is retained");
+    assert(events[0]?.availability === "tentative", "tentative availability is retained");
     assert(events[0]?.attendees[0]?.address === "anna@example.test", "Exchange attendees are parsed");
     assert(events[1]?.allDay === true, "Exchange all-day events are detected");
+    assert(events[1]?.availability === "oof", "Exchange out-of-office availability is retained");
 
     const account = await saveExchangeCalendarAccount("RWTH 日历", credential);
     const restored = await loadExchangeCalendarCredential(account.id);
@@ -95,8 +98,6 @@ async function main() {
     assert((await listCalendarAccounts())[0]?.providerId === "exchange", "Exchange account is listed");
     assert(await deleteCalendarAccount(account.id), "Exchange account can be removed with its local index");
 
-    const masterKey = await readFile(path.join(temporaryRoot, "master.key"));
-    assert(masterKey.length > 0, "credential key was created in the isolated test directory");
     console.log("Exchange calendar parser and storage tests passed");
     await database.close();
   } finally {

@@ -7,7 +7,7 @@ import { ensureMailSyncScheduler } from "@/server/mail-sync-scheduler";
 export const runtime = "nodejs";
 
 export async function GET() {
-  ensureMailSyncScheduler();
+  await ensureMailSyncScheduler();
   return NextResponse.json({ folders: await listMailFolders() });
 }
 

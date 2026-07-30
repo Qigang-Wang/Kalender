@@ -5,12 +5,16 @@ export type ContextCommandIcon =
   | "calendar-plus"
   | "clock"
   | "copy"
+  | "download"
   | "edit"
   | "eye"
   | "eye-off"
   | "folder"
+  | "info"
   | "mail"
   | "note"
+  | "open"
+  | "refresh"
   | "restore"
   | "sparkles"
   | "star"
@@ -33,6 +37,9 @@ export type MailFolderCommandId =
   | "mail-folder.rename"
   | "mail-folder.move-root"
   | "mail-folder.delete";
+
+export type MailAccountCommandId = "mail-account.sync";
+export type CalendarAccountCommandId = "calendar-account.sync";
 
 export type CalendarEventCommandId =
   | "calendar.open"
@@ -77,6 +84,7 @@ export type ProjectCommandId =
 
 export type ProjectAreaCommandId =
   | "project-area.create-project"
+  | "project-area.rename"
   | "project-area.toggle"
   | "project-area.collapse-others";
 
@@ -89,7 +97,24 @@ export type ProjectGanttCommandId =
   | "gantt.delete-phase"
   | "gantt.remove-phase";
 
-export type ContextCommandId = MailMessageCommandId | MailFolderCommandId | CalendarEventCommandId | CalendarSlotCommandId | TaskCommandId | NoteCommandId | ProjectCommandId | ProjectAreaCommandId | ProjectGanttCommandId;
+export type JobCommandId =
+  | "job.copy-id"
+  | "job.copy-logs"
+  | "job.retry"
+  | "job.cancel";
+
+export type BackupArtifactCommandId =
+  | "backup.download"
+  | "backup.restore"
+  | "backup.copy-name"
+  | "backup.copy-checksum";
+
+export type SearchResultCommandId =
+  | "search.open"
+  | "search.copy-link"
+  | "search.copy-title";
+
+export type ContextCommandId = MailMessageCommandId | MailFolderCommandId | MailAccountCommandId | CalendarAccountCommandId | CalendarEventCommandId | CalendarSlotCommandId | TaskCommandId | NoteCommandId | ProjectCommandId | ProjectAreaCommandId | ProjectGanttCommandId | JobCommandId | BackupArtifactCommandId | SearchResultCommandId;
 
 export interface MailMessageContextTarget {
   readonly kind: "mail-message";

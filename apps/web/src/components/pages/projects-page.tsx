@@ -7,10 +7,13 @@ import {
   FileText, Folder, FolderPlus, GripVertical, LayoutGrid, Link2, ListChecks,
   LoaderCircle, Mail, MoreHorizontal, NotebookPen, Pencil, Pin, Plus,
   RefreshCw, Star, Trash2, X,
+  Users,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
+import { appConfirm } from "@/components/app-dialog-provider";
+import { AppSelect } from "../app-select";
 import { ContextMenu } from "../context-menu";
 import {
   resolveContextCommands,
@@ -182,6 +185,19 @@ interface ClientProjectOverview {
   };
 }
 
+interface ClientProjectMember {
+  readonly userId: string;
+  readonly displayName: string;
+  readonly email: string;
+  readonly accessLevel: "viewer" | "editor";
+}
+
+interface ClientCollaborator {
+  readonly id: string;
+  readonly displayName: string;
+  readonly email: string;
+}
+
 interface ClientProjectGanttTask extends ClientTask {
   readonly dependencyIds: readonly string[];
 }
@@ -288,6 +304,10 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
   const [phaseDraft, setPhaseDraft] = useState<ProjectPhaseDraft>();
   const [ganttTaskDraft, setGanttTaskDraft] = useState<ProjectGanttTaskDraft>();
   const [projectView, setProjectView] = useState<"overview" | "gantt">("overview");
+  const [projectMembers, setProjectMembers] = useState<readonly ClientProjectMember[]>([]);
+  const [collaborators, setCollaborators] = useState<readonly ClientCollaborator[]>([]);
+  const [memberDraftUserId, setMemberDraftUserId] = useState("");
+  const [memberDraftAccess, setMemberDraftAccess] = useState<"viewer" | "editor">("viewer");
 
   const loadProjects = useCallback(async () => {
     const response = await workspaceFetch("/api/projects?includeArchived=true");
@@ -307,6 +327,17 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     const payload = await response.json() as { readonly ok?: boolean; readonly overview?: ClientProjectOverview; readonly message?: string };
     if (!response.ok || !payload.ok || !payload.overview) throw new Error(payload.message ?? "无法读取项目概况");
     setOverview(payload.overview);
+  }, []);
+
+  const loadProjectMembers = useCallback(async (projectId: string) => {
+    const [membersResponse, collaboratorsResponse] = await Promise.all([
+      workspaceFetch(`/api/projects/${encodeURIComponent(projectId)}/members`, {}, 1_000),
+      workspaceFetch("/api/collaborators", {}, 1_000),
+    ]);
+    const membersPayload = await membersResponse.json() as { readonly ok?: boolean; readonly members?: readonly ClientProjectMember[]; readonly message?: string };
+    const collaboratorsPayload = await collaboratorsResponse.json() as { readonly ok?: boolean; readonly users?: readonly ClientCollaborator[]; readonly message?: string };
+    if (membersResponse.ok && membersPayload.ok) setProjectMembers(membersPayload.members ?? []);
+    if (collaboratorsResponse.ok && collaboratorsPayload.ok) setCollaborators(collaboratorsPayload.users ?? []);
   }, []);
 
   useEffect(() => {
@@ -366,6 +397,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
   useEffect(() => {
     if (!selectedProjectId) {
       setOverview(undefined);
+      setProjectMembers([]);
       return;
     }
     let cancelled = false;
@@ -373,8 +405,29 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     void loadOverview(selectedProjectId)
       .catch((error: unknown) => { if (!cancelled) setFeedback(error instanceof Error ? error.message : "无法读取项目概况"); })
       .finally(() => { if (!cancelled) setLoading(false); });
+    void loadProjectMembers(selectedProjectId).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [loadOverview, selectedProjectId]);
+  }, [loadOverview, loadProjectMembers, selectedProjectId]);
+
+  const saveMembers = async (members: readonly ClientProjectMember[]) => {
+    if (!overview || busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(overview.project.id)}/members`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ members }),
+      });
+      const payload = await response.json() as { readonly ok?: boolean; readonly members?: readonly ClientProjectMember[]; readonly message?: string };
+      if (!response.ok || !payload.ok || !payload.members) throw new Error(payload.message ?? "无法保存项目成员");
+      setProjectMembers(payload.members);
+      setFeedback("项目共享已更新");
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "无法保存项目成员");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const saveProject = async () => {
     if (!projectDraft?.name.trim() || busy) return;
@@ -596,7 +649,12 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
   };
 
   const deletePhase = async (phase: ClientProjectPhase) => {
-    if (!overview || busy || !window.confirm(`删除阶段“${phase.name}”？\n\n阶段中的任务会保留，并移动到“未分组”。`)) return;
+    if (!overview || busy || !await appConfirm({
+      title: `删除阶段“${phase.name}”？`,
+      description: "阶段中的任务会保留，并移动到“未分组”。",
+      confirmLabel: "删除阶段",
+      tone: "danger",
+    })) return;
     setBusy(true);
     try {
       const response = await fetch(
@@ -675,7 +733,12 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
   };
 
   const deleteGanttTask = async (task: ClientProjectGanttTask) => {
-    if (!overview || busy || !window.confirm(`永久删除任务“${task.title}”？\n\n相关依赖和日历时间块也会一并移除，此操作无法撤销。`)) return;
+    if (!overview || busy || !await appConfirm({
+      title: `永久删除任务“${task.title}”？`,
+      description: "相关依赖和日历时间块也会一并移除，此操作无法撤销。",
+      confirmLabel: "永久删除",
+      tone: "danger",
+    })) return;
     setBusy(true);
     try {
       const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, { method: "DELETE" });
@@ -716,6 +779,23 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
               <button className="secondary-button" onClick={() => { setProjectDialogError(undefined); setProjectDraft({ id: overview.project.id, name: overview.project.name, description: overview.project.description ?? "", areaName: overview.project.areaName ?? "", color: overview.project.color, status: overview.project.status }); }}><Pencil size={14} />编辑项目</button>
             </header>
             <div className="project-progress"><div><span>任务进度</span><strong>{overview.stats.completionPercent}%</strong></div><i><b style={{ width: `${overview.stats.completionPercent}%`, background: overview.project.color }} /></i></div>
+          </section>
+
+          <section className="panel project-share-panel">
+            <header><div><Users size={16} /><span><strong>共享成员</strong><small>{projectMembers.length ? `${projectMembers.length} 位成员` : "仅项目所有者可见"}</small></span></div></header>
+            <div className="project-share-members">
+              {projectMembers.map((member) => <span key={member.userId}><strong>{member.displayName}</strong><small>{member.accessLevel === "editor" ? "可编辑" : "只读"}</small><button aria-label={`移除 ${member.displayName}`} disabled={busy} onClick={() => void saveMembers(projectMembers.filter((entry) => entry.userId !== member.userId))}><X size={12} /></button></span>)}
+            </div>
+            <div className="project-share-form">
+              <AppSelect ariaLabel="选择项目成员" size="compact" value={memberDraftUserId} onValueChange={setMemberDraftUserId} options={[{ value: "", label: "选择用户" }, ...collaborators.filter((user) => !projectMembers.some((member) => member.userId === user.id)).map((user) => ({ value: user.id, label: `${user.displayName} · ${user.email}` }))]} />
+              <AppSelect ariaLabel="项目成员权限" size="compact" value={memberDraftAccess} onValueChange={(access) => setMemberDraftAccess(access === "editor" ? "editor" : "viewer")} options={[{ value: "viewer", label: "只读" }, { value: "editor", label: "可编辑" }]} />
+              <button className="secondary-button" disabled={!memberDraftUserId || busy} onClick={() => {
+                const user = collaborators.find((entry) => entry.id === memberDraftUserId);
+                if (!user) return;
+                setMemberDraftUserId("");
+                void saveMembers([...projectMembers, { userId: user.id, displayName: user.displayName, email: user.email, accessLevel: memberDraftAccess }]);
+              }}><Plus size={14} />添加成员</button>
+            </div>
           </section>
 
           <nav className="project-view-tabs" aria-label="项目视图"><button className={projectView === "overview" ? "active" : ""} onClick={() => setProjectView("overview")}><LayoutGrid size={14} />概况</button><button className={projectView === "gantt" ? "active" : ""} onClick={() => setProjectView("gantt")}><CalendarClock size={14} />甘特图</button></nav>
@@ -773,7 +853,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
             onChangeDates={saveGanttDates}
             onEdit={(task) => setGanttDraft(createProjectGanttDraft(task))}
             onEditMilestone={(milestone) => setMilestoneDraft({ id: milestone.id, title: milestone.title, dueOn: milestone.dueOn ?? "", status: milestone.status })}
-            onCreateTask={(phaseId, plannedStart) => setGanttTaskDraft({ title: "", phaseId: phaseId ?? "", plannedStart: plannedStart ?? "", durationWorkdays: 1 })}
+            onCreateTask={(phaseId, plannedStart, durationWorkdays = 1) => setGanttTaskDraft({ title: "", phaseId: phaseId ?? "", plannedStart: plannedStart ?? "", durationWorkdays })}
             onDeleteTask={(task) => void deleteGanttTask(task)}
             onCreatePhase={() => setPhaseDraft({ name: "", color: overview.project.color, sortOrder: overview.phases.length })}
             onEditPhase={(phase) => setPhaseDraft({ id: phase.id, name: phase.name, color: phase.color, sortOrder: phase.sortOrder })}
@@ -790,7 +870,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
             <label><span>项目名称</span><input autoFocus value={projectDraft.name} maxLength={100} onChange={(event) => setProjectDraft({ ...projectDraft, name: event.target.value })} placeholder="例如 博士论文" /></label>
             <label><span>领域</span><input value={projectDraft.areaName} maxLength={100} onChange={(event) => setProjectDraft({ ...projectDraft, areaName: event.target.value })} placeholder="例如 研究 / 个人" /></label>
             <label className="note-project-color"><span>颜色</span><input type="color" value={projectDraft.color} onChange={(event) => setProjectDraft({ ...projectDraft, color: event.target.value })} /></label>
-            {projectDraft.id && <label><span>状态</span><select value={projectDraft.status} onChange={(event) => setProjectDraft({ ...projectDraft, status: event.target.value as "active" | "archived" })}><option value="active">进行中</option><option value="archived">已归档</option></select></label>}
+            {projectDraft.id && <label><span>状态</span><AppSelect ariaLabel="项目状态" value={projectDraft.status} onValueChange={(status) => setProjectDraft({ ...projectDraft, status: status as "active" | "archived" })} options={[{ value: "active", label: "进行中" }, { value: "archived", label: "已归档" }]} /></label>}
             <label className="note-project-description"><span>项目说明</span><textarea value={projectDraft.description} maxLength={2_000} onChange={(event) => setProjectDraft({ ...projectDraft, description: event.target.value })} placeholder="这个项目要达成什么？完成标准是什么？" /></label>
           </div>
           <footer><small>{busy ? "正在保存项目…" : "归档项目会保留历史任务和笔记，但不能新增内容。"}</small><div><button className="secondary-button" disabled={busy} onClick={() => { setProjectDialogError(undefined); setProjectDraft(undefined); }}>取消</button><button className="primary-button" disabled={busy || !projectDraft.name.trim()} onClick={() => void saveProject()}>{busy && <LoaderCircle className="spin" size={14} />}{busy ? (projectDraft.id ? "保存中" : "创建中") : (projectDraft.id ? "保存修改" : "创建项目")}</button></div></footer>
@@ -802,7 +882,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
           <div className="project-milestone-form">
             <label className="wide"><span>标题</span><input autoFocus value={milestoneDraft.title} maxLength={240} onChange={(event) => setMilestoneDraft({ ...milestoneDraft, title: event.target.value })} placeholder="例如 完成无人机飞行原型" /></label>
             <label><span>目标日期</span><input type="date" value={milestoneDraft.dueOn} onChange={(event) => setMilestoneDraft({ ...milestoneDraft, dueOn: event.target.value })} /></label>
-            <label><span>状态</span><select value={milestoneDraft.status} onChange={(event) => setMilestoneDraft({ ...milestoneDraft, status: event.target.value as ClientProjectMilestone["status"] })}><option value="planned">计划中</option><option value="active">进行中</option><option value="done">已完成</option></select></label>
+            <label><span>状态</span><AppSelect ariaLabel="里程碑状态" value={milestoneDraft.status} onValueChange={(status) => setMilestoneDraft({ ...milestoneDraft, status: status as ClientProjectMilestone["status"] })} options={[{ value: "planned", label: "计划中" }, { value: "active", label: "进行中" }, { value: "done", label: "已完成" }]} /></label>
           </div>
           <footer><small>里程碑只保留关键节点；具体工作继续放在任务中。</small><div><button className="secondary-button" disabled={busy} onClick={() => setMilestoneDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !milestoneDraft.title.trim()} onClick={() => void saveMilestone()}>{busy && <LoaderCircle className="spin" size={14} />}{milestoneDraft.id ? "保存修改" : "添加里程碑"}</button></div></footer>
         </section>
@@ -811,7 +891,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
         <section className="calendar-dialog project-gantt-dialog panel" role="dialog" aria-modal="true" aria-labelledby="project-gantt-dialog-title">
           <header><div><span>设置计划时间和前置任务</span><h2 id="project-gantt-dialog-title">{ganttDraft.taskTitle}</h2></div><button aria-label="关闭" onClick={() => setGanttDraft(undefined)} disabled={busy}><X size={18} /></button></header>
           <div className="project-gantt-form">
-            <label><span>所属阶段</span><select value={ganttDraft.phaseId} onChange={(event) => setGanttDraft({ ...ganttDraft, phaseId: event.target.value })}><option value="">未分组</option>{overview.phases.map((phase) => <option value={phase.id} key={phase.id}>{phase.name}</option>)}</select></label>
+            <label><span>所属阶段</span><AppSelect ariaLabel="所属阶段" value={ganttDraft.phaseId} onValueChange={(phaseId) => setGanttDraft({ ...ganttDraft, phaseId })} options={[{ value: "", label: "未分组" }, ...overview.phases.map((phase) => ({ value: phase.id, label: phase.name }))]} /></label>
             <label><span>计划开始</span><input type="date" disabled={ganttDraft.autoSchedule && ganttDraft.dependencyIds.length > 0} value={ganttDraft.plannedStart} onChange={(event) => {
               const plannedStart = event.target.value;
               setGanttDraft({ ...ganttDraft, plannedStart, plannedEnd: plannedStart ? addProjectDays(plannedStart, ganttDraft.durationWorkdays - 1) : "" });
@@ -845,7 +925,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
           <header><div><span>直接添加到当前项目计划</span><h2 id="project-gantt-task-dialog-title">新建任务</h2></div><button aria-label="关闭" onClick={() => setGanttTaskDraft(undefined)} disabled={busy}><X size={18} /></button></header>
           <div className="project-gantt-task-form">
             <label className="wide"><span>任务名称</span><input autoFocus maxLength={240} value={ganttTaskDraft.title} onChange={(event) => setGanttTaskDraft({ ...ganttTaskDraft, title: event.target.value })} placeholder="需要完成什么？" /></label>
-            <label><span>所属阶段</span><select value={ganttTaskDraft.phaseId} onChange={(event) => setGanttTaskDraft({ ...ganttTaskDraft, phaseId: event.target.value })}><option value="">未分组</option>{overview.phases.map((phase) => <option value={phase.id} key={phase.id}>{phase.name}</option>)}</select></label>
+            <label><span>所属阶段</span><AppSelect ariaLabel="所属阶段" value={ganttTaskDraft.phaseId} onValueChange={(phaseId) => setGanttTaskDraft({ ...ganttTaskDraft, phaseId })} options={[{ value: "", label: "未分组" }, ...overview.phases.map((phase) => ({ value: phase.id, label: phase.name }))]} /></label>
             <label><span>计划开始</span><input type="date" value={ganttTaskDraft.plannedStart} onChange={(event) => setGanttTaskDraft({ ...ganttTaskDraft, plannedStart: event.target.value })} /></label>
             <label><span>工期（天）</span><input type="number" min={1} max={2600} value={ganttTaskDraft.durationWorkdays} onChange={(event) => setGanttTaskDraft({ ...ganttTaskDraft, durationWorkdays: Math.max(1, Math.min(2600, Number(event.target.value) || 1)) })} /></label>
           </div>
@@ -887,6 +967,14 @@ interface ProjectGanttDragPreview {
   readonly start: string;
   readonly end: string;
   readonly moved: boolean;
+}
+
+interface ProjectGanttCreateSelection {
+  readonly rowKey: string;
+  readonly phaseId?: string;
+  readonly pointerId: number;
+  readonly originIndex: number;
+  readonly currentIndex: number;
 }
 
 interface ProjectGanttMenuState {
@@ -932,7 +1020,7 @@ function ProjectGanttChart({
   readonly onChangeDates: (task: ClientProjectGanttTask, plannedStart: string, plannedEnd: string) => Promise<boolean>;
   readonly onEdit: (task: ClientProjectGanttTask) => void;
   readonly onEditMilestone: (milestone: ClientProjectMilestone) => void;
-  readonly onCreateTask: (phaseId?: string, plannedStart?: string) => void;
+  readonly onCreateTask: (phaseId?: string, plannedStart?: string, durationWorkdays?: number) => void;
   readonly onDeleteTask: (task: ClientProjectGanttTask) => void;
   readonly onCreatePhase: () => void;
   readonly onEditPhase: (phase: ClientProjectPhase) => void;
@@ -965,13 +1053,18 @@ function ProjectGanttChart({
   const scrollRef = useRef<HTMLDivElement>(null);
   const dayWidthRef = useRef(dayWidth);
   const dragPreviewRef = useRef<ProjectGanttDragPreview | undefined>(undefined);
+  const createSelectionRef = useRef<ProjectGanttCreateSelection | undefined>(undefined);
   const suppressClickRef = useRef(false);
   const [dragPreview, setDragPreview] = useState<ProjectGanttDragPreview>();
+  const [createSelection, setCreateSelection] = useState<ProjectGanttCreateSelection>();
   const [savingTaskId, setSavingTaskId] = useState<string>();
   const [collapsedPhaseIds, setCollapsedPhaseIds] = useState<ReadonlySet<string>>(new Set());
   const [menu, setMenu] = useState<ProjectGanttMenuState>();
 
-  useEffect(() => () => document.body.classList.remove("project-gantt-is-dragging"), []);
+  useEffect(() => () => {
+    document.body.classList.remove("project-gantt-is-dragging");
+    document.body.classList.remove("project-gantt-is-selecting");
+  }, []);
   useEffect(() => {
     const stored = window.localStorage.getItem(`kalender.project-gantt-scale.${projectId}`);
     const parsed = stored ? Number(stored) : Number.NaN;
@@ -991,7 +1084,7 @@ function ProjectGanttChart({
     const scroll = scrollRef.current;
     const currentDayWidth = dayWidthRef.current;
     const next = Math.max(PROJECT_GANTT_MIN_DAY_WIDTH, Math.min(PROJECT_GANTT_MAX_DAY_WIDTH, Math.round(nextDayWidth * 10) / 10));
-    if (!scroll || next === currentDayWidth || dragPreviewRef.current) return;
+    if (!scroll || next === currentDayWidth || dragPreviewRef.current || createSelectionRef.current) return;
     const bounds = scroll.getBoundingClientRect();
     const columnWidth = taskColumnWidth();
     const anchorX = clientX ?? bounds.left + columnWidth + Math.max(0, scroll.clientWidth - columnWidth) / 2;
@@ -1027,7 +1120,7 @@ function ProjectGanttChart({
     const scroll = scrollRef.current;
     if (!scroll) return;
     const handleWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey || dragPreviewRef.current) return;
+      if (!event.ctrlKey || dragPreviewRef.current || createSelectionRef.current) return;
       event.preventDefault();
       if (event.deltaY === 0) return;
       const direction = event.deltaY > 0 ? -1 : 1;
@@ -1117,6 +1210,80 @@ function ProjectGanttChart({
     if (!savingTaskId) onEdit(task);
   };
 
+  const dateIndexFromPointer = (event: ReactPointerEvent<HTMLElement>): number => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return Math.max(0, Math.min(totalDays - 1, Math.floor((event.clientX - bounds.left) / dayWidthRef.current)));
+  };
+
+  const startCreateSelection = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    rowKey: string,
+    phaseId?: string,
+  ) => {
+    if (event.button !== 0 || event.pointerType !== "mouse" || readOnly || busy || savingTaskId || dragPreviewRef.current) return;
+    if ((event.target as Element).closest(".project-gantt-bar, .project-gantt-unscheduled, .project-gantt-milestone")) return;
+    const index = dateIndexFromPointer(event);
+    const next: ProjectGanttCreateSelection = {
+      rowKey,
+      phaseId,
+      pointerId: event.pointerId,
+      originIndex: index,
+      currentIndex: index,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    createSelectionRef.current = next;
+    setCreateSelection(next);
+    setMenu(undefined);
+    document.body.classList.add("project-gantt-is-selecting");
+    event.preventDefault();
+  };
+
+  const updateCreateSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const current = createSelectionRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    const currentIndex = dateIndexFromPointer(event);
+    if (current.currentIndex === currentIndex) return;
+    const next = { ...current, currentIndex };
+    createSelectionRef.current = next;
+    setCreateSelection(next);
+  };
+
+  const finishCreateSelection = (event: ReactPointerEvent<HTMLDivElement>, cancelled = false) => {
+    const current = createSelectionRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    createSelectionRef.current = undefined;
+    setCreateSelection(undefined);
+    document.body.classList.remove("project-gantt-is-selecting");
+    if (cancelled) return;
+    const startIndex = Math.min(current.originIndex, current.currentIndex);
+    const endIndex = Math.max(current.originIndex, current.currentIndex);
+    onCreateTask(current.phaseId, addProjectDays(rangeStart, startIndex), endIndex - startIndex + 1);
+  };
+
+  const createTrackHandlers = (rowKey: string, phaseId?: string) => ({
+    onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => startCreateSelection(event, rowKey, phaseId),
+    onPointerMove: updateCreateSelection,
+    onPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => finishCreateSelection(event),
+    onPointerCancel: (event: ReactPointerEvent<HTMLDivElement>) => finishCreateSelection(event, true),
+  });
+
+  const renderCreateSelection = (rowKey: string) => {
+    if (createSelection?.rowKey !== rowKey) return null;
+    const startIndex = Math.min(createSelection.originIndex, createSelection.currentIndex);
+    const endIndex = Math.max(createSelection.originIndex, createSelection.currentIndex);
+    const start = addProjectDays(rangeStart, startIndex);
+    const end = addProjectDays(rangeStart, endIndex);
+    const duration = endIndex - startIndex + 1;
+    const selectionWidth = duration * dayWidth;
+    const rangeLabel = formatProjectGanttDragRange(start, end);
+    return <div
+      className={`project-gantt-create-selection${selectionWidth < 60 ? " compact" : ""}`}
+      style={{ left: startIndex * dayWidth, width: selectionWidth }}
+      title={rangeLabel}
+    ><Plus size={12} />{selectionWidth >= 60 && <span>{selectionWidth < 150 ? `${duration} 天` : rangeLabel}</span>}</div>;
+  };
+
   const dateFromContextEvent = (event: ReactMouseEvent<HTMLElement>): string => {
     const bounds = event.currentTarget.getBoundingClientRect();
     const index = Math.max(0, Math.min(totalDays - 1, Math.floor((event.clientX - bounds.left) / dayWidth)));
@@ -1167,9 +1334,10 @@ function ProjectGanttChart({
     const durationLabel = `${task.durationWorkdays ?? (task.plannedStart && task.plannedEnd ? countProjectDays(task.plannedStart, task.plannedEnd) : 1)} 天`;
     return <div className={`project-gantt-row ${task.status === "done" ? "done" : ""}`} key={task.id}>
       <button className="project-gantt-task" disabled={readOnly} onClick={() => onEdit(task)} onContextMenu={(event) => openTaskMenu(event, task)}><span><strong>{task.title}</strong><small>{task.autoSchedule ? `自动 · ${durationLabel}` : dependencyTitles.length ? `依赖：${dependencyTitles.join("、")}` : durationLabel}</small></span><Pencil size={13} /></button>
-      <div className="project-gantt-track" onContextMenu={(event) => openCanvasMenu(event, task.phaseId)}>
+      <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event, task.phaseId)} {...createTrackHandlers(`task:${task.id}`, task.phaseId)}>
         {weekendBands()}
         {todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}
+        {renderCreateSelection(`task:${task.id}`)}
         {durationDays ? <div
           className={`project-gantt-bar ${taskPreview ? `dragging ${taskPreview.mode}` : ""} ${saving ? "saving" : ""}`}
           role="button"
@@ -1277,9 +1445,10 @@ function ProjectGanttChart({
                 else next.add(phase.id);
                 return next;
               })} onContextMenu={(event) => openPhaseMenu(event, phase)}>{collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<i style={{ background: phase.color }} /><span><strong>{phase.name}</strong><small>{phaseTasks.length} 项任务 · {completionPercent}%</small></span><MoreHorizontal size={13} /></button>
-              <div className="project-gantt-track" onContextMenu={(event) => openPhaseMenu(event, phase)}>
+              <div className="project-gantt-track can-create" onContextMenu={(event) => openPhaseMenu(event, phase)} {...createTrackHandlers(`phase:${phase.id}`, phase.id)}>
                 {weekendBands()}
                 {todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}
+                {renderCreateSelection(`phase:${phase.id}`)}
                 {phaseStart && phaseEnd && <div className="project-gantt-phase-bar" style={{ left: projectDayDifference(rangeStart, phaseStart) * dayWidth, width: (projectDayDifference(phaseStart, phaseEnd) + 1) * dayWidth, borderColor: phase.color }}><i style={{ width: `${completionPercent}%`, background: phase.color }} /></div>}
               </div>
             </div>;
@@ -1288,12 +1457,12 @@ function ProjectGanttChart({
           {(ungroupedTasks.length > 0 || (!tasks.length && !phases.length)) && <>
             {phases.length > 0 && <div className="project-gantt-row project-gantt-phase-row project-gantt-ungrouped-row">
               <button className="project-gantt-task project-gantt-phase" disabled={readOnly} onContextMenu={(event) => openCanvasMenu(event, undefined, false)}><FolderPlus size={14} /><span><strong>未分组</strong><small>{ungroupedTasks.length} 项任务</small></span></button>
-              <div className="project-gantt-track" onContextMenu={(event) => openCanvasMenu(event)}>{weekendBands()}{todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}</div>
+              <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event)} {...createTrackHandlers("ungrouped")}>{weekendBands()}{todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}{renderCreateSelection("ungrouped")}</div>
             </div>}
             {ungroupedTasks.map(renderTaskRow)}
             {!tasks.length && !phases.length && <div className="project-gantt-row project-gantt-empty-row">
               <button className="project-gantt-task" disabled={readOnly} onClick={() => onCreateTask()} onContextMenu={(event) => openCanvasMenu(event, undefined, false)}><span><strong>还没有项目任务</strong><small>点击或右键开始安排</small></span><Plus size={14} /></button>
-              <div className="project-gantt-track" onContextMenu={(event) => openCanvasMenu(event)}>{weekendBands()}{todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}</div>
+              <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event)} {...createTrackHandlers("empty")}>{weekendBands()}{todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}{renderCreateSelection("empty")}</div>
             </div>}
           </>}
           {milestones.filter((milestone) => milestone.dueOn).map((milestone) => {

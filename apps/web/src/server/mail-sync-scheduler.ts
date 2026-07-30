@@ -1,33 +1,50 @@
 import { isMailAccountSyncing, MailSyncAlreadyRunningError } from "./imap-sync";
 import { runMailSync } from "./mail-sync";
 import { cleanupMailBodyCache, listAccounts } from "./mail-repository";
+import { getWorkspaceSyncSettings, type WorkspaceSyncSettings } from "./sync-settings";
 
 declare global {
   var kalenderMailSyncTimer: ReturnType<typeof setInterval> | undefined;
   var kalenderMailSyncInitialTimer: ReturnType<typeof setTimeout> | undefined;
   var kalenderMailSyncTickRunning: boolean | undefined;
+  var kalenderMailSyncEnabled: boolean | undefined;
+  var kalenderMailSyncIntervalMs: number | undefined;
   var kalenderMailSyncBackoff: Map<string, { failures: number; nextAttemptAt: number }> | undefined;
   var kalenderMailBodyMaintenanceAt: number | undefined;
 }
 
 export interface MailSyncSchedulerState {
-  readonly enabled: true;
+  readonly enabled: boolean;
   readonly intervalMs: number;
 }
 
 const DEFAULT_INTERVAL_MS = 3 * 60 * 1000;
-const MINIMUM_INTERVAL_MS = 30 * 1000;
+const MINIMUM_ENVIRONMENT_INTERVAL_MS = 30 * 1000;
 const MAXIMUM_BACKOFF_MS = 60 * 60 * 1000;
 const BODY_CACHE_MAINTENANCE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-export function ensureMailSyncScheduler(): MailSyncSchedulerState {
-  const intervalMs = schedulerInterval();
-  if (!globalThis.kalenderMailSyncTimer) {
+export async function ensureMailSyncScheduler(
+  settingsInput?: WorkspaceSyncSettings,
+): Promise<MailSyncSchedulerState> {
+  const settings = settingsInput ?? await getWorkspaceSyncSettings();
+  const intervalMs = settings.mailSyncIntervalMs;
+  const wasEnabled = globalThis.kalenderMailSyncEnabled === true;
+  globalThis.kalenderMailSyncEnabled = settings.mailSyncEnabled;
+
+  if (!settings.mailSyncEnabled) {
+    clearMailSyncTimers();
+    globalThis.kalenderMailSyncIntervalMs = intervalMs;
+    return { enabled: false, intervalMs };
+  }
+
+  if (!globalThis.kalenderMailSyncTimer || globalThis.kalenderMailSyncIntervalMs !== intervalMs) {
+    if (globalThis.kalenderMailSyncTimer) clearInterval(globalThis.kalenderMailSyncTimer);
     const timer = setInterval(() => void runScheduledMailSync(), intervalMs);
     timer.unref();
     globalThis.kalenderMailSyncTimer = timer;
   }
-  if (!globalThis.kalenderMailSyncInitialTimer) {
+  globalThis.kalenderMailSyncIntervalMs = intervalMs;
+  if (!wasEnabled && !globalThis.kalenderMailSyncInitialTimer) {
     const initialTimer = setTimeout(() => void runScheduledMailSync(), 10_000);
     initialTimer.unref();
     globalThis.kalenderMailSyncInitialTimer = initialTimer;
@@ -36,10 +53,9 @@ export function ensureMailSyncScheduler(): MailSyncSchedulerState {
 }
 
 export async function stopMailSyncScheduler(): Promise<void> {
-  if (globalThis.kalenderMailSyncTimer) clearInterval(globalThis.kalenderMailSyncTimer);
-  if (globalThis.kalenderMailSyncInitialTimer) clearTimeout(globalThis.kalenderMailSyncInitialTimer);
-  globalThis.kalenderMailSyncTimer = undefined;
-  globalThis.kalenderMailSyncInitialTimer = undefined;
+  clearMailSyncTimers();
+  globalThis.kalenderMailSyncEnabled = false;
+  globalThis.kalenderMailSyncIntervalMs = undefined;
   const deadline = Date.now() + 15_000;
   while (globalThis.kalenderMailSyncTickRunning && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -50,7 +66,7 @@ export async function stopMailSyncScheduler(): Promise<void> {
 }
 
 export async function runScheduledMailSync(): Promise<void> {
-  if (globalThis.kalenderMailSyncTickRunning) return;
+  if (!globalThis.kalenderMailSyncEnabled || globalThis.kalenderMailSyncTickRunning) return;
   globalThis.kalenderMailSyncTickRunning = true;
   const backoff = globalThis.kalenderMailSyncBackoff ??= new Map();
   try {
@@ -66,7 +82,7 @@ export async function runScheduledMailSync(): Promise<void> {
       } catch (error) {
         if (error instanceof MailSyncAlreadyRunningError) continue;
         const failures = (retry?.failures ?? 0) + 1;
-        const delay = Math.min(schedulerInterval() * 2 ** Math.min(failures - 1, 5), MAXIMUM_BACKOFF_MS);
+        const delay = Math.min(currentMailSchedulerInterval() * 2 ** Math.min(failures - 1, 5), MAXIMUM_BACKOFF_MS);
         backoff.set(account.id, { failures, nextAttemptAt: Date.now() + delay });
       }
     }
@@ -84,9 +100,20 @@ export async function runScheduledMailSync(): Promise<void> {
   }
 }
 
-function schedulerInterval(): number {
+export function mailSchedulerEnvironmentInterval(): number {
   const configured = Number(process.env.KALENDER_SYNC_INTERVAL_MS);
   return Number.isFinite(configured) && configured > 0
-    ? Math.max(MINIMUM_INTERVAL_MS, configured)
+    ? Math.max(MINIMUM_ENVIRONMENT_INTERVAL_MS, configured)
     : DEFAULT_INTERVAL_MS;
+}
+
+function currentMailSchedulerInterval(): number {
+  return globalThis.kalenderMailSyncIntervalMs ?? mailSchedulerEnvironmentInterval();
+}
+
+function clearMailSyncTimers(): void {
+  if (globalThis.kalenderMailSyncTimer) clearInterval(globalThis.kalenderMailSyncTimer);
+  if (globalThis.kalenderMailSyncInitialTimer) clearTimeout(globalThis.kalenderMailSyncInitialTimer);
+  globalThis.kalenderMailSyncTimer = undefined;
+  globalThis.kalenderMailSyncInitialTimer = undefined;
 }

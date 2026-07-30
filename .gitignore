@@ -9,6 +9,7 @@ dist/
 .logs/
 .backups/
 recovery-snapshots/
+test-results/
 .DS_Store
 .data/
 *-health.json

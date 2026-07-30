@@ -208,6 +208,27 @@ export async function fetchExchangeMailMessageDetails(
   return messages;
 }
 
+export async function fetchExchangeMailMimeContent(
+  credential: ExchangeCredential,
+  itemId: string,
+  signal?: AbortSignal,
+): Promise<Uint8Array | undefined> {
+  const xml = await exchangeSoapRequest(credential, "GetItem", `
+    <m:GetItem>
+      <m:ItemShape>
+        <t:BaseShape>IdOnly</t:BaseShape>
+        <t:IncludeMimeContent>true</t:IncludeMimeContent>
+      </m:ItemShape>
+      <m:ItemIds><t:ItemId Id="${escapeXml(itemId)}"/></m:ItemIds>
+    </m:GetItem>`, signal);
+  const encoded = elementText(xml, "MimeContent").replace(/\s+/g, "");
+  if (!encoded) return undefined;
+  if (!/^[a-z0-9+/]+={0,2}$/i.test(encoded)) throw new Error("Exchange 返回了无效的 MIME 内容");
+  const content = Buffer.from(encoded, "base64");
+  if (content.byteLength > 25 * 1024 * 1024) throw new Error("邮件 MIME 内容超过 25 MB 安全上限");
+  return new Uint8Array(content);
+}
+
 export async function syncExchangeMailFolder(
   credential: ExchangeCredential,
   folder: ExchangeMailFolder,

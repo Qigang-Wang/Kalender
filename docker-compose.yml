@@ -1,0 +1,49 @@
+services:
+  kalender:
+    build:
+      context: .
+    image: kalender:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://kalender:${KALENDER_POSTGRES_PASSWORD:-kalender-dev-password}@postgres:5432/kalender
+      KALENDER_DATA_DIR: /app/.data
+      KALENDER_BACKUP_DIR: /app/.backups
+      KALENDER_BACKUP_PASSWORD: ${KALENDER_BACKUP_PASSWORD:-}
+      KALENDER_MASTER_KEY: ${KALENDER_MASTER_KEY:?Set KALENDER_MASTER_KEY in your shell or .env before starting Docker Compose}
+      KALENDER_SYNC_INTERVAL_MS: ${KALENDER_SYNC_INTERVAL_MS:-180000}
+      KALENDER_CALENDAR_SYNC_INTERVAL_MS: ${KALENDER_CALENDAR_SYNC_INTERVAL_MS:-180000}
+      KALENDER_JOB_POLL_INTERVAL_MS: ${KALENDER_JOB_POLL_INTERVAL_MS:-5000}
+      KALENDER_AI_AUTO_EXECUTION: ${KALENDER_AI_AUTO_EXECUTION:-false}
+      KALENDER_MAIL_BODY_CACHE_MAX_AGE_DAYS: ${KALENDER_MAIL_BODY_CACHE_MAX_AGE_DAYS:-30}
+      KALENDER_MAIL_BODY_CACHE_MAX_MB: ${KALENDER_MAIL_BODY_CACHE_MAX_MB:-128}
+    volumes:
+      - kalender-data:/app/.data
+      - kalender-backups:/app/.backups
+
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: kalender
+      POSTGRES_USER: kalender
+      POSTGRES_PASSWORD: ${KALENDER_POSTGRES_PASSWORD:-kalender-dev-password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kalender -d kalender"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql
+
+volumes:
+  kalender-data:
+  kalender-backups:
+  postgres-data:

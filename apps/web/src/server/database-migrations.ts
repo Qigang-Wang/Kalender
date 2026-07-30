@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 
-import type { PGlite } from "@electric-sql/pglite";
+import type { DatabaseExecutor } from "./database";
+
+interface MigrationDatabase extends DatabaseExecutor {
+  transaction<T>(callback: (transaction: DatabaseExecutor) => Promise<T>): Promise<T>;
+}
 
 export interface DatabaseMigration {
   readonly version: number;
@@ -65,7 +69,7 @@ export class DatabaseMigrationError extends Error {
 }
 
 export async function runDatabaseMigrations(
-  database: PGlite,
+  database: MigrationDatabase,
   migrations: readonly DatabaseMigration[],
   options: RunDatabaseMigrationsOptions = {},
 ): Promise<DatabaseMigrationStatus> {
@@ -124,7 +128,7 @@ export async function runDatabaseMigrations(
 }
 
 export async function getDatabaseMigrationStatus(
-  database: PGlite,
+  database: DatabaseExecutor,
   migrations: readonly DatabaseMigration[],
 ): Promise<DatabaseMigrationStatus> {
   validateDefinitions(migrations);
@@ -145,7 +149,7 @@ export function migrationChecksum(migration: DatabaseMigration): string {
     .digest("hex");
 }
 
-async function hasExistingWorkspaceSchema(database: PGlite): Promise<boolean> {
+async function hasExistingWorkspaceSchema(database: DatabaseExecutor): Promise<boolean> {
   const result = await database.query<{ table_name: string }>(
     `SELECT table_name
        FROM information_schema.tables
@@ -155,7 +159,7 @@ async function hasExistingWorkspaceSchema(database: PGlite): Promise<boolean> {
   return result.rows.length > 0;
 }
 
-async function hasMigrationTable(database: PGlite): Promise<boolean> {
+async function hasMigrationTable(database: DatabaseExecutor): Promise<boolean> {
   const result = await database.query<{ exists: boolean }>(
     `SELECT EXISTS (
        SELECT 1 FROM information_schema.tables
@@ -165,7 +169,7 @@ async function hasMigrationTable(database: PGlite): Promise<boolean> {
   return Boolean(result.rows[0]?.exists);
 }
 
-async function readAppliedMigrations(database: PGlite): Promise<AppliedDatabaseMigration[]> {
+async function readAppliedMigrations(database: DatabaseExecutor): Promise<AppliedDatabaseMigration[]> {
   const result = await database.query<SchemaMigrationRow>(
     `SELECT version, name, checksum, applied_at, execution_ms
        FROM schema_migrations

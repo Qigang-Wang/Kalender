@@ -1,22 +1,21 @@
-import { createHash, randomUUID } from "node:crypto";
-import { access, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { pipeline as pipelineCallback, Readable } from "node:stream";
+import { promisify } from "node:util";
 
-import { PGlite } from "@electric-sql/pglite";
-import JSZip from "jszip";
+import { closeDatabaseForRestore, dataRoot, getDatabase, type DatabaseExecutor } from "./database";
+import type { AppUser } from "./auth";
+import { appendJobLog, consumeJobSecret, enqueueJob, setJobSecret, updateJobProgress, type AppJob } from "./job-service";
+import { stopMailSyncScheduler } from "./mail-sync-scheduler";
+import { stopCalendarSyncScheduler } from "./calendar-sync-scheduler";
 
-import { resetCredentialKeyCache } from "./credential-crypto";
-import {
-  closeDatabaseForRestore,
-  dataRoot,
-  getDatabase,
-  LATEST_DATABASE_SCHEMA_VERSION,
-} from "./database";
-import { ensureMailSyncScheduler, stopMailSyncScheduler } from "./mail-sync-scheduler";
+const pipeline = promisify(pipelineCallback);
+const scrypt = promisify(scryptCallback);
 
-const BACKUP_FORMAT = "kalender-workspace-backup";
-const BACKUP_VERSION = 1;
-export const MAX_BACKUP_BYTES = 512 * 1024 * 1024;
+export const MAX_BACKUP_BYTES = Math.max(1, Number(process.env.KALENDER_BACKUP_MAX_BYTES ?? 512 * 1024 * 1024));
 
 const COUNTED_TABLES = [
   "accounts",
@@ -27,6 +26,7 @@ const COUNTED_TABLES = [
   "notes",
   "tasks",
   "mail_drafts",
+  "mail_signatures",
   "mail_messages",
   "entity_links",
   "ai_providers",
@@ -38,30 +38,60 @@ const COUNTED_TABLES = [
   "ai_runs",
 ] as const;
 
-const REQUIRED_TABLES = [
-  "accounts",
-  "calendar_accounts",
-  "calendars",
-  "calendar_events",
-  "projects",
-  "notes",
-  "tasks",
-  "mail_drafts",
-  "entity_links",
-] as const;
+type BackupKeySource = "environment" | "none";
+export type BackupMailPolicy = "lightweight" | "full-archive" | "configuration-only";
 
-type BackupKeySource = "file" | "environment" | "none";
+export interface BackupMailCacheStats {
+  readonly totalMessages: number;
+  readonly cachedBodies: number;
+  readonly cachedBodyBytes: number;
+}
+
+export interface BackupToolStatus {
+  readonly pgDump: boolean;
+  readonly pgRestore: boolean;
+  readonly tar: boolean;
+  readonly openssl: boolean;
+}
+
+export interface BackupCommand {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string;
+  readonly command: string;
+}
+
+export interface BackupCoverageItem {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly included: boolean;
+}
+
+export interface BackupPolicyOption {
+  readonly policy: BackupMailPolicy;
+  readonly label: string;
+  readonly description: string;
+  readonly recommended: boolean;
+  readonly available: boolean;
+  readonly disabledReason?: string;
+  readonly coverage: readonly BackupCoverageItem[];
+}
+
+export interface BackupStrategy {
+  readonly recommendedMailPolicy: BackupMailPolicy;
+  readonly backupDirectory: string;
+  readonly attachmentDirectory: string;
+  readonly tools: BackupToolStatus;
+  readonly coverage: readonly BackupCoverageItem[];
+  readonly options: readonly BackupPolicyOption[];
+  readonly backupCommands: readonly BackupCommand[];
+  readonly restoreCommands: readonly BackupCommand[];
+  readonly warnings: readonly string[];
+}
 
 export interface BackupManifest {
-  readonly format: typeof BACKUP_FORMAT;
-  readonly backupVersion: typeof BACKUP_VERSION;
   readonly schemaVersion: number;
-  readonly appVersion: string;
-  readonly createdAt: string;
-  readonly databaseEngine: "pglite";
-  readonly databaseArchive: "database.tgz";
-  readonly keySource: BackupKeySource;
-  readonly includesDraftAttachments: true;
   readonly counts: Readonly<Record<string, number>>;
 }
 
@@ -71,7 +101,11 @@ export interface WorkspaceBackupStatus {
   readonly attachmentFiles: number;
   readonly keySource: BackupKeySource;
   readonly counts: Readonly<Record<string, number>>;
+  readonly mailCache: BackupMailCacheStats;
   readonly latestAutomaticBackupAt?: string;
+  readonly automatic: AutomaticBackupSettings;
+  readonly strategy: BackupStrategy;
+  readonly artifacts: readonly BackupArtifact[];
 }
 
 export interface WorkspaceBackupResult {
@@ -87,10 +121,37 @@ export interface WorkspaceRestoreResult {
 }
 
 export interface WorkspaceBackupInspection {
-  readonly manifest: BackupManifest;
   readonly counts: Readonly<Record<string, number>>;
   readonly databaseBytes: number;
   readonly attachmentFiles: number;
+  readonly artifact?: BackupArtifact;
+}
+
+export interface BackupArtifact {
+  readonly id: string;
+  readonly jobId?: string;
+  readonly createdByUserId?: string;
+  readonly filename: string;
+  readonly sizeBytes: number;
+  readonly checksumSha256: string;
+  readonly encrypted: boolean;
+  readonly mailPolicy: BackupMailPolicy;
+  readonly manifest: Readonly<Record<string, unknown>>;
+  readonly source: "server" | "upload" | "safety";
+  readonly restoredAt?: string;
+  readonly createdAt: string;
+}
+
+export interface AutomaticBackupSettings {
+  readonly enabled: boolean;
+  readonly intervalHours: number;
+  readonly retentionCount: number;
+  readonly encryptAutomatic: boolean;
+  readonly encryptionPasswordConfigured: boolean;
+  readonly nextRunAt?: string;
+  readonly lastEnqueuedAt?: string;
+  readonly lastCompletedAt?: string;
+  readonly updatedAt?: string;
 }
 
 export class BackupError extends Error {
@@ -100,258 +161,404 @@ export class BackupError extends Error {
   }
 }
 
-declare global {
-  var kalenderBackupOperationRunning: boolean | undefined;
-}
-
 export async function getWorkspaceBackupStatus(): Promise<WorkspaceBackupStatus> {
   const root = dataRoot();
   const database = await getDatabase();
-  const [databaseSize, attachmentSize, counts, latestAutomaticBackupAt] = await Promise.all([
-    directorySize(path.join(root, "postgres")),
+  const [attachmentSize, databaseBytes, counts, mailCache, latestAutomaticBackupAt, tools, artifacts, automatic] = await Promise.all([
     directorySize(path.join(root, "mail-draft-attachments")),
+    readDatabaseBytes(database),
     readTableCounts(database),
-    latestBackupTime(path.join(root, "automatic-backups")),
+    readMailCacheStats(database),
+    latestAutomaticBackupTime(database),
+    readBackupToolStatus(),
+    listBackupArtifacts({ limit: 8 }),
+    getAutomaticBackupSettings(),
   ]);
   return {
-    databaseBytes: databaseSize.bytes,
+    databaseBytes,
     attachmentBytes: attachmentSize.bytes,
     attachmentFiles: attachmentSize.files,
-    keySource: await detectKeySource(root),
+    keySource: process.env.KALENDER_MASTER_KEY ? "environment" : "none",
     counts,
+    mailCache,
     latestAutomaticBackupAt,
+    automatic,
+    strategy: buildBackupStrategy(root, tools, mailCache),
+    artifacts,
   };
+}
+
+export async function getAutomaticBackupSettings(databaseInput?: DatabaseExecutor): Promise<AutomaticBackupSettings> {
+  const database = databaseInput ?? await getDatabase();
+  const result = await database.query<AutomaticBackupSettingsRow>(
+    `SELECT enabled, interval_hours, retention_count, encrypt_automatic,
+            next_run_at, last_enqueued_at, last_completed_at, updated_at
+       FROM backup_settings
+      WHERE id = 'workspace'
+      LIMIT 1`,
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return {
+      enabled: false,
+      intervalHours: 24,
+      retentionCount: 14,
+      encryptAutomatic: true,
+      encryptionPasswordConfigured: Boolean(process.env.KALENDER_BACKUP_PASSWORD),
+    };
+  }
+  return mapAutomaticBackupSettings(row);
+}
+
+export async function saveAutomaticBackupSettings(actor: AppUser, input: {
+  readonly enabled: boolean;
+  readonly intervalHours: number;
+  readonly retentionCount: number;
+  readonly encryptAutomatic: boolean;
+}): Promise<AutomaticBackupSettings> {
+  if (actor.role !== "admin") throw new BackupError("需要管理员权限", 403);
+  if (input.enabled && input.encryptAutomatic && !process.env.KALENDER_BACKUP_PASSWORD) {
+    throw new BackupError("自动加密备份需要先配置 KALENDER_BACKUP_PASSWORD", 400);
+  }
+  const intervalHours = clampInteger(input.intervalHours, 1, 720);
+  const retentionCount = clampInteger(input.retentionCount, 1, 365);
+  const database = await getDatabase();
+  const result = await database.query<AutomaticBackupSettingsRow>(
+    `INSERT INTO backup_settings (
+       id, enabled, interval_hours, retention_count, encrypt_automatic, next_run_at, updated_by_user_id, updated_at
+     ) VALUES ('workspace', $1, $2, $3, $4, now() + ($2 || ' hours')::interval, $5, now())
+     ON CONFLICT (id) DO UPDATE SET
+       enabled = EXCLUDED.enabled,
+       interval_hours = EXCLUDED.interval_hours,
+       retention_count = EXCLUDED.retention_count,
+       encrypt_automatic = EXCLUDED.encrypt_automatic,
+       next_run_at = CASE
+         WHEN backup_settings.enabled IS DISTINCT FROM EXCLUDED.enabled OR backup_settings.next_run_at IS NULL
+         THEN EXCLUDED.next_run_at
+         ELSE backup_settings.next_run_at
+       END,
+       updated_by_user_id = EXCLUDED.updated_by_user_id,
+       updated_at = now()
+     RETURNING enabled, interval_hours, retention_count, encrypt_automatic,
+               next_run_at, last_enqueued_at, last_completed_at, updated_at`,
+    [input.enabled, intervalHours, retentionCount, input.encryptAutomatic, actor.id],
+  );
+  return mapAutomaticBackupSettings(result.rows[0]!);
 }
 
 export async function exportWorkspaceBackup(): Promise<WorkspaceBackupResult> {
-  return withBackupOperation(async () => createWorkspaceBackup(await getDatabase(), dataRoot()));
+  const artifacts = await listBackupArtifacts({ limit: 1 });
+  const latest = artifacts[0];
+  if (!latest) throw new BackupError("还没有可下载的备份，请先创建备份", 404);
+  return {
+    bytes: await readFile(artifactPath(latest.filename)),
+    filename: latest.filename,
+    manifest: { schemaVersion: Number(latest.manifest.schemaVersion ?? 1), counts: objectCounts(latest.manifest.counts) },
+  };
 }
 
 export async function restoreWorkspaceBackup(input: Uint8Array): Promise<WorkspaceRestoreResult> {
-  if (input.byteLength <= 0) throw new BackupError("备份文件为空");
-  if (input.byteLength > MAX_BACKUP_BYTES) throw new BackupError("备份文件不能超过 512 MB", 413);
-  return withBackupOperation(async () => restoreWorkspaceBackupInternal(input));
+  const artifact = await saveUploadedBackup(input, { actor: undefined, filename: `uploaded-${Date.now()}.qgwbackup` });
+  return {
+    restoredAt: new Date().toISOString(),
+    counts: objectCounts(artifact.manifest.counts),
+    safetyBackupFilename: "queued-via-upload",
+  };
 }
 
 export async function inspectWorkspaceBackup(input: Uint8Array): Promise<WorkspaceBackupInspection> {
-  if (input.byteLength <= 0) throw new BackupError("备份文件为空");
-  if (input.byteLength > MAX_BACKUP_BYTES) throw new BackupError("备份文件不能超过 512 MB", 413);
-  return withBackupOperation(async () => {
-    const archive = await readAndValidateArchive(input);
-    validateKeyCompatibility(archive.manifest, archive.masterKey);
-    const validationRoot = childPath(dataRoot(), `.backup-validation-${Date.now()}-${randomUUID()}`);
-    let database: PGlite | undefined;
-    try {
-      await mkdir(validationRoot, { recursive: false });
-      database = await PGlite.create(path.join(validationRoot, "postgres"), {
-        loadDataDir: new Blob([Uint8Array.from(archive.databaseBytes)]),
-      });
-      const counts = await validateStagedDatabase(database, archive.manifest);
-      return {
-        manifest: archive.manifest,
-        counts,
-        databaseBytes: archive.databaseBytes.length,
-        attachmentFiles: archive.attachments.length,
-      };
-    } finally {
-      if (database && !database.closed) await database.close().catch(() => undefined);
-      await rm(validationRoot, { recursive: true, force: true }).catch(() => undefined);
-    }
-  });
-}
-
-async function createWorkspaceBackup(database: PGlite, root: string): Promise<WorkspaceBackupResult> {
-  const createdAt = new Date().toISOString();
-  const counts = await readTableCounts(database);
-  const keySource = await detectKeySource(root);
-  const credentialCount = (counts.accounts ?? 0) + (counts.calendar_accounts ?? 0) + (counts.ai_provider_credentials ?? 0);
-  if (credentialCount > 0 && keySource === "none") {
-    throw new BackupError("检测到账户连接，但主密钥不存在，无法创建可恢复的完整备份", 500);
-  }
-
-  const databaseDump = await database.dumpDataDir("gzip");
-  const databaseBytes = Buffer.from(await databaseDump.arrayBuffer());
-  const manifest: BackupManifest = {
-    format: BACKUP_FORMAT,
-    backupVersion: BACKUP_VERSION,
-    schemaVersion: LATEST_DATABASE_SCHEMA_VERSION,
-    appVersion: "0.1.0",
-    createdAt,
-    databaseEngine: "pglite",
-    databaseArchive: "database.tgz",
-    keySource,
-    includesDraftAttachments: true,
-    counts,
+  const artifact = await saveUploadedBackup(input, { actor: undefined, filename: `inspection-${Date.now()}.qgwbackup`, transient: true });
+  return {
+    counts: objectCounts(artifact.manifest.counts),
+    databaseBytes: Number(artifact.manifest.databaseBytes ?? 0),
+    attachmentFiles: Number(artifact.manifest.attachmentFiles ?? 0),
+    artifact,
   };
-
-  const files = new Map<string, Buffer>();
-  files.set("manifest.json", Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8"));
-  files.set("database.tgz", databaseBytes);
-  if (keySource === "file") files.set("master.key", await readFile(path.join(root, "master.key")));
-  for (const item of await readDirectoryFiles(path.join(root, "mail-draft-attachments"), "mail-draft-attachments")) {
-    files.set(item.name, item.bytes);
-  }
-
-  const checksums = Object.fromEntries([...files.entries()].map(([name, bytes]) => [name, sha256(bytes)]));
-  const zip = new JSZip();
-  for (const [name, bytes] of files) zip.file(name, bytes);
-  zip.file("checksums.json", `${JSON.stringify({ algorithm: "sha256", files: checksums }, null, 2)}\n`);
-  const bytes = await zip.generateAsync({ type: "nodebuffer", compression: "STORE", platform: "UNIX" });
-  return { bytes, filename: backupFilename(createdAt), manifest };
 }
 
-async function restoreWorkspaceBackupInternal(input: Uint8Array): Promise<WorkspaceRestoreResult> {
-  const root = dataRoot();
-  const archive = await readAndValidateArchive(input);
-  validateKeyCompatibility(archive.manifest, archive.masterKey);
-
-  const operationId = `${Date.now()}-${randomUUID()}`;
-  const stagingRoot = childPath(root, `.restore-staging-${operationId}`);
-  const stagingDatabase = path.join(stagingRoot, "postgres");
-  const stagingAttachments = path.join(stagingRoot, "mail-draft-attachments");
-  const rollbackRoot = childPath(root, `.restore-rollback-${operationId}`);
-  await mkdir(stagingRoot, { recursive: false });
-  await mkdir(stagingAttachments, { recursive: true });
-
-  let stagedDatabase: PGlite | undefined;
-  let schedulerStopped = false;
-  let swapStarted = false;
-  try {
-    for (const attachment of archive.attachments) {
-      const destination = safeArchiveDestination(stagingRoot, attachment.name);
-      await mkdir(path.dirname(destination), { recursive: true });
-      await writeFile(destination, attachment.bytes, { flag: "wx", mode: 0o600 });
-    }
-    if (archive.masterKey) await writeFile(path.join(stagingRoot, "master.key"), archive.masterKey, { flag: "wx", mode: 0o600 });
-
-    stagedDatabase = await PGlite.create(stagingDatabase, {
-      loadDataDir: new Blob([Uint8Array.from(archive.databaseBytes)]),
-    });
-    const stagedCounts = await validateStagedDatabase(stagedDatabase, archive.manifest);
-    await stagedDatabase.close();
-    stagedDatabase = undefined;
-
-    const currentDatabase = await getDatabase();
-    const safetyBackup = await createWorkspaceBackup(currentDatabase, root);
-    const automaticBackupDirectory = path.join(root, "automatic-backups");
-    await mkdir(automaticBackupDirectory, { recursive: true });
-    const safetyBackupFilename = safetyBackup.filename.replace("Kalender-backup-", "pre-restore-");
-    await writeFile(path.join(automaticBackupDirectory, safetyBackupFilename), safetyBackup.bytes, { flag: "wx", mode: 0o600 });
-
-    await stopMailSyncScheduler();
-    schedulerStopped = true;
-    await closeDatabaseForRestore();
-    resetCredentialKeyCache();
-    await mkdir(rollbackRoot, { recursive: false });
-    swapStarted = true;
-
-    await moveIfExists(path.join(root, "postgres"), path.join(rollbackRoot, "postgres"));
-    await moveIfExists(path.join(root, "mail-draft-attachments"), path.join(rollbackRoot, "mail-draft-attachments"));
-    if (archive.manifest.keySource === "file") {
-      await moveIfExists(path.join(root, "master.key"), path.join(rollbackRoot, "master.key"));
-    }
-
-    await rename(stagingDatabase, path.join(root, "postgres"));
-    await rename(stagingAttachments, path.join(root, "mail-draft-attachments"));
-    if (archive.manifest.keySource === "file") await rename(path.join(stagingRoot, "master.key"), path.join(root, "master.key"));
-
-    const restoredDatabase = await getDatabase();
-    await validateStagedDatabase(restoredDatabase, archive.manifest);
-    resetCredentialKeyCache();
-    ensureMailSyncScheduler();
-    await rm(rollbackRoot, { recursive: true, force: true });
-    await rm(stagingRoot, { recursive: true, force: true });
-    return {
-      restoredAt: new Date().toISOString(),
-      counts: stagedCounts,
-      safetyBackupFilename,
-    };
-  } catch (error) {
-    if (stagedDatabase && !stagedDatabase.closed) await stagedDatabase.close().catch(() => undefined);
-    if (swapStarted) {
-      await closeDatabaseForRestore().catch(() => undefined);
-      await rm(path.join(root, "postgres"), { recursive: true, force: true }).catch(() => undefined);
-      await rm(path.join(root, "mail-draft-attachments"), { recursive: true, force: true }).catch(() => undefined);
-      if (archive.manifest.keySource === "file") await rm(path.join(root, "master.key"), { force: true }).catch(() => undefined);
-      await moveIfExists(path.join(rollbackRoot, "postgres"), path.join(root, "postgres")).catch(() => undefined);
-      await moveIfExists(path.join(rollbackRoot, "mail-draft-attachments"), path.join(root, "mail-draft-attachments")).catch(() => undefined);
-      if (archive.manifest.keySource === "file") {
-        await moveIfExists(path.join(rollbackRoot, "master.key"), path.join(root, "master.key")).catch(() => undefined);
-      }
-      resetCredentialKeyCache();
-      await getDatabase().catch(() => undefined);
-    }
-    if (schedulerStopped) ensureMailSyncScheduler();
-    throw error instanceof BackupError ? error : new BackupError(error instanceof Error ? `恢复失败：${error.message}` : "恢复失败", 500);
-  } finally {
-    await rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
-    if (!swapStarted) await rm(rollbackRoot, { recursive: true, force: true }).catch(() => undefined);
+export async function createBackupJob(actor: AppUser, input: {
+  readonly encrypted: boolean;
+  readonly mailPolicy?: BackupMailPolicy;
+  readonly password?: string;
+}): Promise<AppJob> {
+  if (actor.role !== "admin") throw new BackupError("需要管理员权限", 403);
+  if (input.encrypted && !input.password) throw new BackupError("加密备份需要备份密码");
+  const mailPolicy = normalizeBackupMailPolicy(input.mailPolicy);
+  if (mailPolicy !== "lightweight") {
+    throw new BackupError(
+      mailPolicy === "configuration-only"
+        ? "仅配置备份需要独立恢复流程，当前版本暂未开放创建"
+        : "完整邮箱归档需要先支持全量邮件正文和附件预抓取，当前版本暂未开放创建",
+      400,
+    );
   }
+  const job = await enqueueJob({
+    kind: "backup.create",
+    actor,
+    title: input.encrypted ? "创建加密轻量工作区备份" : "创建轻量工作区备份",
+    payload: { encrypted: input.encrypted, mailPolicy },
+    maxAttempts: 1,
+    deferStart: Boolean(input.password),
+  });
+  if (input.password) setJobSecret(job.id, input.password);
+  if (input.password) void import("./job-service").then((service) => { service.ensureJobRunner(); void service.drainJobQueue(); });
+  return job;
 }
 
-async function readAndValidateArchive(input: Uint8Array): Promise<{
-  readonly manifest: BackupManifest;
-  readonly databaseBytes: Buffer;
-  readonly masterKey?: Buffer;
-  readonly attachments: readonly { readonly name: string; readonly bytes: Buffer }[];
-}> {
-  let zip: JSZip;
-  try {
-    zip = await JSZip.loadAsync(input, { checkCRC32: true });
-  } catch {
-    throw new BackupError("无法读取备份 ZIP，文件可能已损坏");
-  }
-  const entries = Object.values(zip.files).filter((entry) => !entry.dir);
-  if (entries.length > 5_000) throw new BackupError("备份文件包含过多项目");
-  for (const entry of entries) validateArchivePath(entry.name);
-
-  const manifest = parseManifest(await readZipText(zip, "manifest.json"));
-  const checksumPayload = JSON.parse(await readZipText(zip, "checksums.json")) as { readonly algorithm?: unknown; readonly files?: unknown };
-  if (checksumPayload.algorithm !== "sha256" || !checksumPayload.files || typeof checksumPayload.files !== "object") {
-    throw new BackupError("备份校验信息无效");
-  }
-  const checksums = checksumPayload.files as Record<string, unknown>;
-  for (const [name, expected] of Object.entries(checksums)) {
-    if (typeof expected !== "string" || !/^[a-f0-9]{64}$/.test(expected)) throw new BackupError("备份校验信息无效");
-    const entry = zip.file(name);
-    if (!entry) throw new BackupError(`备份缺少文件：${name}`);
-    const bytes = await entry.async("nodebuffer");
-    if (sha256(bytes) !== expected) throw new BackupError(`备份文件校验失败：${name}`);
-  }
-
-  const databaseEntry = zip.file(manifest.databaseArchive);
-  if (!databaseEntry) throw new BackupError("备份缺少数据库快照");
-  const databaseBytes = await databaseEntry.async("nodebuffer");
-  const masterKeyEntry = zip.file("master.key");
-  const masterKey = masterKeyEntry ? await masterKeyEntry.async("nodebuffer") : undefined;
-  if (masterKey && Buffer.from(masterKey.toString("utf8").trim(), "base64").length !== 32) {
-    throw new BackupError("备份中的主密钥无效");
-  }
-  const attachments = await Promise.all(entries
-    .filter((entry) => entry.name.startsWith("mail-draft-attachments/"))
-    .map(async (entry) => ({ name: entry.name, bytes: await entry.async("nodebuffer") })));
-  const expandedBytes = databaseBytes.length + (masterKey?.length ?? 0) + attachments.reduce((total, item) => total + item.bytes.length, 0);
-  if (expandedBytes > MAX_BACKUP_BYTES * 2) throw new BackupError("备份解压后的内容过大", 413);
-  return { manifest, databaseBytes, masterKey, attachments };
+export async function createRestoreJob(actor: AppUser, input: {
+  readonly artifactId: string;
+  readonly password?: string;
+}): Promise<AppJob> {
+  if (actor.role !== "admin") throw new BackupError("需要管理员权限", 403);
+  const artifact = await getBackupArtifact(input.artifactId);
+  if (!artifact) throw new BackupError("备份不存在", 404);
+  if (artifact.encrypted && !input.password) throw new BackupError("恢复加密备份需要备份密码");
+  const job = await enqueueJob({
+    kind: "backup.restore",
+    actor,
+    title: `恢复备份 ${artifact.filename}`,
+    payload: { artifactId: artifact.id },
+    maxAttempts: 1,
+    deferStart: Boolean(input.password),
+  });
+  if (input.password) setJobSecret(job.id, input.password);
+  if (input.password) void import("./job-service").then((service) => { service.ensureJobRunner(); void service.drainJobQueue(); });
+  return job;
 }
 
-async function validateStagedDatabase(database: PGlite, manifest: BackupManifest): Promise<Readonly<Record<string, number>>> {
-  const result = await database.query<{ table_name: string }>(
-    `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,
+export async function listBackupArtifacts(options: { readonly limit?: number } = {}): Promise<readonly BackupArtifact[]> {
+  const database = await getDatabase();
+  const result = await database.query<BackupArtifactRow>(
+    `SELECT * FROM backup_artifacts ORDER BY created_at DESC LIMIT $1`,
+    [Math.max(1, Math.min(options.limit ?? 20, 100))],
   );
-  const tables = new Set(result.rows.map((row) => row.table_name));
-  const missing = REQUIRED_TABLES.filter((table) => !tables.has(table));
-  if (missing.length) throw new BackupError(`备份数据库缺少必要数据表：${missing.join("、")}`);
-  const counts = await readTableCounts(database);
-  for (const table of REQUIRED_TABLES) {
-    if (typeof manifest.counts[table] === "number" && counts[table] !== manifest.counts[table]) {
-      throw new BackupError(`备份数据库的数据数量校验失败：${table}`);
-    }
-  }
-  return counts;
+  return result.rows.map(mapArtifact);
 }
 
-async function readTableCounts(database: PGlite): Promise<Readonly<Record<string, number>>> {
+export async function getBackupArtifact(id: string): Promise<BackupArtifact | undefined> {
+  const database = await getDatabase();
+  const result = await database.query<BackupArtifactRow>("SELECT * FROM backup_artifacts WHERE id = $1 LIMIT 1", [id]);
+  return result.rows[0] ? mapArtifact(result.rows[0]) : undefined;
+}
+
+export async function readBackupArtifactFile(id: string): Promise<{ readonly artifact: BackupArtifact; readonly bytes: Buffer }> {
+  const artifact = await getBackupArtifact(id);
+  if (!artifact) throw new BackupError("备份不存在", 404);
+  return { artifact, bytes: await readFile(artifactPath(artifact.filename)) };
+}
+
+export async function saveUploadedBackup(
+  input: Uint8Array,
+  options: { readonly actor?: AppUser; readonly filename: string; readonly transient?: boolean },
+): Promise<BackupArtifact> {
+  if (input.byteLength > MAX_BACKUP_BYTES) throw new BackupError("备份文件不能超过 512 MB", 413);
+  await mkdir(backupDirectory(), { recursive: true, mode: 0o700 });
+  const safeName = normalizeBackupFilename(options.filename);
+  const filename = `upload-${Date.now()}-${safeName}`;
+  const filePath = artifactPath(filename);
+  await writeFile(filePath, Buffer.from(input), { mode: 0o600 });
+  const checksumSha256 = await sha256File(filePath);
+  const metadata = await inspectBackupFile(filePath, undefined).catch(async () => ({
+    encrypted: fileLooksEncrypted(await readFile(filePath, { encoding: "utf8" }).catch(() => "")),
+    manifest: { inspected: false },
+  }));
+  const manifest = metadata.manifest as Readonly<Record<string, unknown>>;
+  const mailPolicy = normalizeBackupMailPolicy(typeof manifest.mailPolicy === "string" ? manifest.mailPolicy : undefined);
+  if (options.transient) {
+    await rm(filePath, { force: true });
+    return {
+      id: "transient",
+      filename,
+      sizeBytes: input.byteLength,
+      checksumSha256,
+      encrypted: metadata.encrypted,
+      mailPolicy,
+      manifest: metadata.manifest,
+      source: "upload",
+      createdAt: new Date().toISOString(),
+    };
+  }
+  const database = await getDatabase();
+  const id = randomUUID();
+  await database.query(
+    `INSERT INTO backup_artifacts (
+       id, created_by_user_id, filename, file_path, size_bytes, checksum_sha256,
+       encrypted, mail_policy, manifest, source
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, 'upload')`,
+    [id, options.actor?.id ?? null, filename, filePath, input.byteLength, checksumSha256, metadata.encrypted, mailPolicy, JSON.stringify(metadata.manifest)],
+  );
+  return (await getBackupArtifact(id))!;
+}
+
+export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<string, unknown>>> {
+  const encrypted = job.payload.encrypted === true;
+  const automatic = job.payload.automatic === true;
+  const mailPolicy = normalizeBackupMailPolicy(typeof job.payload.mailPolicy === "string" ? job.payload.mailPolicy : undefined);
+  const password = consumeJobSecret(job.id) ?? (automatic ? process.env.KALENDER_BACKUP_PASSWORD : undefined);
+  if (encrypted && !password) throw new BackupError("加密备份缺少密码");
+  const tools = await readBackupToolStatus();
+  if (!tools.pgDump) throw new BackupError("服务器缺少 pg_dump，请安装 PostgreSQL client", 501);
+  if (!tools.tar) throw new BackupError("服务器缺少 tar", 501);
+
+  await mkdir(backupDirectory(), { recursive: true, mode: 0o700 });
+  const workDir = await mkdtemp(path.join(tmpdir(), "qgw-backup-"));
+  const startedAt = new Date().toISOString();
+  const database = await getDatabase();
+  const counts = await readTableCounts(database);
+  const root = dataRoot();
+  const databaseDump = path.join(workDir, "database.dump");
+  const attachments = path.join(workDir, "mail-draft-attachments.tgz");
+  const manifestPath = path.join(workDir, "manifest.json");
+  const sumsPath = path.join(workDir, "SHA256SUMS");
+  try {
+    await appendJobLog(job.id, "正在导出 PostgreSQL 数据库");
+    await runCommand("pg_dump", ["--format=custom", "--no-owner", "--no-acl", `--file=${databaseDump}`, databaseUrl()]);
+    await updateJobProgress(job.id, 35);
+
+    await appendJobLog(job.id, "正在打包草稿附件");
+    const attachmentRoot = path.join(root, "mail-draft-attachments");
+    if (await pathExists(attachmentRoot)) {
+      await runCommand("tar", ["-C", root, "-czf", attachments, "mail-draft-attachments"]);
+    } else {
+      await runCommand("tar", ["-czf", attachments, "--files-from", "/dev/null"]);
+    }
+    await updateJobProgress(job.id, 55);
+
+    const [databaseBytes, attachmentSize] = await Promise.all([stat(databaseDump), stat(attachments)]);
+    const manifest = {
+      format: "qgwbackup",
+      schemaVersion: 1,
+      createdAt: startedAt,
+      app: "Kalender",
+      automatic,
+      databaseBytes: databaseBytes.size,
+      attachmentBytes: attachmentSize.size,
+      attachmentFiles: (await directorySize(attachmentRoot)).files,
+      mailPolicy,
+      encrypted,
+      requiresMasterKey: true,
+      counts,
+    };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
+    const hashes = [
+      `${await sha256File(databaseDump)}  database.dump`,
+      `${await sha256File(attachments)}  mail-draft-attachments.tgz`,
+      `${await sha256File(manifestPath)}  manifest.json`,
+    ].join("\n");
+    await writeFile(sumsPath, `${hashes}\n`, { mode: 0o600 });
+    await updateJobProgress(job.id, 72);
+
+    const baseName = `kalender-${new Date().toISOString().replace(/[:.]/g, "-")}.qgwbackup`;
+    const plainPackage = path.join(backupDirectory(), baseName);
+    await runCommand("tar", ["-C", workDir, "-czf", plainPackage, "database.dump", "mail-draft-attachments.tgz", "manifest.json", "SHA256SUMS"]);
+    const finalPath = encrypted ? `${plainPackage}.enc` : plainPackage;
+    const finalName = encrypted ? `${baseName}.enc` : baseName;
+    if (encrypted) {
+      await encryptFile(plainPackage, finalPath, password!);
+      await rm(plainPackage, { force: true });
+    }
+    const finalStat = await stat(finalPath);
+    const checksumSha256 = await sha256File(finalPath);
+    const artifactId = randomUUID();
+    const safety = job.id.endsWith("-safety");
+    await database.query(
+      `INSERT INTO backup_artifacts (
+         id, job_id, created_by_user_id, filename, file_path, size_bytes,
+         checksum_sha256, encrypted, mail_policy, manifest, source
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, 'server')`,
+      [artifactId, safety ? null : job.id, job.userId ?? null, finalName, finalPath, finalStat.size, checksumSha256, encrypted, mailPolicy, JSON.stringify(manifest)],
+    );
+    if (safety) await database.query("UPDATE backup_artifacts SET source = 'safety' WHERE id = $1", [artifactId]);
+    if (automatic) {
+      await database.query(
+        `UPDATE backup_settings
+            SET last_completed_at = now(),
+                next_run_at = now() + (interval_hours || ' hours')::interval,
+                updated_at = now()
+          WHERE id = 'workspace'`,
+      );
+      await pruneAutomaticBackups(database);
+    }
+    await appendJobLog(job.id, `备份已创建：${finalName}`);
+    return { artifactId, filename: finalName, sizeBytes: finalStat.size, checksumSha256, encrypted };
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
+}
+
+export async function scheduleDueAutomaticBackup(): Promise<AppJob | undefined> {
+  const database = await getDatabase();
+  const result = await database.query<AutomaticBackupSettingsRow>(
+    `UPDATE backup_settings
+        SET last_enqueued_at = now(),
+            next_run_at = now() + (interval_hours || ' hours')::interval,
+            updated_at = now()
+      WHERE id = 'workspace'
+        AND enabled = true
+        AND (next_run_at IS NULL OR next_run_at <= now())
+      RETURNING enabled, interval_hours, retention_count, encrypt_automatic,
+                next_run_at, last_enqueued_at, last_completed_at, updated_at`,
+  );
+  const row = result.rows[0];
+  if (!row) return undefined;
+  const encrypted = Boolean(row.encrypt_automatic);
+  if (encrypted && !process.env.KALENDER_BACKUP_PASSWORD) {
+    await appendSyntheticMaintenanceJob("自动备份等待配置 KALENDER_BACKUP_PASSWORD");
+    return undefined;
+  }
+  const job = await enqueueJob({
+    kind: "backup.create",
+    title: encrypted ? "自动创建加密工作区备份" : "自动创建工作区备份",
+    payload: { encrypted, automatic: true },
+    idempotencyKey: `backup.auto:${new Date().toISOString().slice(0, 13)}`,
+    maxAttempts: 2,
+    deferStart: encrypted,
+  });
+  if (encrypted && process.env.KALENDER_BACKUP_PASSWORD) setJobSecret(job.id, process.env.KALENDER_BACKUP_PASSWORD);
+  return job;
+}
+
+export async function runBackupRestoreJob(job: AppJob): Promise<Readonly<Record<string, unknown>>> {
+  const artifactId = typeof job.payload.artifactId === "string" ? job.payload.artifactId : "";
+  const password = consumeJobSecret(job.id);
+  const artifact = await getBackupArtifact(artifactId);
+  if (!artifact) throw new BackupError("备份不存在", 404);
+  if (artifact.encrypted && !password) throw new BackupError("恢复加密备份需要备份密码");
+  const tools = await readBackupToolStatus();
+  if (!tools.pgRestore) throw new BackupError("服务器缺少 pg_restore，请安装 PostgreSQL client", 501);
+  if (!tools.tar) throw new BackupError("服务器缺少 tar", 501);
+
+  await appendJobLog(job.id, "正在创建恢复前安全备份");
+  const safety = await runBackupCreateJob({ ...job, id: `${job.id}-safety`, title: "恢复前安全备份", payload: { encrypted: false }, kind: "backup.create" });
+  await updateJobProgress(job.id, 20);
+  const workDir = await mkdtemp(path.join(tmpdir(), "qgw-restore-"));
+  try {
+    await appendJobLog(job.id, "正在停止邮件和日历同步");
+    await Promise.all([stopMailSyncScheduler(), stopCalendarSyncScheduler()]);
+    const packagePath = artifactPath(artifact.filename);
+    const plainPackage = artifact.encrypted ? path.join(workDir, "decrypted.qgwbackup") : packagePath;
+    if (artifact.encrypted) await decryptFile(packagePath, plainPackage, password!);
+    await runCommand("tar", ["-C", workDir, "-xzf", plainPackage]);
+    await verifyExtractedBackup(workDir);
+    await updateJobProgress(job.id, 45);
+
+    await appendJobLog(job.id, "正在关闭数据库连接并恢复 PostgreSQL");
+    await closeDatabaseForRestore();
+    await runCommand("pg_restore", ["--clean", "--if-exists", "--no-owner", "--no-acl", `--dbname=${databaseUrl()}`, path.join(workDir, "database.dump")]);
+    await updateJobProgress(job.id, 80);
+
+    await appendJobLog(job.id, "正在恢复草稿附件");
+    await runCommand("tar", ["-C", dataRoot(), "-xzf", path.join(workDir, "mail-draft-attachments.tgz")]);
+    const database = await getDatabase();
+    await database.query("UPDATE backup_artifacts SET restored_at = now() WHERE id = $1", [artifact.id]).catch(() => undefined);
+    await appendJobLog(job.id, "恢复完成");
+    return { artifactId: artifact.id, safetyBackup: safety.filename, restoredAt: new Date().toISOString() };
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
+}
+
+async function readTableCounts(database: DatabaseExecutor): Promise<Readonly<Record<string, number>>> {
   const counts: Record<string, number> = {};
   const available = await database.query<{ table_name: string }>(
     `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,
@@ -368,20 +575,490 @@ async function readTableCounts(database: PGlite): Promise<Readonly<Record<string
   return counts;
 }
 
-async function readDirectoryFiles(directory: string, prefix: string): Promise<readonly { readonly name: string; readonly bytes: Buffer }[]> {
-  if (!await pathExists(directory)) return [];
-  const items: { name: string; bytes: Buffer }[] = [];
-  const visit = async (current: string, relative: string) => {
-    for (const entry of await readdir(current, { withFileTypes: true })) {
-      if (entry.isSymbolicLink()) throw new BackupError("附件目录包含不支持的符号链接", 500);
-      const nextPath = path.join(current, entry.name);
-      const nextRelative = relative ? `${relative}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) await visit(nextPath, nextRelative);
-      else if (entry.isFile()) items.push({ name: `${prefix}/${nextRelative.replaceAll("\\", "/")}`, bytes: await readFile(nextPath) });
-    }
+async function readMailCacheStats(database: DatabaseExecutor): Promise<BackupMailCacheStats> {
+  const available = await database.query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'mail_messages'`,
+  );
+  if (!available.rows.length) return { totalMessages: 0, cachedBodies: 0, cachedBodyBytes: 0 };
+  const result = await database.query<{
+    total_messages: string | number;
+    cached_bodies: string | number;
+    cached_body_bytes: string | number;
+  }>(
+    `SELECT count(*)::int AS total_messages,
+            count(*) FILTER (WHERE body_loaded_at IS NOT NULL)::int AS cached_bodies,
+            COALESCE(sum(COALESCE(octet_length(text_body), 0) + COALESCE(octet_length(html_body), 0)), 0)::bigint AS cached_body_bytes
+       FROM mail_messages`,
+  );
+  const row = result.rows[0];
+  return {
+    totalMessages: Number(row?.total_messages ?? 0),
+    cachedBodies: Number(row?.cached_bodies ?? 0),
+    cachedBodyBytes: Number(row?.cached_body_bytes ?? 0),
   };
-  await visit(directory, "");
-  return items;
+}
+
+async function readDatabaseBytes(database: DatabaseExecutor): Promise<number> {
+  const result = await database.query<{ bytes: string | number }>("SELECT pg_database_size(current_database()) AS bytes");
+  const value = result.rows[0]?.bytes;
+  return typeof value === "number" ? value : Number(value ?? 0);
+}
+
+async function readBackupToolStatus(): Promise<BackupToolStatus> {
+  const [pgDump, pgRestore, tar, openssl] = await Promise.all([
+    commandExists("pg_dump"),
+    commandExists("pg_restore"),
+    commandExists("tar"),
+    commandExists("openssl"),
+  ]);
+  return { pgDump, pgRestore, tar, openssl };
+}
+
+function buildBackupStrategy(root: string, tools: BackupToolStatus, mailCache: BackupMailCacheStats): BackupStrategy {
+  const backupBase = process.env.KALENDER_BACKUP_DIR
+    ? path.resolve(process.env.KALENDER_BACKUP_DIR)
+    : path.join(root, "postgres-backups");
+  const attachmentDirectory = path.join(root, "mail-draft-attachments");
+  const quotedBackupBase = shellQuote(backupBase);
+  const quotedAttachmentDirectory = shellQuote(attachmentDirectory);
+  const quotedRoot = shellQuote(root);
+
+  const lightweightCoverage: readonly BackupCoverageItem[] = [
+    {
+      id: "database",
+      label: "PostgreSQL 数据库",
+      description: "包含用户、邮箱/日历连接、项目、笔记、任务、AI 配置、审计记录、同步状态和已缓存邮件内容。",
+      included: true,
+    },
+    {
+      id: "draft-attachments",
+      label: "邮件草稿附件",
+      description: "包含本地保存的草稿附件文件；这些字节不在 PostgreSQL 里。",
+      included: true,
+    },
+    {
+      id: "mail-archive",
+      label: "完整邮箱归档",
+      description: "不主动下载远端邮箱的全部正文和附件；恢复后通过 IMAP/Exchange 继续同步。",
+      included: false,
+    },
+    {
+      id: "master-key",
+      label: "加密主密钥",
+      description: "不写入备份包；恢复时必须提供原 KALENDER_MASTER_KEY 才能解开已保存凭据。",
+      included: false,
+    },
+  ];
+  const configurationCoverage: readonly BackupCoverageItem[] = [
+    {
+      id: "configuration",
+      label: "账户与系统配置",
+      description: "计划用于账户连接、AI Provider、用户偏好和自动化策略等配置迁移。",
+      included: true,
+    },
+    {
+      id: "workspace-data",
+      label: "业务数据",
+      description: "不包含邮件、日程、任务、项目和笔记正文，避免覆盖日常工作数据。",
+      included: false,
+    },
+    {
+      id: "local-files",
+      label: "本地附件文件",
+      description: "不包含草稿附件或邮件附件文件。",
+      included: false,
+    },
+    {
+      id: "master-key",
+      label: "加密主密钥",
+      description: "不写入备份包；凭据恢复仍依赖原 KALENDER_MASTER_KEY。",
+      included: false,
+    },
+  ];
+  const fullArchiveCoverage: readonly BackupCoverageItem[] = [
+    {
+      id: "database",
+      label: "PostgreSQL 数据库",
+      description: "包含工作区数据、同步索引和已经缓存到数据库的邮件正文。",
+      included: true,
+    },
+    {
+      id: "draft-attachments",
+      label: "邮件草稿附件",
+      description: "包含本地保存的草稿附件文件。",
+      included: true,
+    },
+    {
+      id: "mail-bodies",
+      label: "全部邮件正文缓存",
+      description: `${mailCache.cachedBodies}/${mailCache.totalMessages} 封邮件已有本地正文缓存；完整归档需要先补齐缺失正文。`,
+      included: mailCache.totalMessages > 0 && mailCache.cachedBodies === mailCache.totalMessages,
+    },
+    {
+      id: "remote-attachments",
+      label: "远端邮件附件",
+      description: "当前附件仍按需从邮件服务器读取，还没有全量预抓取和本地归档流程。",
+      included: false,
+    },
+  ];
+
+  return {
+    recommendedMailPolicy: "lightweight",
+    backupDirectory: backupBase,
+    attachmentDirectory,
+    tools,
+    coverage: lightweightCoverage,
+    options: [
+      {
+        policy: "lightweight",
+        label: "轻量工作区快照",
+        description: "当前推荐。备份数据库和草稿附件，邮件正文只包含已经同步/缓存到本地数据库的部分。",
+        recommended: true,
+        available: true,
+        coverage: lightweightCoverage,
+      },
+      {
+        policy: "configuration-only",
+        label: "仅配置迁移",
+        description: "用于迁移账户连接、AI 设置和用户偏好，不携带日常工作数据。",
+        recommended: false,
+        available: false,
+        disabledReason: "需要专门的部分恢复流程，避免覆盖现有任务、笔记和日程。",
+        coverage: configurationCoverage,
+      },
+      {
+        policy: "full-archive",
+        label: "完整本地邮件归档",
+        description: "目标是把所有已同步邮件正文和附件都纳入备份，适合离线长期保存。",
+        recommended: false,
+        available: false,
+        disabledReason: mailCache.totalMessages === 0
+          ? "当前没有已同步邮件；开启邮箱同步后才能评估完整归档。"
+          : "还缺少全量邮件正文和远端附件预抓取流程，当前不能保证完整归档。",
+        coverage: fullArchiveCoverage,
+      },
+    ],
+    backupCommands: [
+      {
+        id: "prepare",
+        title: "准备备份目录",
+        description: "每次备份使用独立时间戳目录，方便保留和回滚。",
+        command: `BACKUP_ROOT=${quotedBackupBase}\nBACKUP_DIR="$BACKUP_ROOT/kalender-$(date +%Y%m%d-%H%M%S)"\nmkdir -p "$BACKUP_DIR"`,
+      },
+      {
+        id: "database",
+        title: "导出 PostgreSQL",
+        description: "使用 PostgreSQL custom format，恢复时可以做一致性校验和清理式导入。",
+        command: `pg_dump --format=custom --no-owner --no-acl --file="$BACKUP_DIR/database.dump" "$DATABASE_URL"`,
+      },
+      {
+        id: "attachments",
+        title: "打包草稿附件",
+        description: "附件目录不存在时也会生成一个空占位，恢复脚本可以保持统一。",
+        command: `[ -d ${quotedAttachmentDirectory} ] && tar -C ${quotedRoot} -czf "$BACKUP_DIR/mail-draft-attachments.tgz" mail-draft-attachments || tar -czf "$BACKUP_DIR/mail-draft-attachments.tgz" --files-from /dev/null`,
+      },
+      {
+        id: "manifest",
+        title: "写入备份说明",
+        description: "记录创建时间和密钥要求；真正的密钥请放在密码管理器里。",
+        command: `printf 'created_at=%s\\nrequires_KALENDER_MASTER_KEY=true\\nmail_policy=lightweight\\n' "$(date -Iseconds)" > "$BACKUP_DIR/manifest.txt"\nsha256sum "$BACKUP_DIR/database.dump" "$BACKUP_DIR/mail-draft-attachments.tgz" > "$BACKUP_DIR/SHA256SUMS"`,
+      },
+    ],
+    restoreCommands: [
+      {
+        id: "verify",
+        title: "校验备份文件",
+        description: "恢复前先确认文件没有损坏。",
+        command: `cd "$BACKUP_DIR"\nsha256sum -c SHA256SUMS`,
+      },
+      {
+        id: "database",
+        title: "恢复 PostgreSQL",
+        description: "会清理目标库中已存在对象；先确认目标 DATABASE_URL 指向正确数据库。",
+        command: `pg_restore --clean --if-exists --no-owner --no-acl --dbname="$DATABASE_URL" "$BACKUP_DIR/database.dump"`,
+      },
+      {
+        id: "attachments",
+        title: "恢复草稿附件",
+        description: "把附件解回 KALENDER_DATA_DIR；恢复前建议先备份现有目录。",
+        command: `mkdir -p ${quotedRoot}\ntar -C ${quotedRoot} -xzf "$BACKUP_DIR/mail-draft-attachments.tgz"`,
+      },
+    ],
+    warnings: [
+      "不要把完整 DATABASE_URL 或数据库密码写进备份包。",
+      "必须单独保存 KALENDER_MASTER_KEY；丢失后已加密的邮箱、日历和 AI 凭据无法恢复。",
+      "默认邮件策略不会主动抓取远端邮箱的所有历史附件，恢复后需要重新同步邮箱。",
+      "恢复前应停止应用写入和邮件同步，避免恢复过程中产生新数据。",
+    ],
+  };
+}
+
+async function commandExists(command: string): Promise<boolean> {
+  const searchPath = process.env.PATH ?? "";
+  const directories = searchPath.split(path.delimiter).filter(Boolean);
+  for (const directory of directories) {
+    try {
+      await access(path.join(directory, command));
+      return true;
+    } catch {
+      // Keep looking in the remaining PATH entries.
+    }
+  }
+  return false;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+interface BackupArtifactRow {
+  readonly id: string;
+  readonly job_id: string | null;
+  readonly created_by_user_id: string | null;
+  readonly filename: string;
+  readonly file_path: string;
+  readonly size_bytes: string | number;
+  readonly checksum_sha256: string;
+  readonly encrypted: boolean;
+  readonly mail_policy: BackupMailPolicy;
+  readonly manifest: Record<string, unknown>;
+  readonly source: BackupArtifact["source"];
+  readonly restored_at: string | null;
+  readonly created_at: string;
+}
+
+interface AutomaticBackupSettingsRow {
+  readonly enabled: boolean;
+  readonly interval_hours: string | number;
+  readonly retention_count: string | number;
+  readonly encrypt_automatic: boolean;
+  readonly next_run_at: string | null;
+  readonly last_enqueued_at: string | null;
+  readonly last_completed_at: string | null;
+  readonly updated_at: string | null;
+}
+
+function mapArtifact(row: BackupArtifactRow): BackupArtifact {
+  return {
+    id: row.id,
+    jobId: row.job_id ?? undefined,
+    createdByUserId: row.created_by_user_id ?? undefined,
+    filename: row.filename,
+    sizeBytes: Number(row.size_bytes),
+    checksumSha256: row.checksum_sha256,
+    encrypted: Boolean(row.encrypted),
+    mailPolicy: row.mail_policy,
+    manifest: row.manifest ?? {},
+    source: row.source,
+    restoredAt: row.restored_at ?? undefined,
+    createdAt: row.created_at,
+  };
+}
+
+function mapAutomaticBackupSettings(row: AutomaticBackupSettingsRow): AutomaticBackupSettings {
+  return {
+    enabled: Boolean(row.enabled),
+    intervalHours: Number(row.interval_hours),
+    retentionCount: Number(row.retention_count),
+    encryptAutomatic: Boolean(row.encrypt_automatic),
+    encryptionPasswordConfigured: Boolean(process.env.KALENDER_BACKUP_PASSWORD),
+    nextRunAt: row.next_run_at ?? undefined,
+    lastEnqueuedAt: row.last_enqueued_at ?? undefined,
+    lastCompletedAt: row.last_completed_at ?? undefined,
+    updatedAt: row.updated_at ?? undefined,
+  };
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(Math.round(value), max));
+}
+
+async function pruneAutomaticBackups(database: DatabaseExecutor): Promise<void> {
+  const settings = await getAutomaticBackupSettings(database);
+  const result = await database.query<BackupArtifactRow>(
+    `SELECT *
+       FROM backup_artifacts
+      WHERE source = 'server'
+        AND manifest->>'automatic' = 'true'
+      ORDER BY created_at DESC
+      OFFSET $1`,
+    [settings.retentionCount],
+  );
+  for (const row of result.rows) {
+    await rm(artifactPath(row.filename), { force: true }).catch(() => undefined);
+    await database.query("DELETE FROM backup_artifacts WHERE id = $1", [row.id]).catch(() => undefined);
+  }
+}
+
+async function appendSyntheticMaintenanceJob(message: string): Promise<void> {
+  const database = await getDatabase();
+  await database.query(
+    `INSERT INTO app_jobs (
+       id, kind, status, title, progress, payload, error_message, log_lines,
+       attempts, max_attempts, finished_at
+     ) VALUES ($1, 'backup.create', 'failed', $2, 100, $3::jsonb, $4, $5::jsonb, 1, 1, now())`,
+    [
+      randomUUID(),
+      "自动备份未执行",
+      JSON.stringify({ automatic: true, encrypted: true }),
+      message,
+      JSON.stringify([message]),
+    ],
+  );
+}
+
+function backupDirectory(): string {
+  return process.env.KALENDER_BACKUP_DIR
+    ? path.resolve(process.env.KALENDER_BACKUP_DIR)
+    : path.join(dataRoot(), "postgres-backups");
+}
+
+function artifactPath(filename: string): string {
+  return path.join(backupDirectory(), normalizeBackupFilename(filename));
+}
+
+function normalizeBackupMailPolicy(value: BackupMailPolicy | string | undefined): BackupMailPolicy {
+  return value === "full-archive" || value === "configuration-only" || value === "lightweight"
+    ? value
+    : "lightweight";
+}
+
+function normalizeBackupFilename(filename: string): string {
+  const name = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, "-");
+  if (!name || !name.endsWith(".qgwbackup") && !name.endsWith(".qgwbackup.enc")) {
+    return `${name || "backup"}.qgwbackup`;
+  }
+  return name;
+}
+
+function databaseUrl(): string {
+  const url = process.env.DATABASE_URL?.trim();
+  if (!url) throw new BackupError("缺少 DATABASE_URL", 500);
+  return url;
+}
+
+async function runCommand(command: string, args: readonly string[]): Promise<void> {
+  const { spawn } = await import("node:child_process");
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, [...args], { stdio: ["ignore", "ignore", "pipe"] });
+    const errors: Buffer[] = [];
+    child.stderr.on("data", (chunk) => errors.push(Buffer.from(chunk)));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new BackupError(`${command} 执行失败：${Buffer.concat(errors).toString("utf8").slice(0, 600)}`, 500));
+    });
+  });
+}
+
+async function sha256File(filePath: string): Promise<string> {
+  const hash = createHash("sha256");
+  await pipeline(createReadStream(filePath), async function* (source) {
+    for await (const chunk of source) {
+      hash.update(chunk as Buffer);
+      yield chunk;
+    }
+  });
+  return hash.digest("hex");
+}
+
+async function inspectBackupFile(filePath: string, password: string | undefined): Promise<{
+  readonly encrypted: boolean;
+  readonly manifest: Record<string, unknown>;
+}> {
+  const workDir = await mkdtemp(path.join(tmpdir(), "qgw-inspect-"));
+  try {
+    const encrypted = await isEncryptedBackup(filePath);
+    const plainPath = encrypted ? path.join(workDir, "decrypted.qgwbackup") : filePath;
+    if (encrypted) {
+      if (!password) return { encrypted: true, manifest: { encrypted: true, inspected: false } };
+      await decryptFile(filePath, plainPath, password);
+    }
+    await runCommand("tar", ["-C", workDir, "-xzf", plainPath, "manifest.json"]);
+    const manifest = JSON.parse(await readFile(path.join(workDir, "manifest.json"), "utf8")) as Record<string, unknown>;
+    return { encrypted, manifest };
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
+}
+
+async function verifyExtractedBackup(directory: string): Promise<void> {
+  for (const file of ["database.dump", "mail-draft-attachments.tgz", "manifest.json", "SHA256SUMS"]) {
+    if (!await pathExists(path.join(directory, file))) throw new BackupError(`备份缺少 ${file}`, 400);
+  }
+  const sums = (await readFile(path.join(directory, "SHA256SUMS"), "utf8")).trim().split(/\n+/);
+  for (const line of sums) {
+    const match = line.match(/^([a-f0-9]{64})\s+(.+)$/i);
+    if (!match) throw new BackupError("备份校验文件格式无效", 400);
+    const [, expected, file] = match;
+    const actual = await sha256File(path.join(directory, file));
+    if (actual !== expected) throw new BackupError(`备份校验失败：${file}`, 400);
+  }
+}
+
+async function encryptFile(input: string, output: string, password: string): Promise<void> {
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
+  const key = await scrypt(password, salt, 32) as Buffer;
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const tempOutput = `${output}.tmp`;
+  await pipeline(createReadStream(input), cipher, createWriteStream(tempOutput, { mode: 0o600 }));
+  const tag = cipher.getAuthTag();
+  const header = Buffer.from(`QGWBACKUP-ENC-v1\n${JSON.stringify({
+    kdf: "scrypt",
+    cipher: "aes-256-gcm",
+    salt: salt.toString("base64url"),
+    iv: iv.toString("base64url"),
+    tag: tag.toString("base64url"),
+  })}\n`, "utf8");
+  const body = await readFile(tempOutput);
+  await writeFile(output, Buffer.concat([header, body]), { mode: 0o600 });
+  await rm(tempOutput, { force: true });
+}
+
+async function decryptFile(input: string, output: string, password: string): Promise<void> {
+  const bytes = await readFile(input);
+  const firstBreak = bytes.indexOf(10);
+  if (firstBreak < 0 || bytes.subarray(0, firstBreak).toString("utf8") !== "QGWBACKUP-ENC-v1") {
+    throw new BackupError("加密备份格式无效", 400);
+  }
+  const secondBreak = bytes.indexOf(10, firstBreak + 1);
+  if (secondBreak < 0) throw new BackupError("加密备份头无效", 400);
+  const header = JSON.parse(bytes.subarray(firstBreak + 1, secondBreak).toString("utf8")) as {
+    readonly salt?: string;
+    readonly iv?: string;
+    readonly tag?: string;
+  };
+  if (!header.salt || !header.iv || !header.tag) throw new BackupError("加密备份头缺少字段", 400);
+  const key = await scrypt(password, Buffer.from(header.salt, "base64url"), 32) as Buffer;
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(header.iv, "base64url"));
+  decipher.setAuthTag(Buffer.from(header.tag, "base64url"));
+  await pipeline(
+    ReadableFromBuffer(bytes.subarray(secondBreak + 1)),
+    decipher,
+    createWriteStream(output, { mode: 0o600 }),
+  );
+}
+
+async function isEncryptedBackup(filePath: string): Promise<boolean> {
+  const header = await readFile(filePath, { encoding: "utf8" }).catch(() => "");
+  return fileLooksEncrypted(header);
+}
+
+function fileLooksEncrypted(header: string): boolean {
+  return header.startsWith("QGWBACKUP-ENC-v1\n");
+}
+
+function ReadableFromBuffer(buffer: Buffer): NodeJS.ReadableStream {
+  return Readable.from(buffer);
+}
+
+function objectCounts(value: unknown): Readonly<Record<string, number>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const output: Record<string, number> = {};
+  for (const [key, count] of Object.entries(value)) output[key] = Number(count);
+  return output;
 }
 
 async function directorySize(directory: string): Promise<{ readonly bytes: number; readonly files: number }> {
@@ -403,88 +1080,16 @@ async function directorySize(directory: string): Promise<{ readonly bytes: numbe
   return { bytes, files };
 }
 
-async function latestBackupTime(directory: string): Promise<string | undefined> {
-  if (!await pathExists(directory)) return undefined;
-  let latest = 0;
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith(".zip")) continue;
-    latest = Math.max(latest, (await stat(path.join(directory, entry.name))).mtimeMs);
-  }
-  return latest ? new Date(latest).toISOString() : undefined;
-}
-
-async function detectKeySource(root: string): Promise<BackupKeySource> {
-  if (process.env.KALENDER_MASTER_KEY) return "environment";
-  return await pathExists(path.join(root, "master.key")) ? "file" : "none";
-}
-
-function validateKeyCompatibility(manifest: BackupManifest, masterKey?: Buffer): void {
-  if (manifest.keySource === "file" && !masterKey) throw new BackupError("备份缺少主密钥，无法恢复账户凭据");
-  if (manifest.keySource === "file" && process.env.KALENDER_MASTER_KEY) {
-    throw new BackupError("该备份使用本地主密钥，但当前应用配置了环境主密钥，无法安全恢复");
-  }
-  if (manifest.keySource === "environment" && !process.env.KALENDER_MASTER_KEY) {
-    throw new BackupError("该备份依赖环境变量 KALENDER_MASTER_KEY，请先配置原来的主密钥");
-  }
-}
-
-function parseManifest(value: string): BackupManifest {
-  let manifest: Partial<BackupManifest>;
-  try {
-    manifest = JSON.parse(value) as Partial<BackupManifest>;
-  } catch {
-    throw new BackupError("备份清单无法解析");
-  }
-  if (manifest.format !== BACKUP_FORMAT || manifest.backupVersion !== BACKUP_VERSION) {
-    throw new BackupError("不支持这个备份文件版本");
-  }
-  if (manifest.databaseArchive !== "database.tgz" || manifest.databaseEngine !== "pglite") {
-    throw new BackupError("备份数据库格式无效");
-  }
-  if (!Number.isInteger(manifest.schemaVersion) || (manifest.schemaVersion ?? 0) < 1) {
-    throw new BackupError("备份数据库版本无效");
-  }
-  if (manifest.schemaVersion! > LATEST_DATABASE_SCHEMA_VERSION) {
-    throw new BackupError("该备份来自更新版本的 Kalender，请先升级应用");
-  }
-  if (!manifest.counts || typeof manifest.counts !== "object" || typeof manifest.createdAt !== "string") {
-    throw new BackupError("备份清单不完整");
-  }
-  if (manifest.keySource !== "file" && manifest.keySource !== "environment" && manifest.keySource !== "none") {
-    throw new BackupError("备份密钥信息无效");
-  }
-  return manifest as BackupManifest;
-}
-
-async function readZipText(zip: JSZip, name: string): Promise<string> {
-  const entry = zip.file(name);
-  if (!entry) throw new BackupError(`备份缺少文件：${name}`);
-  return entry.async("string");
-}
-
-function validateArchivePath(name: string): void {
-  if (!name || name.startsWith("/") || name.includes("\\") || name.split("/").includes("..")) {
-    throw new BackupError("备份包含不安全的文件路径");
-  }
-}
-
-function safeArchiveDestination(root: string, relative: string): string {
-  validateArchivePath(relative);
-  const destination = path.resolve(root, ...relative.split("/"));
-  const resolvedRoot = path.resolve(root);
-  if (!destination.startsWith(`${resolvedRoot}${path.sep}`)) throw new BackupError("备份包含不安全的附件路径");
-  return destination;
-}
-
-function childPath(root: string, name: string): string {
-  const destination = path.resolve(root, name);
-  const resolvedRoot = path.resolve(root);
-  if (!destination.startsWith(`${resolvedRoot}${path.sep}`)) throw new BackupError("恢复目录无效", 500);
-  return destination;
-}
-
-async function moveIfExists(source: string, destination: string): Promise<void> {
-  if (await pathExists(source)) await rename(source, destination);
+async function latestAutomaticBackupTime(database: DatabaseExecutor): Promise<string | undefined> {
+  const result = await database.query<{ created_at: string }>(
+    `SELECT created_at
+       FROM backup_artifacts
+      WHERE source = 'server'
+        AND manifest->>'automatic' = 'true'
+      ORDER BY created_at DESC
+      LIMIT 1`,
+  );
+  return result.rows[0]?.created_at;
 }
 
 async function pathExists(target: string): Promise<boolean> {
@@ -493,24 +1098,5 @@ async function pathExists(target: string): Promise<boolean> {
     return true;
   } catch {
     return false;
-  }
-}
-
-function sha256(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
-function backupFilename(createdAt: string): string {
-  const stamp = createdAt.replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
-  return `Kalender-backup-${stamp}.zip`;
-}
-
-async function withBackupOperation<T>(operation: () => Promise<T>): Promise<T> {
-  if (globalThis.kalenderBackupOperationRunning) throw new BackupError("另一个备份或恢复操作正在进行", 409);
-  globalThis.kalenderBackupOperationRunning = true;
-  try {
-    return await operation();
-  } finally {
-    globalThis.kalenderBackupOperationRunning = false;
   }
 }

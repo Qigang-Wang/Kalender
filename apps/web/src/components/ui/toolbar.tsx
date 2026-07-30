@@ -100,7 +100,7 @@ const dropdownArrowVariants = cva(
       size: {
         default: 'h-9 w-6',
         lg: 'h-10 w-8',
-        sm: 'h-8 w-4',
+        sm: 'h-8 w-6',
       },
       variant: {
         default:

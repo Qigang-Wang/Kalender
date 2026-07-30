@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { MailServerConnection } from "./imap-smtp-test";
 import { decryptCredential, encryptCredential } from "./credential-crypto";
 import { getDatabase } from "./database";
+import { getUserScope } from "./user-scope";
 import type { ExchangeCredential } from "./exchange-ews-client";
 
 export type SyncMode = "quick" | "recommended" | "full";
@@ -165,6 +166,25 @@ export interface InboxItem {
   readonly isStarred: boolean;
   readonly canArchive: boolean;
   readonly attachments: readonly InboxAttachment[];
+  readonly direction?: "incoming" | "outgoing";
+  readonly folderRole?: string;
+  readonly correspondentName?: string;
+  readonly correspondentAddress?: string;
+}
+
+export interface MailCorrespondenceSummary {
+  readonly name: string;
+  readonly address: string;
+  readonly totalCount: number;
+  readonly unreadCount: number;
+  readonly incomingCount: number;
+  readonly outgoingCount: number;
+  readonly lastContactAt?: string;
+}
+
+export interface MailCorrespondenceResult {
+  readonly items: readonly InboxItem[];
+  readonly summary?: MailCorrespondenceSummary;
 }
 
 export interface UnreadInboxSummaryItem {
@@ -172,9 +192,13 @@ export interface UnreadInboxSummaryItem {
   readonly accountName: string;
   readonly accountColor: string;
   readonly senderName: string;
+  readonly senderAddress: string;
   readonly subject: string;
+  readonly snippet: string;
   readonly receivedAt: string;
   readonly isStarred: boolean;
+  readonly attachmentCount: number;
+  readonly canArchive: boolean;
 }
 
 export interface UnreadInboxSummary {
@@ -251,7 +275,7 @@ export interface StoredMessageRemote {
   }[];
 }
 
-export const MAIL_BODY_CACHE_VERSION = 3;
+export const MAIL_BODY_CACHE_VERSION = 4;
 export const DEFAULT_MAIL_BODY_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const DEFAULT_MAIL_BODY_CACHE_MAX_BYTES = 128 * 1024 * 1024;
 
@@ -281,14 +305,15 @@ export interface MailAiContext {
 
 export async function saveImapSmtpAccount(input: SaveAccountInput): Promise<StoredAccount> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const existing = input.accountId
     ? await database.query<{ id: string; color: string }>(
-      "SELECT id, color FROM accounts WHERE id = $1 AND provider_id = 'imap-smtp' LIMIT 1",
-      [input.accountId],
+      `SELECT id, color FROM accounts WHERE id = $1 AND provider_id = 'imap-smtp'${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+      scope.active ? [input.accountId, scope.userId] : [input.accountId],
     )
     : await database.query<{ id: string; color: string }>(
-      "SELECT id, color FROM accounts WHERE provider_id = $1 AND email_address = $2 LIMIT 1",
-      ["imap-smtp", input.emailAddress.toLocaleLowerCase()],
+      `SELECT id, color FROM accounts WHERE provider_id = $1 AND email_address = $2${scope.active ? " AND user_id = $3" : ""} LIMIT 1`,
+      scope.active ? ["imap-smtp", input.emailAddress.toLocaleLowerCase(), scope.userId] : ["imap-smtp", input.emailAddress.toLocaleLowerCase()],
     );
   if (input.accountId && !existing.rows[0]) throw new Error("Account was not found");
   const accountId = existing.rows[0]?.id ?? randomUUID();
@@ -298,9 +323,9 @@ export async function saveImapSmtpAccount(input: SaveAccountInput): Promise<Stor
   await database.transaction(async (transaction) => {
     await transaction.query(
       `INSERT INTO accounts (
-         id, provider_id, display_name, email_address, color, enabled,
+         id, user_id, provider_id, display_name, email_address, color, enabled,
          sync_mode, sync_status, sync_error, last_tested_at, updated_at
-       ) VALUES ($1, 'imap-smtp', $2, $3, $4, true, $5, 'idle', NULL, now(), now())
+       ) VALUES ($1, $2, 'imap-smtp', $3, $4, $5, true, $6, 'idle', NULL, now(), now())
        ON CONFLICT (id) DO UPDATE SET
          display_name = EXCLUDED.display_name,
          email_address = EXCLUDED.email_address,
@@ -308,7 +333,7 @@ export async function saveImapSmtpAccount(input: SaveAccountInput): Promise<Stor
          enabled = true,
          last_tested_at = now(),
          updated_at = now()`,
-      [accountId, input.displayName, input.emailAddress.toLocaleLowerCase(), color, input.syncMode],
+      [accountId, scope.valueOrNull(), input.displayName, input.emailAddress.toLocaleLowerCase(), color, input.syncMode],
     );
     await transaction.query(
       `INSERT INTO encrypted_credentials (account_id, encrypted_payload, key_version, updated_at)
@@ -326,60 +351,71 @@ export async function saveImapSmtpAccount(input: SaveAccountInput): Promise<Stor
 
 export async function getAccount(id: string): Promise<StoredAccount | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<AccountRow>(
     `SELECT id, provider_id, display_name, email_address, color, sync_mode,
             sync_status, sync_error, last_sync_at
-       FROM accounts WHERE id = $1 AND enabled = true LIMIT 1`,
-    [id],
+       FROM accounts WHERE id = $1 AND enabled = true${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [id, scope.userId] : [id],
   );
   return result.rows[0] ? mapAccount(result.rows[0]) : undefined;
 }
 
 export async function listAccounts(): Promise<readonly StoredAccount[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<AccountRow>(
     `SELECT id, provider_id, display_name, email_address, color, sync_mode,
             sync_status, sync_error, last_sync_at
-       FROM accounts WHERE enabled = true ORDER BY created_at`,
+       FROM accounts WHERE enabled = true${scope.active ? " AND user_id = $1" : ""} ORDER BY created_at`,
+    scope.active ? [scope.userId] : [],
   );
   return result.rows.map(mapAccount);
 }
 
 export async function listAccountSelfAddresses(accountId: string): Promise<readonly string[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{ address: string }>(
     `SELECT DISTINCT lower(trim(m.from_address ->> 'address')) AS address
        FROM mail_messages m
        JOIN mail_folders f
          ON f.account_id = m.account_id
         AND f.provider_folder_id = m.provider_folder_id
-      WHERE m.account_id = $1
+      JOIN accounts a ON a.id = m.account_id AND a.enabled = true
+      WHERE m.account_id = $1${scope.active ? " AND a.user_id = $2" : ""}
         AND f.role = 'sent'
         AND trim(coalesce(m.from_address ->> 'address', '')) <> ''
       ORDER BY address`,
-    [accountId],
+    scope.active ? [accountId, scope.userId] : [accountId],
   );
   return result.rows.map((row) => row.address).filter(Boolean);
 }
 
 export async function getExchangeMailAccountForCalendar(calendarAccountId: string): Promise<StoredAccount | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<AccountRow>(
     `SELECT a.id, a.provider_id, a.display_name, a.email_address, a.color, a.sync_mode,
             a.sync_status, a.sync_error, a.last_sync_at
        FROM accounts a
        JOIN calendar_accounts ca ON ca.exchange_connection_id = a.exchange_connection_id
-      WHERE ca.id = $1 AND a.provider_id = 'exchange-ews' AND a.enabled = true LIMIT 1`,
-    [calendarAccountId],
+      WHERE ca.id = $1 AND a.provider_id = 'exchange-ews' AND a.enabled = true${scope.active ? " AND a.user_id = $2 AND ca.user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [calendarAccountId, scope.userId] : [calendarAccountId],
   );
   return result.rows[0] ? mapAccount(result.rows[0]) : undefined;
 }
 
 export async function loadImapSmtpCredential(accountId: string): Promise<StoredImapSmtpCredential> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<CredentialRow>(
-    "SELECT encrypted_payload FROM encrypted_credentials WHERE account_id = $1 LIMIT 1",
-    [accountId],
+    `SELECT c.encrypted_payload
+       FROM encrypted_credentials c
+       JOIN accounts a ON a.id = c.account_id
+      WHERE c.account_id = $1${scope.active ? " AND a.user_id = $2" : ""}
+      LIMIT 1`,
+    scope.active ? [accountId, scope.userId] : [accountId],
   );
   const payload = result.rows[0]?.encrypted_payload;
   if (!payload) throw new Error("Account credentials were not found");
@@ -388,12 +424,13 @@ export async function loadImapSmtpCredential(accountId: string): Promise<StoredI
 
 export async function loadExchangeMailCredential(accountId: string): Promise<ExchangeCredential> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{ connection_id: string; encrypted_payload: string }>(
     `SELECT a.exchange_connection_id AS connection_id, ecc.encrypted_payload
        FROM accounts a
        JOIN exchange_connection_credentials ecc ON ecc.connection_id = a.exchange_connection_id
-      WHERE a.id = $1 AND a.provider_id = 'exchange-ews' LIMIT 1`,
-    [accountId],
+      WHERE a.id = $1 AND a.provider_id = 'exchange-ews'${scope.active ? " AND a.user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [accountId, scope.userId] : [accountId],
   );
   const row = result.rows[0];
   if (!row?.connection_id || !row.encrypted_payload) throw new Error("Exchange account credentials were not found");
@@ -414,6 +451,7 @@ export async function getPublicExchangeSettings(accountId: string): Promise<Publ
 
 export async function setAccountPaused(accountId: string, paused: boolean): Promise<StoredAccount | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{ id: string }>(
     `UPDATE accounts SET
        sync_status = CASE
@@ -423,35 +461,36 @@ export async function setAccountPaused(accountId: string, paused: boolean): Prom
        END,
        sync_error = NULL,
        updated_at = now()
-      WHERE id = $1 AND enabled = true RETURNING id`,
-    [accountId, paused ? "pause" : "resume"],
+      WHERE id = $1 AND enabled = true${scope.active ? " AND user_id = $3" : ""} RETURNING id`,
+    scope.active ? [accountId, paused ? "pause" : "resume", scope.userId] : [accountId, paused ? "pause" : "resume"],
   );
   return result.rows[0] ? getAccount(accountId) : undefined;
 }
 
 export async function deleteAccount(accountId: string): Promise<boolean> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   return database.transaction(async (transaction) => {
     const existing = await transaction.query<{ provider_id: string; exchange_connection_id: string | null }>(
-      "SELECT provider_id, exchange_connection_id FROM accounts WHERE id = $1 LIMIT 1",
-      [accountId],
+      `SELECT provider_id, exchange_connection_id FROM accounts WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+      scope.active ? [accountId, scope.userId] : [accountId],
     );
     const row = existing.rows[0];
     if (!row) return false;
     if (row.provider_id === "exchange-ews" && row.exchange_connection_id) {
       await transaction.query(
-        "UPDATE exchange_connections SET mail_enabled = false, updated_at = now() WHERE id = $1",
-        [row.exchange_connection_id],
+        `UPDATE exchange_connections SET mail_enabled = false, updated_at = now() WHERE id = $1${scope.active ? " AND user_id = $2" : ""}`,
+        scope.active ? [row.exchange_connection_id, scope.userId] : [row.exchange_connection_id],
       );
     }
     const result = await transaction.query<{ id: string }>(
-      "DELETE FROM accounts WHERE id = $1 RETURNING id",
-      [accountId],
+      `DELETE FROM accounts WHERE id = $1${scope.active ? " AND user_id = $2" : ""} RETURNING id`,
+      scope.active ? [accountId, scope.userId] : [accountId],
     );
     if (row.exchange_connection_id) {
       await transaction.query(
-        "DELETE FROM exchange_connections WHERE id = $1 AND mail_enabled = false AND calendar_enabled = false",
-        [row.exchange_connection_id],
+        `DELETE FROM exchange_connections WHERE id = $1 AND mail_enabled = false AND calendar_enabled = false${scope.active ? " AND user_id = $2" : ""}`,
+        scope.active ? [row.exchange_connection_id, scope.userId] : [row.exchange_connection_id],
       );
     }
     return Boolean(result.rows[0]);
@@ -574,6 +613,7 @@ export async function upsertFolder(accountId: string, folder: FolderRecord): Pro
 
 export async function listMailFolders(): Promise<readonly StoredMailFolder[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{
     id: string;
     account_id: string;
@@ -592,24 +632,29 @@ export async function listMailFolders(): Promise<readonly StoredMailFolder[]> {
             f.provider_folder_id, f.name, f.role, f.parent_id, f.unread_count, f.total_count, f.sort_order, f.manual_sort_order
        FROM mail_folders f
        JOIN accounts a ON a.id = f.account_id AND a.enabled = true
+      ${scope.active ? "WHERE a.user_id = $1" : ""}
       ORDER BY a.created_at, f.sort_order, f.name`,
+    scope.active ? [scope.userId] : [],
   );
   return result.rows.map(mapMailFolder);
 }
 
 export async function getMailNavigationSummary(): Promise<{ readonly unreadCount: number }> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{ unread_count: number }>(
     `SELECT COALESCE(sum(COALESCE(f.unread_count, 0)), 0)::integer AS unread_count
        FROM mail_folders f
        JOIN accounts a ON a.id = f.account_id AND a.enabled = true
-      WHERE f.role = 'inbox'`,
+      WHERE f.role = 'inbox'${scope.active ? " AND a.user_id = $1" : ""}`,
+    scope.active ? [scope.userId] : [],
   );
   return { unreadCount: Number(result.rows[0]?.unread_count ?? 0) };
 }
 
 export async function getMailFolder(folderId: string): Promise<StoredMailFolder | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{
     id: string;
     account_id: string;
@@ -628,8 +673,8 @@ export async function getMailFolder(folderId: string): Promise<StoredMailFolder 
             f.provider_folder_id, f.name, f.role, f.parent_id, f.unread_count, f.total_count, f.sort_order, f.manual_sort_order
        FROM mail_folders f
        JOIN accounts a ON a.id = f.account_id AND a.enabled = true
-      WHERE f.id = $1 LIMIT 1`,
-    [folderId],
+      WHERE f.id = $1${scope.active ? " AND a.user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [folderId, scope.userId] : [folderId],
   );
   return result.rows[0] ? mapMailFolder(result.rows[0]) : undefined;
 }
@@ -1158,6 +1203,7 @@ export async function listInbox(
   cursor?: InboxPageCursor,
 ): Promise<readonly InboxItem[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{
     id: string;
     thread_id: string;
@@ -1183,6 +1229,7 @@ export async function listInbox(
          JOIN accounts candidate_account ON candidate_account.id = m.account_id
                                         AND candidate_account.enabled = true
         WHERE (($2::text IS NULL AND f.role = 'inbox') OR f.id = $2)
+          ${scope.active ? "AND candidate_account.user_id = $5" : ""}
         ORDER BY m.thread_id, m.received_at DESC, m.id DESC
      ), selected_inbox AS (
        SELECT *
@@ -1220,7 +1267,9 @@ export async function listInbox(
        JOIN accounts a ON a.id = m.account_id
        JOIN selected_thread_stats stats ON stats.thread_id = m.thread_id
       ORDER BY m.received_at DESC, m.id DESC`,
-    [Math.max(1, Math.min(limit, 500)), folderId ?? null, cursor?.receivedAt ?? null, cursor?.id ?? null],
+    scope.active
+      ? [Math.max(1, Math.min(limit, 500)), folderId ?? null, cursor?.receivedAt ?? null, cursor?.id ?? null, scope.userId]
+      : [Math.max(1, Math.min(limit, 500)), folderId ?? null, cursor?.receivedAt ?? null, cursor?.id ?? null],
   );
   return result.rows.map((row) => ({
     id: row.id,
@@ -1242,35 +1291,197 @@ export async function listInbox(
   }));
 }
 
+export async function listMailCorrespondence(
+  correspondentAddress: string,
+  limit = 100,
+  cursor?: InboxPageCursor,
+): Promise<MailCorrespondenceResult> {
+  const database = await getDatabase();
+  const scope = await getUserScope();
+  const address = correspondentAddress.trim().toLocaleLowerCase();
+  if (!address) return { items: [] };
+  const result = await database.query<{
+    id: string;
+    thread_id: string;
+    account_id: string;
+    account_name: string;
+    account_color: string;
+    from_address: { address: string; name?: string };
+    to_addresses: { address: string; name?: string }[];
+    subject: string;
+    snippet: string;
+    received_at: string;
+    is_read: boolean;
+    is_starred: boolean;
+    can_archive: boolean;
+    folder_role: string;
+    direction: "incoming" | "outgoing";
+    correspondent_name: string;
+    attachments: InboxAttachment[];
+    total_count: number;
+    unread_count: number;
+    incoming_count: number;
+    outgoing_count: number;
+    last_contact_at: string;
+  }>(
+    `WITH matched_messages AS (
+       SELECT DISTINCT ON (m.account_id, m.provider_message_id)
+              m.*, a.display_name AS account_name, a.color AS account_color,
+              COALESCE(f.role, 'other') AS folder_role,
+              CASE
+                WHEN lower(COALESCE(m.from_address->>'address', '')) = $2 THEN 'incoming'
+                ELSE 'outgoing'
+              END AS direction,
+              CASE
+                WHEN lower(COALESCE(m.from_address->>'address', '')) = $2
+                  THEN COALESCE(NULLIF(m.from_address->>'name', ''), m.from_address->>'address', $2)
+                ELSE COALESCE(
+                  (
+                    SELECT NULLIF(recipient->>'name', '')
+                      FROM jsonb_array_elements(
+                        COALESCE(m.to_addresses, '[]'::jsonb) ||
+                        COALESCE(m.cc_addresses, '[]'::jsonb)
+                      ) recipient
+                     WHERE lower(COALESCE(recipient->>'address', '')) = $2
+                     LIMIT 1
+                  ),
+                  $2
+                )
+              END AS correspondent_name
+         FROM mail_messages m
+         JOIN accounts a ON a.id = m.account_id AND a.enabled = true
+         LEFT JOIN mail_folders f ON f.account_id = m.account_id
+                                 AND f.provider_folder_id = m.provider_folder_id
+        WHERE (
+          lower(COALESCE(m.from_address->>'address', '')) = $2
+          OR EXISTS (
+            SELECT 1
+              FROM jsonb_array_elements(
+                COALESCE(m.to_addresses, '[]'::jsonb) ||
+                COALESCE(m.cc_addresses, '[]'::jsonb)
+              ) recipient
+             WHERE lower(COALESCE(recipient->>'address', '')) = $2
+          )
+        )
+          AND COALESCE(f.role, 'other') NOT IN ('drafts', 'trash', 'junk', 'spam')
+          ${scope.active ? "AND a.user_id = $5" : ""}
+        ORDER BY m.account_id, m.provider_message_id,
+                 CASE WHEN f.role = 'all' THEN 1 ELSE 0 END,
+                 m.received_at DESC, m.id DESC
+     ), correspondence_stats AS (
+       SELECT count(*)::integer AS total_count,
+              count(*) FILTER (WHERE is_read = false AND direction = 'incoming')::integer AS unread_count,
+              count(*) FILTER (WHERE direction = 'incoming')::integer AS incoming_count,
+              count(*) FILTER (WHERE direction = 'outgoing')::integer AS outgoing_count,
+              max(received_at) AS last_contact_at
+         FROM matched_messages
+     ), selected_messages AS (
+       SELECT *
+         FROM matched_messages
+        WHERE ($3::timestamptz IS NULL OR received_at < $3
+               OR (received_at = $3 AND id < $4))
+        ORDER BY received_at DESC, id DESC
+        LIMIT $1
+     )
+     SELECT m.id, m.thread_id, m.account_id, m.account_name, m.account_color,
+            m.from_address, m.to_addresses, m.subject, m.snippet, m.received_at,
+            m.is_read, m.is_starred, m.attachments, m.folder_role, m.direction,
+            m.correspondent_name, stats.total_count, stats.unread_count,
+            stats.incoming_count, stats.outgoing_count, stats.last_contact_at,
+            EXISTS (
+              SELECT 1 FROM mail_folders archive
+               WHERE archive.account_id = m.account_id
+                 AND (archive.role = 'archive' OR lower(archive.name) IN ('archive', 'archiv'))
+                 AND archive.provider_folder_id <> m.provider_folder_id
+            ) AS can_archive
+       FROM selected_messages m
+       CROSS JOIN correspondence_stats stats
+      ORDER BY m.received_at DESC, m.id DESC`,
+    scope.active
+      ? [Math.max(1, Math.min(limit, 500)), address, cursor?.receivedAt ?? null, cursor?.id ?? null, scope.userId]
+      : [Math.max(1, Math.min(limit, 500)), address, cursor?.receivedAt ?? null, cursor?.id ?? null],
+  );
+  const items = result.rows.map((row) => {
+    const recipient = (Array.isArray(row.to_addresses) ? row.to_addresses : [])
+      .find((mailbox) => mailbox.address?.trim().toLocaleLowerCase() === address);
+    return {
+      id: row.id,
+      threadId: row.thread_id,
+      threadCount: 1,
+      unreadCount: row.is_read ? 0 : 1,
+      accountId: row.account_id,
+      accountName: row.account_name,
+      accountColor: row.account_color,
+      senderName: row.from_address.name ?? row.from_address.address,
+      senderAddress: row.from_address.address,
+      subject: row.subject,
+      snippet: row.snippet,
+      receivedAt: row.received_at,
+      isRead: row.is_read,
+      isStarred: row.is_starred,
+      canArchive: row.can_archive,
+      attachments: Array.isArray(row.attachments) ? row.attachments : [],
+      direction: row.direction,
+      folderRole: row.folder_role,
+      correspondentName: row.correspondent_name || recipient?.name || address,
+      correspondentAddress: address,
+    } satisfies InboxItem;
+  });
+  const first = result.rows[0];
+  return {
+    items,
+    summary: first ? {
+      name: first.correspondent_name || address,
+      address,
+      totalCount: Number(first.total_count ?? 0),
+      unreadCount: Number(first.unread_count ?? 0),
+      incomingCount: Number(first.incoming_count ?? 0),
+      outgoingCount: Number(first.outgoing_count ?? 0),
+      lastContactAt: first.last_contact_at,
+    } : undefined,
+  };
+}
+
 export async function listUnreadInboxSummary(limit = 6): Promise<UnreadInboxSummary> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{
     id: string;
     account_name: string;
     account_color: string;
     from_address: { address: string; name?: string };
     subject: string;
+    snippet: string;
     received_at: string;
     is_starred: boolean;
+    attachment_count: number;
+    can_archive: boolean;
     total: number;
   }>(
     `WITH unread_threads AS (
        SELECT DISTINCT ON (m.thread_id)
               m.id, m.thread_id, a.display_name AS account_name, a.color AS account_color,
-              m.from_address, m.subject, m.received_at, m.is_starred
+              m.from_address, m.subject, m.snippet, m.received_at, m.is_starred,
+              jsonb_array_length(m.attachments) AS attachment_count,
+              EXISTS (
+                SELECT 1 FROM mail_folders archive_folder
+                 WHERE archive_folder.account_id = m.account_id
+                   AND archive_folder.role = 'archive'
+              ) AS can_archive
          FROM mail_messages m
          JOIN mail_folders f ON f.account_id = m.account_id
                             AND f.provider_folder_id = m.provider_folder_id
          JOIN accounts a ON a.id = m.account_id AND a.enabled = true
-        WHERE f.role = 'inbox' AND m.is_read = false
+        WHERE f.role = 'inbox' AND m.is_read = false${scope.active ? " AND a.user_id = $2" : ""}
         ORDER BY m.thread_id, m.is_starred DESC, m.received_at DESC, m.id DESC
      )
-     SELECT id, account_name, account_color, from_address, subject, received_at, is_starred,
+     SELECT id, account_name, account_color, from_address, subject, snippet, received_at, is_starred,
+            attachment_count, can_archive,
             count(*) OVER ()::integer AS total
        FROM unread_threads
       ORDER BY is_starred DESC, received_at DESC, id DESC
       LIMIT $1`,
-    [Math.max(1, Math.min(limit, 50))],
+    scope.active ? [Math.max(1, Math.min(limit, 50)), scope.userId] : [Math.max(1, Math.min(limit, 50))],
   );
   return {
     items: result.rows.map((row) => ({
@@ -1278,9 +1489,13 @@ export async function listUnreadInboxSummary(limit = 6): Promise<UnreadInboxSumm
       accountName: row.account_name,
       accountColor: row.account_color,
       senderName: row.from_address.name ?? row.from_address.address,
+      senderAddress: row.from_address.address,
       subject: row.subject,
+      snippet: row.snippet,
       receivedAt: row.received_at,
       isStarred: row.is_starred,
+      attachmentCount: row.attachment_count,
+      canArchive: row.can_archive,
     })),
     total: Number(result.rows[0]?.total ?? 0),
   };
@@ -1288,6 +1503,7 @@ export async function listUnreadInboxSummary(limit = 6): Promise<UnreadInboxSumm
 
 export async function listMailThread(messageId: string): Promise<readonly MailThreadMessage[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{
     id: string;
     thread_id: string;
@@ -1314,10 +1530,15 @@ export async function listMailThread(messageId: string): Promise<readonly MailTh
        LEFT JOIN mail_folders f ON f.account_id = m.account_id
                                AND f.provider_folder_id = m.provider_folder_id
       WHERE m.thread_id = (
-        SELECT anchor.thread_id FROM mail_messages anchor WHERE anchor.id = $1 LIMIT 1
+        SELECT anchor.thread_id
+          FROM mail_messages anchor
+          JOIN accounts anchor_account ON anchor_account.id = anchor.account_id AND anchor_account.enabled = true
+         WHERE anchor.id = $1${scope.active ? " AND anchor_account.user_id = $2" : ""}
+         LIMIT 1
       )
+      ${scope.active ? "AND a.user_id = $2" : ""}
       ORDER BY m.received_at, m.id`,
-    [messageId],
+    scope.active ? [messageId, scope.userId] : [messageId],
   );
   return result.rows.map((row) => ({
     id: row.id,
@@ -1341,6 +1562,7 @@ export async function listMailThread(messageId: string): Promise<readonly MailTh
 
 export async function getMessageActionTarget(messageId: string): Promise<MessageActionTarget | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{
     id: string;
     account_id: string;
@@ -1354,9 +1576,9 @@ export async function getMessageActionTarget(messageId: string): Promise<Message
             m.is_read, m.is_starred
        FROM mail_messages m
        JOIN accounts a ON a.id = m.account_id
-      WHERE m.id = $1 AND a.enabled = true
+      WHERE m.id = $1 AND a.enabled = true${scope.active ? " AND a.user_id = $2" : ""}
       LIMIT 1`,
-    [messageId],
+    scope.active ? [messageId, scope.userId] : [messageId],
   );
   const row = result.rows[0];
   return row ? {
@@ -1372,6 +1594,7 @@ export async function getMessageActionTarget(messageId: string): Promise<Message
 
 export async function getMessageMoveTargets(messageId: string): Promise<readonly MessageMoveTarget[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{
     id: string;
     account_id: string;
@@ -1388,9 +1611,9 @@ export async function getMessageMoveTargets(messageId: string): Promise<readonly
                               AND peer.thread_id = anchor.thread_id
                               AND peer.provider_folder_id = anchor.provider_folder_id
        JOIN accounts a ON a.id = peer.account_id AND a.enabled = true
-      WHERE anchor.id = $1
+      WHERE anchor.id = $1${scope.active ? " AND a.user_id = $2" : ""}
       ORDER BY peer.received_at, peer.id`,
-    [messageId],
+    scope.active ? [messageId, scope.userId] : [messageId],
   );
   return result.rows.map((row) => ({
     id: row.id,
@@ -1405,28 +1628,32 @@ export async function getMessageMoveTargets(messageId: string): Promise<readonly
 
 export async function getArchiveFolderPath(accountId: string): Promise<string | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{ provider_folder_id: string }>(
-    `SELECT provider_folder_id
-       FROM mail_folders
-      WHERE account_id = $1
-        AND (role = 'archive' OR lower(name) IN ('archive', 'archiv'))
+    `SELECT f.provider_folder_id
+       FROM mail_folders f
+       JOIN accounts a ON a.id = f.account_id AND a.enabled = true
+      WHERE f.account_id = $1${scope.active ? " AND a.user_id = $2" : ""}
+        AND (f.role = 'archive' OR lower(f.name) IN ('archive', 'archiv'))
       ORDER BY CASE WHEN role = 'archive' THEN 0 ELSE 1 END
       LIMIT 1`,
-    [accountId],
+    scope.active ? [accountId, scope.userId] : [accountId],
   );
   return result.rows[0]?.provider_folder_id;
 }
 
 export async function getTrashFolderPath(accountId: string): Promise<string | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{ provider_folder_id: string }>(
-    `SELECT provider_folder_id
-       FROM mail_folders
-      WHERE account_id = $1
-        AND (role = 'trash' OR lower(name) IN ('trash', 'deleted items', 'gelöschte elemente', 'papierkorb'))
+    `SELECT f.provider_folder_id
+       FROM mail_folders f
+       JOIN accounts a ON a.id = f.account_id AND a.enabled = true
+      WHERE f.account_id = $1${scope.active ? " AND a.user_id = $2" : ""}
+        AND (f.role = 'trash' OR lower(f.name) IN ('trash', 'deleted items', 'gelöschte elemente', 'papierkorb'))
       ORDER BY CASE WHEN role = 'trash' THEN 0 ELSE 1 END
       LIMIT 1`,
-    [accountId],
+    scope.active ? [accountId, scope.userId] : [accountId],
   );
   return result.rows[0]?.provider_folder_id;
 }
@@ -1454,6 +1681,7 @@ export async function removeMessageFromIndex(messageId: string): Promise<boolean
 
 export async function getStoredMessageBody(messageId: string): Promise<StoredMessageBody | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{
     id: string;
     account_id: string;
@@ -1470,9 +1698,9 @@ export async function getStoredMessageBody(messageId: string): Promise<StoredMes
             m.text_body, m.html_body, m.snippet, m.body_loaded_at, m.body_cache_version
        FROM mail_messages m
        JOIN accounts a ON a.id = m.account_id
-      WHERE m.id = $1 AND a.enabled = true
+      WHERE m.id = $1 AND a.enabled = true${scope.active ? " AND a.user_id = $2" : ""}
       LIMIT 1`,
-    [messageId],
+    scope.active ? [messageId, scope.userId] : [messageId],
   );
   const row = result.rows[0];
   return row ? {
@@ -1491,11 +1719,12 @@ export async function getStoredMessageBody(messageId: string): Promise<StoredMes
 
 export async function getStoredMessageRemote(messageId: string): Promise<StoredMessageRemote | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{ account_id: string; provider_message_id: string; attachments: unknown }>(
     `SELECT m.account_id, m.provider_message_id, m.attachments
        FROM mail_messages m JOIN accounts a ON a.id = m.account_id
-      WHERE m.id = $1 AND a.enabled = true LIMIT 1`,
-    [messageId],
+      WHERE m.id = $1 AND a.enabled = true${scope.active ? " AND a.user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [messageId, scope.userId] : [messageId],
   );
   const row = result.rows[0];
   return row ? {
@@ -1507,6 +1736,7 @@ export async function getStoredMessageRemote(messageId: string): Promise<StoredM
 
 export async function getMailAiContext(messageId: string): Promise<MailAiContext | undefined> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{
     id: string;
     subject: string;
@@ -1521,9 +1751,9 @@ export async function getMailAiContext(messageId: string): Promise<MailAiContext
             m.text_body, m.html_body, m.snippet
        FROM mail_messages m
        JOIN accounts a ON a.id = m.account_id
-      WHERE m.id = $1 AND a.enabled = true
+      WHERE m.id = $1 AND a.enabled = true${scope.active ? " AND a.user_id = $2" : ""}
       LIMIT 1`,
-    [messageId],
+    scope.active ? [messageId, scope.userId] : [messageId],
   );
   const row = result.rows[0];
   if (!row) return undefined;

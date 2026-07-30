@@ -4,6 +4,11 @@ function assert(condition: unknown, message: string): asserts condition {
 
 async function main() {
   const { parseExchangeFolderTree, parseExchangeMailboxFolders, parseExchangeMessages } = await import("./exchange-mail");
+  const {
+    assertExchangeSuccess,
+    ExchangeEwsError,
+    isExchangeItemNotFoundError,
+  } = await import("./exchange-ews-client");
   const folderXml = `<s:Envelope><s:Body><m:GetFolderResponse><m:ResponseMessages>
     <m:GetFolderResponseMessage><m:ResponseCode>NoError</m:ResponseCode><m:Folders>
       <t:Folder><t:FolderId Id="inbox-id" ChangeKey="inbox-key"/><t:DisplayName>Posteingang</t:DisplayName><t:TotalCount>42</t:TotalCount><t:UnreadCount>7</t:UnreadCount></t:Folder>
@@ -47,6 +52,27 @@ async function main() {
   assert(messages[0]?.isRead === false && messages[0]?.isStarred === true, "read and flag states are parsed");
   assert(messages[0]?.attachments[0]?.id === "attachment-1", "attachment identity is retained for lazy download");
   assert(messages[0]?.attachments[1]?.inline && messages[0]?.attachments[1]?.contentId === "logo@example.test", "inline attachment CID is retained");
+
+  const missingItemXml = `<s:Envelope><s:Body><m:MoveItemResponse><m:ResponseMessages>
+    <m:MoveItemResponseMessage ResponseClass="Error">
+      <m:MessageText>The specified object was not found in the store.</m:MessageText>
+      <m:ResponseCode>ErrorItemNotFound</m:ResponseCode>
+    </m:MoveItemResponseMessage>
+  </m:ResponseMessages></m:MoveItemResponse></s:Body></s:Envelope>`;
+  let missingItemError: unknown;
+  try {
+    assertExchangeSuccess(missingItemXml);
+  } catch (error) {
+    missingItemError = error;
+  }
+  assert(missingItemError instanceof ExchangeEwsError, "missing EWS items produce a typed error");
+  assert(missingItemError.code === "REMOTE_CONFLICT", "missing EWS items retain the public conflict classification");
+  assert(missingItemError.responseCode === "ErrorItemNotFound", "the original EWS response code is retained");
+  assert(isExchangeItemNotFoundError(missingItemError), "missing EWS items can be recognized for idempotent deletion");
+  assert(
+    !isExchangeItemNotFoundError(new ExchangeEwsError("REMOTE_CONFLICT", "stale", 409, "ErrorInvalidChangeKey")),
+    "other EWS conflicts are not treated as an already deleted message",
+  );
   console.log("Exchange mail parser tests passed");
 }
 

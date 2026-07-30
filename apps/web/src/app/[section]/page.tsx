@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { WorkspaceApp, type TaskView, type WorkspaceSection } from "@/components/workspace-app";
+import { requireAuthenticatedAppUser } from "@/server/auth";
 
 const sections = ["today", "inbox", "calendar", "tasks", "projects", "notes", "ai", "settings"] as const satisfies readonly WorkspaceSection[];
 const taskViews = ["today", "inbox", "upcoming", "waiting", "projects", "completed", "matrix"] as const satisfies readonly TaskView[];
@@ -17,6 +18,9 @@ interface SectionPageProps {
     readonly note?: string | readonly string[];
     readonly project?: string | readonly string[];
     readonly folder?: string | readonly string[];
+    readonly correspondent?: string | readonly string[];
+    readonly compose?: string | readonly string[];
+    readonly to?: string | readonly string[];
   }>;
 }
 
@@ -30,6 +34,8 @@ export default async function SectionPage({ params, searchParams }: SectionPageP
   if (!sections.includes(section as WorkspaceSection)) {
     notFound();
   }
+  const nextPath = `/${section}${toQueryString(query)}`;
+  const currentUser = await requireAuthenticatedAppUser(nextPath);
 
   const messageId = typeof query.message === "string" ? query.message : undefined;
   const taskId = typeof query.task === "string" ? query.task : undefined;
@@ -41,5 +47,16 @@ export default async function SectionPage({ params, searchParams }: SectionPageP
   const noteId = typeof query.note === "string" ? query.note : undefined;
   const projectId = typeof query.project === "string" ? query.project : undefined;
   const mailFolderId = typeof query.folder === "string" ? query.folder : undefined;
-  return <WorkspaceApp section={section as WorkspaceSection} initialMessageId={messageId} initialMailFolderId={mailFolderId} initialTaskId={taskId} initialTaskView={taskView} initialCreateTask={createTask} initialScheduleTaskId={scheduleTaskId} initialEventId={eventId} initialCalendarDate={calendarDate} initialNoteId={noteId} initialProjectId={projectId} />;
+  const mailCorrespondent = typeof query.correspondent === "string" ? query.correspondent : undefined;
+  const initialComposeTo = query.compose === "true" && typeof query.to === "string" ? query.to : undefined;
+  return <WorkspaceApp section={section as WorkspaceSection} currentUser={currentUser} initialMessageId={messageId} initialMailFolderId={mailFolderId} initialMailCorrespondent={mailCorrespondent} initialComposeTo={initialComposeTo} initialTaskId={taskId} initialTaskView={taskView} initialCreateTask={createTask} initialScheduleTaskId={scheduleTaskId} initialEventId={eventId} initialCalendarDate={calendarDate} initialNoteId={noteId} initialProjectId={projectId} />;
+}
+
+function toQueryString(query: SectionPageProps["searchParams"] extends Promise<infer T> ? T : never): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (typeof value === "string") params.set(key, value);
+  }
+  const serialized = params.toString();
+  return serialized ? `?${serialized}` : "";
 }

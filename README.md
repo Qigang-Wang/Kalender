@@ -30,7 +30,7 @@ Kalender 将个人信息流组织成一条连续工作流：从邮件识别行�
 
 - TypeScript
 - Next.js + React
-- PGlite（本地嵌入式 PostgreSQL）
+- PostgreSQL
 - Plate 53 + Radix/shadcn 风格组件
 - IMAPFlow、Nodemailer、PostalMime
 - CalDAV、ICS、Exchange Web Services
@@ -54,7 +54,7 @@ npm run dev
 
 打开 [http://localhost:3000/today](http://localhost:3000/today)。
 
-首次运行会在项目根目录创建 `.data`。邮件、日历和 AI Provider 都可以在应用设置页中配置。
+启动前需要配置 PostgreSQL `DATABASE_URL`。首次运行会在项目根目录创建 `.data` 存放附件等本地文件。邮件、日历和 AI Provider 都可以在应用设置页中配置。
 
 ## 环境变量
 
@@ -63,13 +63,18 @@ npm run dev
 | 变量 | 用途 |
 |---|---|
 | `KALENDER_MASTER_KEY` | 可选的 32 字节 Base64 主密钥，用于加密保存的凭据 |
-| `KALENDER_DATA_DIR` | 覆盖本地数据目录，默认是项目根目录的 `.data` |
-| `KALENDER_SYNC_INTERVAL_MS` | 邮箱后台同步间隔，最小 30 秒，默认 3 分钟 |
+| `KALENDER_DATA_DIR` | 覆盖本地文件目录，默认是项目根目录的 `.data` |
+| `DATABASE_URL` | 必填的 PostgreSQL 连接字符串 |
+| `KALENDER_POSTGRES_PASSWORD` | Docker Compose 中 PostgreSQL 服务的密码 |
+| `KALENDER_SYNC_INTERVAL_MS` | 邮箱后台同步的首次初始化间隔，默认 3 分钟 |
+| `KALENDER_CALENDAR_SYNC_INTERVAL_MS` | 日历后台同步的首次初始化间隔，默认 3 分钟 |
 | `KALENDER_MAIL_BODY_CACHE_MAX_AGE_DAYS` | 邮件正文缓存有效期，默认 30 天 |
 | `KALENDER_MAIL_BODY_CACHE_MAX_MB` | 邮件正文缓存容量上限，默认 128 MB |
 | `KALENDER_ALLOWED_DEV_ORIGINS` | 允许访问开发服务器的局域网主机名或 IP |
 
-未设置 `KALENDER_MASTER_KEY` 时，本地开发会生成 `.data/master.key`。数据库和主密钥必须一起备份，否则已保存的凭据无法解密。
+未设置 `KALENDER_MASTER_KEY` 时，本地开发会生成 `.data/master.key`。PostgreSQL 数据库和主密钥必须一起备份，否则已保存的凭据无法解密。
+
+后台邮件同步、日历同步和可见页面刷新可在“设置 > 同步”中独立开关并调整频率。保存后立即生效，不需要重启服务；环境变量只用于尚未保存工作区同步设置时的初始默认值。
 
 ## 常用命令
 
@@ -82,6 +87,9 @@ npm run dev
 | `npm run test:serial` | 串行运行完整测试，便于定位相互影响 |
 | `npm run build` | 构建核心包和 Web 应用 |
 | `npm run build:web` | 只构建 Web 应用 |
+
+Docker 部署见 [Docker Deployment](docs/deployment-docker.md)；飞牛 NAS 可使用
+[fnOS Docker 安装说明](docs/deployment-fnos.md)。
 
 ## 数据与安全
 

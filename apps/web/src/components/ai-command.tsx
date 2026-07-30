@@ -6,6 +6,9 @@ import Link from "next/link";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
+import { appConfirm } from "@/components/app-dialog-provider";
+import { AppSelect } from "@/components/app-select";
+
 interface CommandDataParts {
   [key: string]: unknown;
   conversation: { readonly id: string; readonly title: string };
@@ -170,7 +173,12 @@ export function AiCommand() {
   };
 
   const deleteConversation = async (conversation: ConversationView) => {
-    if (!window.confirm(`删除对话“${conversation.title}”？`)) return;
+    if (!await appConfirm({
+      title: `删除对话“${conversation.title}”？`,
+      description: "对话记录将被永久删除。",
+      confirmLabel: "删除对话",
+      tone: "danger",
+    })) return;
     try {
       await requestJson(`/api/ai/conversations/${conversation.id}`, { method: "DELETE" });
       if (conversationId === conversation.id) await newConversation();
@@ -202,10 +210,7 @@ export function AiCommand() {
         <header className="ai-command-toolbar">
           <button className="ai-history-toggle" onClick={() => setSidebarOpen((value) => !value)}>对话</button>
           <div><span><WandSparkles size={14} />AI Command</span><small>当前只进行纯对话，不会读取或修改工作区数据</small></div>
-          <label><span className="sr-only">模型</span><select value={requestedModelId} onChange={(event) => setRequestedModelId(event.target.value)} disabled={busy}>
-            <option value="">自动选择模型</option>
-            {availableModels.map((model) => <option key={model.id} value={model.id}>{model.displayName} · {model.providerName}</option>)}
-          </select></label>
+          <label><span className="sr-only">模型</span><AppSelect ariaLabel="模型" size="compact" value={requestedModelId} onValueChange={setRequestedModelId} disabled={busy} options={[{ value: "", label: "自动选择模型" }, ...availableModels.map((model) => ({ value: model.id, label: `${model.displayName} · ${model.providerName}` }))]} /></label>
         </header>
 
         <div className="ai-command-messages" aria-live="polite">

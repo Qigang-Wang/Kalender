@@ -28,10 +28,19 @@ export type ExchangeSoapAction =
   | "SyncFolderItems";
 
 export class ExchangeEwsError extends Error {
-  constructor(readonly code: string, message: string, readonly status: number) {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status: number,
+    readonly responseCode?: string,
+  ) {
     super(message);
     this.name = "ExchangeEwsError";
   }
+}
+
+export function isExchangeItemNotFoundError(error: unknown): error is ExchangeEwsError {
+  return error instanceof ExchangeEwsError && error.responseCode === "ErrorItemNotFound";
 }
 
 export function parseExchangeCredential(input: unknown): ExchangeCredential {
@@ -126,6 +135,7 @@ export function assertExchangeSuccess(xml: string): void {
     authError ? "AUTH_REQUIRED" : conflictError ? "REMOTE_CONFLICT" : failedCode || "SOAP_ERROR",
     conflictError ? "RWTH 项目已在其他客户端发生变化，请先同步后重试" : message,
     authError ? 401 : conflictError ? 409 : 502,
+    failedCode,
   );
 }
 

@@ -13,7 +13,12 @@ import {
   saveMessageBody,
   type StoredMessageBody,
 } from "./mail-repository";
-import { fetchExchangeMailMessageDetails, getExchangeAttachment, type ExchangeMailAttachment } from "./exchange-mail";
+import {
+  fetchExchangeMailMessageDetails,
+  fetchExchangeMailMimeContent,
+  getExchangeAttachment,
+  type ExchangeMailAttachment,
+} from "./exchange-mail";
 
 const MAX_MESSAGE_BYTES = 25 * 1024 * 1024;
 const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
@@ -245,10 +250,36 @@ async function fetchAndCacheExchangeBody(stored: StoredMessageBody): Promise<Mai
     AbortSignal.timeout(30_000),
   );
   if (!message) throw new MailBodyNotFoundError();
-  const html = message.htmlBody
-    ? sanitizeEmailHtml(resolveExchangeInlineImages(message.htmlBody, message.attachments, stored.id))
+  let resolvedHtml = message.htmlBody
+    ? resolveExchangeInlineImages(message.htmlBody, message.attachments, stored.id)
     : undefined;
-  const text = cleanText(message.textBody);
+  let text = cleanText(message.textBody);
+  if (resolvedHtml && countCidImageReferences(resolvedHtml) > 0) {
+    try {
+      const mimeContent = await fetchExchangeMailMimeContent(
+        credential,
+        remote.providerMessageId,
+        AbortSignal.timeout(30_000),
+      );
+      if (mimeContent) {
+        const parsed = await PostalMime.parse(mimeContent, {
+          maxHeadersSize: 256 * 1024,
+          maxNestingDepth: 20,
+        });
+        const mimeHtml = parsed.html ? resolveCidImages(parsed.html, parsed.attachments) : undefined;
+        if (mimeHtml && countCidImageReferences(mimeHtml) < countCidImageReferences(resolvedHtml)) {
+          resolvedHtml = mimeHtml;
+        }
+        text = cleanText(parsed.text) || text;
+      }
+    } catch (error) {
+      console.warn("Unable to resolve Exchange CID images from MIME content", {
+        messageId: stored.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  const html = resolvedHtml ? sanitizeEmailHtml(resolvedHtml) : undefined;
   const snippet = createSnippet(text || htmlToText(html) || "（邮件正文为空）");
   const saved = await saveMessageBody(stored.id, text || undefined, html || undefined, snippet);
   if (!saved?.loadedAt) throw new Error("无法缓存 Exchange 邮件正文");
@@ -292,6 +323,10 @@ async function fetchParsedMessage(stored: StoredMessageBody) {
   } finally {
     await client.logout().catch(() => undefined);
   }
+}
+
+export function countCidImageReferences(input: string): number {
+  return [...input.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']cid:[^"']+["'][^>]*>/gi)].length;
 }
 
 function safeAttachmentFilename(value: string): string {

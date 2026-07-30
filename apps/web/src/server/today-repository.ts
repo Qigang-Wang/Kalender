@@ -4,12 +4,22 @@ import { listStoredTodayTasks, type TaskSourceReference } from "./task-repositor
 
 export interface TodayEventItem {
   readonly id: string;
+  readonly calendarId: string;
   readonly title: string;
+  readonly description?: string;
+  readonly location?: string;
   readonly start: string;
   readonly end: string;
   readonly allDay: boolean;
+  readonly status: "confirmed" | "tentative" | "cancelled";
+  readonly availability?: "free" | "tentative" | "busy" | "oof" | "working_elsewhere";
+  readonly attendees: readonly { readonly address: string; readonly name?: string }[];
+  readonly meetingUrl?: string;
   readonly calendarName: string;
   readonly calendarColor: string;
+  readonly recurrenceSeriesId?: string;
+  readonly recurrenceId?: string;
+  readonly deleteDisabledReason?: string;
   readonly href: string;
 }
 
@@ -34,10 +44,14 @@ export interface TodayMailItem {
   readonly id: string;
   readonly subject: string;
   readonly senderName: string;
+  readonly senderAddress: string;
   readonly accountName: string;
   readonly accountColor: string;
+  readonly snippet: string;
   readonly receivedAt: string;
   readonly isStarred: boolean;
+  readonly attachmentCount: number;
+  readonly canArchive: boolean;
   readonly href: string;
 }
 
@@ -91,10 +105,14 @@ export async function getTodaySnapshot(from: string, to: string): Promise<TodayS
       id: message.id,
       subject: message.subject,
       senderName: message.senderName,
+      senderAddress: message.senderAddress,
       accountName: message.accountName,
       accountColor: message.accountColor,
+      snippet: message.snippet,
       receivedAt: message.receivedAt,
       isStarred: message.isStarred,
+      attachmentCount: message.attachmentCount,
+      canArchive: message.canArchive,
       href: `/inbox?message=${encodeURIComponent(message.id)}`,
     }));
 
@@ -105,12 +123,22 @@ export async function getTodaySnapshot(from: string, to: string): Promise<TodayS
       const calendar = calendarById.get(event.calendarId);
       return {
         id: event.id,
+        calendarId: event.calendarId,
         title: event.title,
+        description: todayEventDescription(event.description),
+        location: event.location,
         start: event.start,
         end: event.end,
         allDay: event.allDay,
+        status: event.status,
+        availability: event.availability,
+        attendees: event.attendees,
+        meetingUrl: event.meetingUrl,
         calendarName: calendar?.name ?? "日历",
         calendarColor: calendar?.color ?? "#86bdf5",
+        recurrenceSeriesId: event.recurrenceSeriesId,
+        recurrenceId: event.recurrenceId,
+        deleteDisabledReason: todayEventDeleteDisabledReason(event, calendar),
         href: `/calendar?event=${encodeURIComponent(event.id)}&date=${encodeURIComponent(event.start)}`,
       };
     }),
@@ -118,6 +146,23 @@ export async function getTodaySnapshot(from: string, to: string): Promise<TodayS
     unreadMail,
     totals: { events: events.length, tasks: tasks.length, unreadMail: unreadInbox.total },
   };
+}
+
+function todayEventDescription(value?: string): string | undefined {
+  const normalized = value?.replace(/\s+/g, " ").trim();
+  return normalized || undefined;
+}
+
+function todayEventDeleteDisabledReason(
+  event: Awaited<ReturnType<typeof listStoredCalendarEvents>>[number],
+  calendar: Awaited<ReturnType<typeof listStoredCalendars>>[number] | undefined,
+): string | undefined {
+  if (calendar?.readOnly) return "只读日历不可删除";
+  if (event.providerData?.providerId !== "exchange") return undefined;
+  if (!event.providerData.itemId) return "请先同步 Exchange 日历";
+  if (event.providerData.isRecurring) return "Exchange 重复日程请在日历详情中处理";
+  if (event.providerData.isMeeting) return "含参与者的会议请在日历详情中处理";
+  return undefined;
 }
 
 export function parseTodayRange(url: URL): { readonly from: string; readonly to: string } {

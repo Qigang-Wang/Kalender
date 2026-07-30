@@ -5,6 +5,7 @@ import {
   encodeNoteContent,
   noteContentToPlainText,
 } from "./note-content";
+import { calendarDescriptionLinks } from "./calendar-description";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`Assertion failed: ${message}`);
@@ -61,5 +62,19 @@ const table = encodeNoteContent([
 ]);
 assert(noteContentToPlainText(table) === "事项\t负责人", "tables remain searchable");
 assert(decodeNoteContent(`${PLATE_NOTE_PREFIX}{broken`)[0]?.type === "p", "damaged JSON falls back safely");
+
+const recognizedLinks = calendarDescriptionLinks(encodeNoteContent([
+  {
+    type: "p",
+    children: [
+      { type: "a", url: "https://rwth.webex.com/meet/example", children: [{ text: "加入会议" }] },
+      { text: " https://teams.microsoft.com/l/meetup-join/example https://example.com/docs." },
+    ],
+  },
+]));
+assert(
+  recognizedLinks.map((link) => link.label).join(",") === "Webex,Teams,链接",
+  "calendar descriptions classify meeting and regular links",
+);
 
 console.log("Note content tests passed");

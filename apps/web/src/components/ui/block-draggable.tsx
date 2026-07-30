@@ -141,7 +141,7 @@ function Draggable(props: PlateElementProps) {
           >
             <div
               className={cn(
-                'slate-blockToolbar relative w-4.5',
+                'slate-blockToolbar relative w-7',
                 'pointer-events-auto mr-1 flex items-center',
                 isInColumn && 'mr-1.5'
               )}
@@ -149,7 +149,7 @@ function Draggable(props: PlateElementProps) {
               <Button
                 ref={handleRef}
                 variant="ghost"
-                className="-left-0 absolute h-6 w-full p-0"
+                className="-left-0 absolute h-7 w-full p-0"
                 style={{ top: `${dragButtonTop + 3}px` }}
                 data-plate-prevent-deselect
               >

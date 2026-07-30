@@ -184,12 +184,9 @@ interface TaskPlanRow {
 
 export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput): Promise<SaveProjectTaskPlanResult> {
   const database = await getDatabase();
-  const project = await database.query<{ status: string }>(
-    "SELECT status FROM projects WHERE id = $1 LIMIT 1",
-    [input.projectId],
-  );
-  if (!project.rows[0]) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
-  if (project.rows[0].status === "archived") {
+  const project = await getStoredProject(input.projectId);
+  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
+  if (project.status === "archived") {
     throw new ProjectRepositoryError("PROJECT_ARCHIVED", "已归档项目不能修改甘特计划", 409);
   }
   const task = await database.query<TaskPlanRow>(
@@ -396,6 +393,7 @@ interface ProjectPhaseRow {
 }
 
 export async function listStoredProjectPhases(projectId: string): Promise<readonly StoredProjectPhase[]> {
+  if (!await getStoredProject(projectId)) return [];
   const database = await getDatabase();
   const result = await database.query<ProjectPhaseRow>(
     `SELECT id, project_id, name, color, sort_order, created_at, updated_at
@@ -409,12 +407,9 @@ export async function listStoredProjectPhases(projectId: string): Promise<readon
 
 export async function saveStoredProjectPhase(input: SaveProjectPhaseInput): Promise<StoredProjectPhase> {
   const database = await getDatabase();
-  const project = await database.query<{ status: string }>(
-    "SELECT status FROM projects WHERE id = $1 LIMIT 1",
-    [input.projectId],
-  );
-  if (!project.rows[0]) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
-  if (project.rows[0].status === "archived") {
+  const project = await getStoredProject(input.projectId);
+  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
+  if (project.status === "archived") {
     throw new ProjectRepositoryError("PROJECT_ARCHIVED", "已归档项目不能修改阶段", 409);
   }
   const id = input.id ?? randomUUID();
@@ -443,12 +438,9 @@ export async function saveStoredProjectPhase(input: SaveProjectPhaseInput): Prom
 
 export async function deleteStoredProjectPhase(projectId: string, phaseId: string): Promise<boolean> {
   const database = await getDatabase();
-  const project = await database.query<{ status: string }>(
-    "SELECT status FROM projects WHERE id = $1 LIMIT 1",
-    [projectId],
-  );
-  if (!project.rows[0]) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
-  if (project.rows[0].status === "archived") {
+  const project = await getStoredProject(projectId);
+  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
+  if (project.status === "archived") {
     throw new ProjectRepositoryError("PROJECT_ARCHIVED", "已归档项目不能修改阶段", 409);
   }
   const result = await database.query<{ id: string }>(
@@ -470,6 +462,7 @@ interface ProjectMilestoneRow {
 }
 
 export async function listStoredProjectMilestones(projectId: string): Promise<readonly StoredProjectMilestone[]> {
+  if (!await getStoredProject(projectId)) return [];
   const database = await getDatabase();
   const result = await database.query<ProjectMilestoneRow>(
     `SELECT id, project_id, title, due_on, status, sort_order, created_at, updated_at
@@ -483,12 +476,9 @@ export async function listStoredProjectMilestones(projectId: string): Promise<re
 
 export async function saveStoredProjectMilestone(input: SaveProjectMilestoneInput): Promise<StoredProjectMilestone> {
   const database = await getDatabase();
-  const project = await database.query<{ status: string }>(
-    "SELECT status FROM projects WHERE id = $1 LIMIT 1",
-    [input.projectId],
-  );
-  if (!project.rows[0]) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
-  if (project.rows[0].status === "archived") {
+  const project = await getStoredProject(input.projectId);
+  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
+  if (project.status === "archived") {
     throw new ProjectRepositoryError("PROJECT_ARCHIVED", "已归档项目不能修改里程碑", 409);
   }
   const id = input.id ?? randomUUID();
@@ -517,6 +507,7 @@ export async function saveStoredProjectMilestone(input: SaveProjectMilestoneInpu
 }
 
 export async function deleteStoredProjectMilestone(projectId: string, milestoneId: string): Promise<boolean> {
+  if (!await getStoredProject(projectId)) return false;
   const database = await getDatabase();
   const result = await database.query<{ id: string }>(
     "DELETE FROM project_milestones WHERE id = $1 AND project_id = $2 RETURNING id",

@@ -8,6 +8,11 @@ export interface ProjectRequestBody {
   readonly status?: unknown;
 }
 
+export interface ProjectAreaRenameRequestBody {
+  readonly previousName?: unknown;
+  readonly name?: unknown;
+}
+
 export interface NoteRequestBody {
   readonly projectId?: unknown;
   readonly title?: unknown;
@@ -29,6 +34,25 @@ export function parseProjectInput(body: ProjectRequestBody | null, id?: string):
     color,
     status: body.status === "archived" ? "archived" : "active",
   };
+}
+
+export function parseProjectAreaRenameInput(body: ProjectAreaRenameRequestBody | null): {
+  readonly previousName: string;
+  readonly name: string;
+} {
+  if (!body || typeof body.previousName !== "string" || typeof body.name !== "string") {
+    throw new NoteValidationError("领域重命名参数无效");
+  }
+  const previousName = body.previousName.trim();
+  const name = body.name.trim();
+  if (!previousName || previousName.length > 100 || !name || name.length > 100) {
+    throw new NoteValidationError("领域名称需要 1–100 个字符");
+  }
+  if (previousName === "未分类" || name === "未分类") {
+    throw new NoteValidationError("“未分类”是系统分组，不能重命名或作为领域名称");
+  }
+  if (previousName === name) throw new NoteValidationError("请输入不同的领域名称");
+  return { previousName, name };
 }
 
 export function parseNoteInput(body: NoteRequestBody | null, id?: string): SaveNoteInput {

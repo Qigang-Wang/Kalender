@@ -1,10 +1,17 @@
 import { randomUUID } from "node:crypto";
 
-import { decodeNoteContent, encodeNoteContent } from "../lib/note-content";
+import { decodeNoteContent, encodeNoteContent, noteContentToPlainText } from "../lib/note-content";
+import { replaceMailSignatureContent } from "../lib/mail-signature-content";
 
 import { getDatabase } from "./database";
 import { getAccount } from "./mail-repository";
 import type { ParsedMailDraftInput } from "./mail-draft-validation";
+import {
+  getDefaultMailSignature,
+  getMailSignature,
+  recommendMailSignatureVariant,
+} from "./mail-signature-repository";
+import { getUserScope } from "./user-scope";
 
 export type MailDraftStatus = "draft" | "sending" | "sent" | "failed";
 
@@ -45,6 +52,8 @@ interface MailDraftRow {
   subject: string;
   text_body: string;
   body_content: string;
+  signature_id: string | null;
+  signature_variant: "full" | "short" | null;
   status: MailDraftStatus;
   idempotency_key: string | null;
   provider_message_id: string | null;
@@ -85,23 +94,33 @@ export class MailDraftRepositoryError extends Error {
 
 export async function listMailDrafts(): Promise<readonly StoredMailDraft[]> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<MailDraftRow>(
     `SELECT * FROM mail_drafts
-      WHERE status IN ('draft', 'failed')
+      WHERE status IN ('draft', 'failed')${scope.active ? " AND user_id = $1" : ""}
       ORDER BY updated_at DESC`,
+    scope.active ? [scope.userId] : [],
   );
   return Promise.all(result.rows.map(async (row) => mapDraft(row, await listMailDraftAttachments(row.id))));
 }
 
 export async function getMailDraft(id: string): Promise<StoredMailDraft | undefined> {
   const database = await getDatabase();
-  const result = await database.query<MailDraftRow>("SELECT * FROM mail_drafts WHERE id = $1 LIMIT 1", [id]);
+  const scope = await getUserScope();
+  const result = await database.query<MailDraftRow>(
+    `SELECT * FROM mail_drafts WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [id, scope.userId] : [id],
+  );
   return result.rows[0] ? mapDraft(result.rows[0], await listMailDraftAttachments(id)) : undefined;
 }
 
 export async function listMailDraftIdsForAccount(accountId: string): Promise<readonly string[]> {
   const database = await getDatabase();
-  const result = await database.query<{ id: string }>("SELECT id FROM mail_drafts WHERE account_id = $1", [accountId]);
+  const scope = await getUserScope();
+  const result = await database.query<{ id: string }>(
+    `SELECT id FROM mail_drafts WHERE account_id = $1${scope.active ? " AND user_id = $2" : ""}`,
+    scope.active ? [accountId, scope.userId] : [accountId],
+  );
   return result.rows.map((row) => row.id);
 }
 
@@ -116,40 +135,68 @@ export async function saveMailDraft(input: ParsedMailDraftInput, id?: string): P
       throw new MailDraftRepositoryError("REPLY_ACCOUNT_MISMATCH", "回复必须使用收到原邮件的账户", 409);
     }
   }
+  if (input.signatureId) {
+    const signature = await getMailSignature(input.signatureId);
+    if (!signature || signature.accountId !== input.accountId) {
+      throw new MailDraftRepositoryError("ACCOUNT_NOT_FOUND", "所选签名不属于当前发件账户", 400);
+    }
+  }
   const draftId = id ?? randomUUID();
   const existing = id ? await getMailDraft(id) : undefined;
   if (id && !existing) throw new MailDraftRepositoryError("DRAFT_NOT_FOUND", "草稿不存在", 404);
   if (existing?.status === "sending") throw new MailDraftRepositoryError("DRAFT_BUSY", "邮件正在发送", 409);
   if (existing?.status === "sent") throw new MailDraftRepositoryError("DRAFT_SENT", "邮件已经发送", 409);
   const database = await getDatabase();
+  const scope = await getUserScope();
   const values = [draftId, input.accountId, input.replyToMessageId ?? null, JSON.stringify(input.to), JSON.stringify(input.cc),
-    JSON.stringify(input.bcc), input.subject, input.textBody, input.bodyContent];
+    JSON.stringify(input.bcc), input.subject, input.textBody, input.bodyContent, input.signatureId ?? null, input.signatureVariant ?? null];
   if (existing) {
     await database.query(
       `UPDATE mail_drafts SET account_id = $2, reply_to_message_id = $3,
          to_addresses = $4::jsonb, cc_addresses = $5::jsonb, bcc_addresses = $6::jsonb,
          subject = $7, text_body = $8, body_content = $9, status = 'draft', idempotency_key = NULL,
+         signature_id = $10, signature_variant = $11,
          error_message = NULL, updated_at = now()
-       WHERE id = $1`,
-      values,
+       WHERE id = $1${scope.active ? " AND user_id = $12" : ""}`,
+      scope.active ? [...values, scope.userId] : values,
     );
   } else {
     await database.query(
       `INSERT INTO mail_drafts (
          id, account_id, reply_to_message_id, to_addresses, cc_addresses, bcc_addresses,
-         subject, text_body, body_content, status, updated_at
-       ) VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,$8,$9,'draft',now())`,
-      values,
+         subject, text_body, body_content, signature_id, signature_variant, status, updated_at,
+         user_id
+       ) VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,$8,$9,$10,$11,'draft',now(),$12)`,
+      [...values, scope.valueOrNull()],
     );
   }
   return (await getMailDraft(draftId))!;
 }
 
+export async function createMailDraft(input: ParsedMailDraftInput): Promise<StoredMailDraft> {
+  const signature = await getDefaultMailSignature(input.accountId);
+  if (!signature) return saveMailDraft(input);
+  const variant = await recommendMailSignatureVariant(input.accountId, input.replyToMessageId);
+  const bodyContent = replaceMailSignatureContent(input.bodyContent, {
+    id: signature.id,
+    variant,
+    text: variant === "full" ? signature.fullText : signature.shortText,
+  });
+  return saveMailDraft({
+    ...input,
+    bodyContent,
+    textBody: noteContentToPlainText(bodyContent),
+    signatureId: signature.id,
+    signatureVariant: variant,
+  });
+}
+
 export async function deleteMailDraft(id: string): Promise<boolean> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<{ id: string }>(
-    "DELETE FROM mail_drafts WHERE id = $1 AND status IN ('draft', 'failed') RETURNING id",
-    [id],
+    `DELETE FROM mail_drafts WHERE id = $1 AND status IN ('draft', 'failed')${scope.active ? " AND user_id = $2" : ""} RETURNING id`,
+    scope.active ? [id, scope.userId] : [id],
   );
   return Boolean(result.rows[0]);
 }
@@ -260,6 +307,8 @@ function mapDraft(row: MailDraftRow, attachments: readonly StoredMailAttachment[
     subject: row.subject,
     textBody: row.text_body,
     bodyContent: row.body_content || encodeNoteContent(decodeNoteContent(row.text_body)),
+    signatureId: row.signature_id ?? undefined,
+    signatureVariant: row.signature_variant ?? undefined,
     attachments,
     status: row.status,
     idempotencyKey: row.idempotency_key ?? undefined,

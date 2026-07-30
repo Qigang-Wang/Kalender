@@ -1,4 +1,5 @@
 import { decodeNoteContent, encodeNoteContent, noteContentToPlainText } from "../lib/note-content";
+import type { MailSignatureVariant } from "../lib/mail-signature-content";
 
 export interface MailDraftRequestBody {
   readonly accountId?: unknown;
@@ -9,6 +10,8 @@ export interface MailDraftRequestBody {
   readonly subject?: unknown;
   readonly textBody?: unknown;
   readonly bodyContent?: unknown;
+  readonly signatureId?: unknown;
+  readonly signatureVariant?: unknown;
 }
 
 export interface ParsedMailDraftInput {
@@ -20,6 +23,8 @@ export interface ParsedMailDraftInput {
   readonly subject: string;
   readonly textBody: string;
   readonly bodyContent: string;
+  readonly signatureId?: string;
+  readonly signatureVariant?: MailSignatureVariant;
 }
 
 export class MailDraftValidationError extends Error {
@@ -50,6 +55,10 @@ export function parseMailDraftInput(body: MailDraftRequestBody | null): ParsedMa
     subject,
     textBody,
     bodyContent,
+    signatureId: typeof body.signatureId === "string" && body.signatureId ? body.signatureId : undefined,
+    signatureVariant: body.signatureVariant === "full" || body.signatureVariant === "short"
+      ? body.signatureVariant
+      : undefined,
   };
 }
 

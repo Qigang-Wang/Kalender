@@ -238,6 +238,7 @@ export function parseExchangeEventsResponse(xml: string, sourceUrl: string): rea
       ...parseExchangeAttendees(elementContent(item, "OptionalAttendees")),
     ];
     const freeBusy = elementText(item, "LegacyFreeBusyStatus").toLocaleLowerCase();
+    const availability = exchangeAvailability(freeBusy);
     const cancelled = elementText(item, "IsCancelled").toLocaleLowerCase() === "true";
     const changeKey = itemIdTag ? attributeValue(itemIdTag, "ChangeKey") : undefined;
     const calendarItemType = elementText(item, "CalendarItemType").toLocaleLowerCase();
@@ -255,6 +256,7 @@ export function parseExchangeEventsResponse(xml: string, sourceUrl: string): rea
       attendees,
       meetingUrl: elementText(item, "OnlineMeetingUrl") || undefined,
       status: cancelled ? "cancelled" : freeBusy === "tentative" ? "tentative" : "confirmed",
+      availability,
       etag: changeKey ?? (elementText(item, "LastModifiedTime") || undefined),
       sourceUrl,
       itemId,
@@ -271,6 +273,22 @@ export function toExchangeCalendarPublicError(error: unknown): { readonly code: 
   return toExchangePublicError(error);
 }
 
+function exchangeAvailability(value: string): NonNullable<CalendarEvent["availability"]> {
+  if (value === "free") return "free";
+  if (value === "tentative") return "tentative";
+  if (value === "oof") return "oof";
+  if (value === "workingelsewhere" || value === "working_elsewhere") return "working_elsewhere";
+  return "busy";
+}
+
+function exchangeAvailabilityValue(value?: CalendarEvent["availability"]): string {
+  if (value === "free") return "Free";
+  if (value === "tentative") return "Tentative";
+  if (value === "oof") return "OOF";
+  if (value === "working_elsewhere") return "WorkingElsewhere";
+  return "Busy";
+}
+
 function exchangeCalendarItemXml(input: UpsertCalendarEventInput): string {
   return `<t:CalendarItem>
     <t:Subject>${escapeXml(input.title)}</t:Subject>
@@ -278,7 +296,7 @@ function exchangeCalendarItemXml(input: UpsertCalendarEventInput): string {
     <t:Start>${escapeXml(input.start)}</t:Start>
     <t:End>${escapeXml(input.end)}</t:End>
     <t:IsAllDayEvent>${input.allDay === true}</t:IsAllDayEvent>
-    <t:LegacyFreeBusyStatus>Busy</t:LegacyFreeBusyStatus>
+    <t:LegacyFreeBusyStatus>${exchangeAvailabilityValue(input.availability)}</t:LegacyFreeBusyStatus>
     <t:Location>${escapeXml(input.location ?? "")}</t:Location>
   </t:CalendarItem>`;
 }

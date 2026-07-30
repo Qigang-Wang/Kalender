@@ -1,5 +1,6 @@
 import { ImapFlow } from "imapflow";
 import { moveExchangeMessage, updateExchangeMessageFlags } from "./exchange-mail";
+import { isExchangeItemNotFoundError } from "./exchange-ews-client";
 
 import {
   getAccount,
@@ -23,6 +24,7 @@ export interface MailMessageActionResult {
   readonly isRead?: boolean;
   readonly isStarred?: boolean;
   readonly removedFromInbox: boolean;
+  readonly alreadyRemoved?: boolean;
   readonly movedCount?: number;
   readonly destinationFolderId?: string;
 }
@@ -63,7 +65,10 @@ async function executeMailMessageAction(
   destinationFolderId?: string,
 ): Promise<MailMessageActionResult> {
   const target = await getMessageActionTarget(messageId);
-  if (!target) throw new MailMessageActionError("NOT_FOUND", "邮件不存在或已被移动", 404);
+  if (!target) {
+    if (action === "delete") return removedMessageResult(messageId, true);
+    throw new MailMessageActionError("NOT_FOUND", "邮件不存在或已被移动", 404);
+  }
   const account = await getAccount(target.accountId);
   if (!account || account.syncStatus === "paused") {
     throw new MailMessageActionError("ACCOUNT_UNAVAILABLE", "请先启用该邮箱账户", 409);
@@ -107,6 +112,10 @@ async function executeMailMessageAction(
       };
     } catch (error) {
       if (error instanceof MailMessageActionError) throw error;
+      if (action === "delete" && isExchangeItemNotFoundError(error)) {
+        await removeMessageFromIndex(messageId);
+        return removedMessageResult(messageId, true);
+      }
       console.error("Exchange mail action failed", error);
       throw new MailMessageActionError("REMOTE_ERROR", "Exchange 没有完成该邮件操作，请稍后重试", 502);
     }
@@ -196,6 +205,15 @@ async function executeMailMessageAction(
   } finally {
     await client.logout().catch(() => undefined);
   }
+}
+
+function removedMessageResult(messageId: string, alreadyRemoved = false): MailMessageActionResult {
+  return {
+    action: "delete",
+    messageId,
+    removedFromInbox: true,
+    alreadyRemoved: alreadyRemoved || undefined,
+  };
 }
 
 async function moveMailThreadFromFolder(

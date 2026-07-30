@@ -15,7 +15,12 @@ async function main() {
   const projectRepository = await import("./project-repository");
   const projectValidation = await import("./project-validation");
   const entityLinks = await import("./entity-link-repository");
-  const { parseNoteInput, parseProjectInput, NoteValidationError } = await import("./note-validation");
+  const {
+    parseNoteInput,
+    parseProjectAreaRenameInput,
+    parseProjectInput,
+    NoteValidationError,
+  } = await import("./note-validation");
   const { getDatabase } = await import("./database");
   const database = await getDatabase();
 
@@ -68,6 +73,37 @@ async function main() {
     projectName: project.name,
     sourceReferences: [{ kind: "note", sourceId: note.id, label: note.title, href: `/notes?note=${encodeURIComponent(note.id)}` }],
   });
+  const secondProject = await notes.saveStoredProject(parseProjectInput({
+    name: "Calendar Integration",
+    areaName: "Work",
+    color: "#70c9c3",
+  }));
+  const renameResult = await notes.renameStoredProjectArea("Work", "Professional");
+  assert(renameResult.projectsUpdated === 2, "renaming an area updates every project in the group");
+  assert(
+    (await notes.getStoredProject(project.id))?.areaName === "Professional"
+      && (await notes.getStoredProject(secondProject.id))?.areaName === "Professional",
+    "renamed projects expose the new area",
+  );
+  assert((await tasks.getStoredTask(task.id))?.areaName === "Professional", "renaming an area updates linked task metadata");
+  const existingAreaProject = await notes.saveStoredProject(parseProjectInput({
+    name: "Existing Area Project",
+    areaName: "Existing Area",
+    color: "#f0a05e",
+  }));
+  try {
+    await notes.renameStoredProjectArea("Professional", "Existing Area");
+    throw new Error("area rename unexpectedly merged with an existing area");
+  } catch (error) {
+    assert(
+      error instanceof notes.NoteRepositoryError && error.code === "PROJECT_AREA_EXISTS",
+      "renaming an area rejects an existing destination",
+    );
+  }
+  assert(
+    parseProjectAreaRenameInput({ previousName: "Professional", name: "Research" }).name === "Research",
+    "area rename input is normalized",
+  );
   const linked = await notes.getStoredNote(note.id);
   assert(linked?.linkedTasks[0]?.id === task.id, "note exposes its linked task");
   assert(linked.linkedTasks[0]?.href === `/tasks?task=${encodeURIComponent(task.id)}`, "note links back to task detail");
@@ -161,6 +197,8 @@ async function main() {
   assert(await tasks.deleteStoredTask(task.id), "linked task can be cleaned up");
   assert(await projectRepository.deleteStoredProjectMilestone(project.id, milestone.id), "project milestone can be deleted");
   assert(await notes.deleteStoredProject(project.id), "empty project can be deleted");
+  assert(await notes.deleteStoredProject(secondProject.id), "second renamed project can be deleted");
+  assert(await notes.deleteStoredProject(existingAreaProject.id), "destination area test project can be deleted");
 
   try {
     parseNoteInput({ title: "", content: "" });

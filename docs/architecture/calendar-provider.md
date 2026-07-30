@@ -17,7 +17,7 @@
 
 ## 本地实现
 
-PGlite 中的 `calendars` 表保存日历源，`calendar_events` 保存事件。首次初始化会创建 `local:personal` 个人日历；事件外键归属日历，结束时间必须晚于开始时间，并对时间范围建立索引。
+PostgreSQL 中的 `calendars` 表保存日历源，`calendar_events` 保存事件。首次初始化会创建 `local:personal` 个人日历；事件外键归属日历，结束时间必须晚于开始时间，并对时间范围建立索引。
 
 服务端 `LocalCalendarProvider` 是仓储层之上的适配器。页面只调用 `/api/calendars` 和 `/api/calendar-events`，不会直接访问数据库。当前 API 面向单机单用户开发版；加入远程访问或多用户前必须补充会话鉴权、CSRF 防护和按用户隔离。
 
