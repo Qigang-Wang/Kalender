@@ -115,7 +115,7 @@ async function main() {
     cc: [],
     sentAt: "2026-07-20T12:00:00.000Z",
     receivedAt: "2026-07-20T12:00:00.000Z",
-    snippet: "Storage integration works",
+    snippet: "Storage integration works \ud83d",
     isRead: false,
     isStarred: false,
     attachments: [],
@@ -147,6 +147,10 @@ async function main() {
   );
   const thread = await repository.listMailThread(`${account.id}:message:1`);
   assert(thread.length === 2 && thread[1]?.folderRole === "sent", "thread detail contains incoming and sent messages in order");
+  assert(
+    thread[0]?.snippet === "Storage integration works \ufffd",
+    "mail batches repair isolated UTF-16 surrogates before PostgreSQL JSON storage",
+  );
   const selfAddresses = await repository.listAccountSelfAddresses(account.id);
   assert(
     selfAddresses.length === 1 && selfAddresses[0] === "storage@example.test",
@@ -179,6 +183,18 @@ async function main() {
   assert(Boolean(cachedBody?.loadedAt), "body cache records its load time");
   assert(cachedBody?.cacheVersion === repository.MAIL_BODY_CACHE_VERSION, "body cache records the current sanitizer version");
   assert((await repository.listInbox())[0]?.snippet === "Safe text body", "body preview updates the inbox");
+  const repairedBody = await repository.saveMessageBody(
+    `${account.id}:message:1`,
+    "Damaged emoji \ud83d",
+    "<p>Damaged emoji \ud83d</p>",
+    "Damaged emoji \ud83d",
+  );
+  assert(
+    repairedBody?.textBody === "Damaged emoji \ufffd"
+      && repairedBody.htmlBody === "<p>Damaged emoji \ufffd</p>"
+      && repairedBody.snippet === "Damaged emoji \ufffd",
+    "mail body batches repair isolated UTF-16 surrogates",
+  );
   const capacityCleanup = await repository.cleanupMailBodyCache({
     maxAgeMs: 24 * 60 * 60 * 1000,
     maxBytes: 1,

@@ -279,6 +279,40 @@ export const MAIL_BODY_CACHE_VERSION = 4;
 export const DEFAULT_MAIL_BODY_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const DEFAULT_MAIL_BODY_CACHE_MAX_BYTES = 128 * 1024 * 1024;
 
+function repairInvalidUnicode(value: string): string {
+  let repaired = "";
+  let segmentStart = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const nextCodeUnit = value.charCodeAt(index + 1);
+      if (nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff) {
+        index += 1;
+        continue;
+      }
+    } else if (codeUnit < 0xdc00 || codeUnit > 0xdfff) {
+      continue;
+    }
+
+    repaired += `${value.slice(segmentStart, index)}\ufffd`;
+    segmentStart = index + 1;
+  }
+
+  return segmentStart === 0 ? value : repaired + value.slice(segmentStart);
+}
+
+function stringifyPostgresJson(value: unknown): string {
+  const serialized = JSON.stringify(
+    value,
+    (_key, nestedValue) => typeof nestedValue === "string"
+      ? repairInvalidUnicode(nestedValue)
+      : nestedValue,
+  );
+  if (serialized === undefined) throw new TypeError("Unable to serialize PostgreSQL JSON value");
+  return serialized;
+}
+
 export interface MailBodyCacheCleanupOptions {
   readonly now?: Date;
   readonly maxAgeMs?: number;
@@ -778,7 +812,7 @@ export async function upsertMessage(accountId: string, message: MessageRecord): 
 export async function upsertMessages(accountId: string, messages: readonly MessageRecord[]): Promise<void> {
   if (messages.length === 0) return;
   const database = await getDatabase();
-  const batch = JSON.stringify(messages.map((message) => ({
+  const batch = stringifyPostgresJson(messages.map((message) => ({
     id: message.id,
     thread_id: message.threadId,
     provider_message_id: message.providerMessageId,
@@ -1155,7 +1189,7 @@ export async function updateExchangeMessageReadFlags(
   if (changes.length === 0) return 0;
   const database = await getDatabase();
   return database.transaction(async (transaction) => {
-    const batch = JSON.stringify(changes.map((change) => ({
+    const batch = stringifyPostgresJson(changes.map((change) => ({
       provider_message_id: change.providerMessageId,
       is_read: change.isRead,
     })));
@@ -1790,7 +1824,7 @@ export async function saveMessageBodies(messages: readonly MessageBodyRecord[]):
   if (messages.length === 0) return;
   const database = await getDatabase();
   await database.transaction(async (transaction) => {
-    const batch = JSON.stringify(messages.map((message) => ({
+    const batch = stringifyPostgresJson(messages.map((message) => ({
       id: message.id,
       text_body: message.textBody ?? null,
       html_body: message.htmlBody ?? null,
