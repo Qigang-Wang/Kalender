@@ -1284,6 +1284,59 @@ const CALENDAR_AVAILABILITY_SCHEMA_SQL = String.raw`
     CHECK (availability IN ('free', 'tentative', 'busy', 'oof', 'working_elsewhere'));
 `;
 
+const MAIL_MESSAGE_BODY_CACHE_SCHEMA_SQL = String.raw`
+  CREATE TABLE IF NOT EXISTS mail_message_bodies (
+    message_id text PRIMARY KEY REFERENCES mail_messages(id) ON DELETE CASCADE,
+    text_body text,
+    html_body text,
+    loaded_at timestamptz NOT NULL DEFAULT now(),
+    cache_version integer NOT NULL DEFAULT 0,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  INSERT INTO mail_message_bodies (
+    message_id, text_body, html_body, loaded_at, cache_version, updated_at
+  )
+  SELECT id, text_body, html_body,
+         COALESCE(body_loaded_at, updated_at, now()),
+         body_cache_version,
+         updated_at
+    FROM mail_messages
+   WHERE body_loaded_at IS NOT NULL OR text_body IS NOT NULL OR html_body IS NOT NULL
+  ON CONFLICT (message_id) DO UPDATE SET
+    text_body = EXCLUDED.text_body,
+    html_body = EXCLUDED.html_body,
+    loaded_at = EXCLUDED.loaded_at,
+    cache_version = EXCLUDED.cache_version,
+    updated_at = EXCLUDED.updated_at;
+
+  DROP INDEX IF EXISTS mail_messages_search_idx;
+  ALTER TABLE mail_messages DROP COLUMN IF EXISTS text_body;
+  ALTER TABLE mail_messages DROP COLUMN IF EXISTS html_body;
+  ALTER TABLE mail_messages DROP COLUMN IF EXISTS body_loaded_at;
+  ALTER TABLE mail_messages DROP COLUMN IF EXISTS body_cache_version;
+
+  CREATE INDEX IF NOT EXISTS mail_message_bodies_loaded_idx
+    ON mail_message_bodies (loaded_at, message_id);
+  CREATE INDEX IF NOT EXISTS mail_message_bodies_search_idx ON mail_message_bodies USING gin (
+    to_tsvector('simple', coalesce(text_body, '') || ' ' || coalesce(html_body, ''))
+  );
+  CREATE INDEX IF NOT EXISTS mail_messages_search_idx ON mail_messages USING gin (
+    to_tsvector('simple',
+      coalesce(subject, '') || ' ' ||
+      coalesce(snippet, '') || ' ' ||
+      coalesce(from_address->>'name', '') || ' ' ||
+      coalesce(from_address->>'address', '') || ' ' ||
+      coalesce(attachments::text, '')
+    )
+  );
+`;
+
+const MAIL_MESSAGE_METADATA_COMPACTION_SQL = String.raw`
+  CLUSTER mail_messages USING mail_messages_pkey;
+  ANALYZE mail_messages;
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1306,6 +1359,8 @@ export const DATABASE_MIGRATIONS = [
   { version: 19, name: "workspace-sync-settings", sql: WORKSPACE_SYNC_SETTINGS_SCHEMA_SQL },
   { version: 20, name: "mail-signature-versions", sql: MAIL_SIGNATURES_SCHEMA_SQL },
   { version: 21, name: "calendar-event-availability", sql: CALENDAR_AVAILABILITY_SCHEMA_SQL },
+  { version: 22, name: "mail-message-body-cache", sql: MAIL_MESSAGE_BODY_CACHE_SCHEMA_SQL },
+  { version: 23, name: "compact-mail-message-metadata", sql: MAIL_MESSAGE_METADATA_COMPACTION_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

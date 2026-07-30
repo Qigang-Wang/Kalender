@@ -167,6 +167,25 @@ async function verifyLegacyUpgrade(database: TestPostgresDatabase) {
     VALUES ('legacy-project', 'Legacy Research', 'Research', '#86bdf5', 'active');
     INSERT INTO tasks (id, title, project_name)
     VALUES ('legacy-task', 'Recover project relation', ' legacy research ');
+    INSERT INTO accounts (
+      id, provider_id, display_name, email_address, last_tested_at
+    ) VALUES (
+      'legacy-account', 'imap', 'Legacy Mail', 'legacy@example.test', now()
+    );
+    INSERT INTO mail_threads (
+      id, account_id, provider_thread_id, subject, snippet, last_message_at
+    ) VALUES (
+      'legacy-thread', 'legacy-account', 'provider-thread', 'Cached message', 'Cached preview', now()
+    );
+    INSERT INTO mail_messages (
+      id, account_id, thread_id, provider_message_id, provider_uid,
+      provider_folder_id, subject, from_address, sent_at, received_at,
+      snippet, text_body, html_body, body_loaded_at, body_cache_version
+    ) VALUES (
+      'legacy-message', 'legacy-account', 'legacy-thread', 'provider-message', 1,
+      'INBOX', 'Cached message', '{"address":"sender@example.test"}'::jsonb, now(), now(),
+      'Cached preview', 'Cached text', '<p>Cached HTML</p>', now(), 3
+    );
   `);
 
   const status = await runDatabaseMigrations(database, DATABASE_MIGRATIONS);
@@ -194,6 +213,27 @@ async function verifyLegacyUpgrade(database: TestPostgresDatabase) {
         AND relation = 'project-item'`,
   );
   assert(projectTaskLink.rows[0]?.count === 1, "project migration backfills shared EntityLink membership");
+  const migratedBody = await database.query<{
+    text_body: string | null;
+    html_body: string | null;
+    cache_version: number;
+  }>(
+    "SELECT text_body, html_body, cache_version FROM mail_message_bodies WHERE message_id = 'legacy-message'",
+  );
+  assert(
+    migratedBody.rows[0]?.text_body === "Cached text"
+      && migratedBody.rows[0]?.html_body === "<p>Cached HTML</p>"
+      && migratedBody.rows[0]?.cache_version === 3,
+    "mail body migration preserves cached content in the dedicated cache table",
+  );
+  const legacyBodyColumns = await database.query<{ count: number }>(
+    `SELECT count(*)::integer AS count
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'mail_messages'
+        AND column_name IN ('text_body', 'html_body', 'body_loaded_at', 'body_cache_version')`,
+  );
+  assert(legacyBodyColumns.rows[0]?.count === 0, "mail metadata no longer stores disposable body cache columns");
 }
 
 async function verifyApplicationDatabaseStartup(database: TestPostgresDatabase, databaseUrl: string) {

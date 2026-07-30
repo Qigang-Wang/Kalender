@@ -5,6 +5,7 @@ const testScripts = [
   "test:core",
   "test:storage",
   "test:database-migrations",
+  "test:backup",
   "test:imap-sync-state",
   "test:ai-provider",
   "test:ai-chat",

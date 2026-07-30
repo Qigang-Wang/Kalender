@@ -43,10 +43,12 @@ export async function searchWorkspace(rawQuery: string, limitPerKindOrOptions: n
       `SELECT m.id, m.subject, m.snippet,
               COALESCE(NULLIF(m.from_address->>'name', ''), m.from_address->>'address', '未知发件人') AS sender,
               a.display_name AS account_name, m.received_at
-         FROM mail_messages m JOIN accounts a ON a.id = m.account_id
-        WHERE (to_tsvector('simple', coalesce(m.subject, '') || ' ' || coalesce(m.snippet, '') || ' ' || coalesce(m.text_body, '') || ' ' || coalesce(m.html_body, '') || ' ' || coalesce(m.from_address::text, '') || ' ' || coalesce(m.to_addresses::text, '') || ' ' || coalesce(m.attachments::text, '')) @@ plainto_tsquery('simple', $1)
+         FROM mail_messages m
+         JOIN accounts a ON a.id = m.account_id
+         LEFT JOIN mail_message_bodies body ON body.message_id = m.id
+        WHERE (to_tsvector('simple', coalesce(m.subject, '') || ' ' || coalesce(m.snippet, '') || ' ' || coalesce(body.text_body, '') || ' ' || coalesce(body.html_body, '') || ' ' || coalesce(m.from_address::text, '') || ' ' || coalesce(m.to_addresses::text, '') || ' ' || coalesce(m.attachments::text, '')) @@ plainto_tsquery('simple', $1)
            OR m.subject ILIKE $2 OR m.snippet ILIKE $2
-           OR m.text_body ILIKE $2 OR m.html_body ILIKE $2
+           OR body.text_body ILIKE $2 OR body.html_body ILIKE $2
            OR m.from_address->>'name' ILIKE $2 OR m.from_address->>'address' ILIKE $2
            OR m.to_addresses::text ILIKE $2 OR m.attachments::text ILIKE $2)
           ${scope.active ? "AND a.user_id = $4" : ""}

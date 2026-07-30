@@ -1695,9 +1695,12 @@ export async function getStoredMessageBody(messageId: string): Promise<StoredMes
     body_cache_version: number;
   }>(
     `SELECT m.id, m.account_id, m.thread_id, m.provider_folder_id, m.provider_uid,
-            m.text_body, m.html_body, m.snippet, m.body_loaded_at, m.body_cache_version
+            body.text_body, body.html_body, m.snippet,
+            body.loaded_at AS body_loaded_at,
+            COALESCE(body.cache_version, 0) AS body_cache_version
        FROM mail_messages m
        JOIN accounts a ON a.id = m.account_id
+       LEFT JOIN mail_message_bodies body ON body.message_id = m.id
       WHERE m.id = $1 AND a.enabled = true${scope.active ? " AND a.user_id = $2" : ""}
       LIMIT 1`,
     scope.active ? [messageId, scope.userId] : [messageId],
@@ -1748,9 +1751,10 @@ export async function getMailAiContext(messageId: string): Promise<MailAiContext
     snippet: string;
   }>(
     `SELECT m.id, m.subject, m.from_address, m.to_addresses, m.received_at,
-            m.text_body, m.html_body, m.snippet
+            body.text_body, body.html_body, m.snippet
        FROM mail_messages m
        JOIN accounts a ON a.id = m.account_id
+       LEFT JOIN mail_message_bodies body ON body.message_id = m.id
       WHERE m.id = $1 AND a.enabled = true${scope.active ? " AND a.user_id = $2" : ""}
       LIMIT 1`,
     scope.active ? [messageId, scope.userId] : [messageId],
@@ -1803,15 +1807,35 @@ export async function saveMessageBodies(messages: readonly MessageBodyRecord[]):
            )
        )
        UPDATE mail_messages message SET
-         text_body = body.text_body,
-         html_body = body.html_body,
          snippet = body.snippet,
-         body_loaded_at = now(),
-         body_cache_version = $2,
          updated_at = now()
        FROM body_batch body
        WHERE message.id = body.id
        RETURNING message.thread_id`,
+      [batch],
+    );
+    await transaction.query(
+      `WITH body_batch AS (
+         SELECT *
+           FROM jsonb_to_recordset($1::jsonb) AS body (
+             id text,
+             text_body text,
+             html_body text,
+             snippet text
+           )
+       )
+       INSERT INTO mail_message_bodies (
+         message_id, text_body, html_body, loaded_at, cache_version, updated_at
+       )
+       SELECT body.id, body.text_body, body.html_body, now(), $2, now()
+         FROM body_batch body
+         JOIN mail_messages message ON message.id = body.id
+       ON CONFLICT (message_id) DO UPDATE SET
+         text_body = EXCLUDED.text_body,
+         html_body = EXCLUDED.html_body,
+         loaded_at = EXCLUDED.loaded_at,
+         cache_version = EXCLUDED.cache_version,
+         updated_at = EXCLUDED.updated_at`,
       [batch, MAIL_BODY_CACHE_VERSION],
     );
     const threadIds = [...new Set(result.rows.map((row) => row.thread_id))];
@@ -1850,11 +1874,10 @@ export async function cleanupMailBodyCache(
     body_loaded_at: string;
     size_bytes: number;
   }>(
-    `SELECT id, body_loaded_at,
+    `SELECT message_id AS id, loaded_at AS body_loaded_at,
             (COALESCE(octet_length(text_body), 0) + COALESCE(octet_length(html_body), 0))::integer AS size_bytes
-       FROM mail_messages
-      WHERE body_loaded_at IS NOT NULL
-      ORDER BY body_loaded_at, id`,
+       FROM mail_message_bodies
+      ORDER BY loaded_at, message_id`,
   );
   const bytesBefore = cached.rows.reduce((total, row) => total + Number(row.size_bytes), 0);
   const expiryBoundary = now.getTime() - maxAgeMs;
@@ -1878,13 +1901,7 @@ export async function cleanupMailBodyCache(
   const clearedIds = [...expiredIds, ...evictedIds];
   if (clearedIds.length > 0) {
     await database.query(
-      `UPDATE mail_messages
-          SET text_body = NULL,
-              html_body = NULL,
-              body_loaded_at = NULL,
-              body_cache_version = 0,
-              updated_at = now()
-        WHERE id = ANY($1::text[])`,
+      "DELETE FROM mail_message_bodies WHERE message_id = ANY($1::text[])",
       [clearedIds],
     );
   }

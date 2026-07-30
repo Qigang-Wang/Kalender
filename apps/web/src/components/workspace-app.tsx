@@ -17,7 +17,6 @@ import {
   ChevronRight,
   Circle,
   Clock3,
-  Copy,
   DatabaseBackup,
   Download,
   FileText,
@@ -3408,8 +3407,6 @@ interface BackupStrategyPayload {
   };
   readonly coverage: readonly BackupCoveragePayload[];
   readonly options?: readonly BackupPolicyOptionPayload[];
-  readonly backupCommands: readonly BackupCommandPayload[];
-  readonly restoreCommands: readonly BackupCommandPayload[];
   readonly warnings: readonly string[];
 }
 
@@ -3432,13 +3429,6 @@ interface BackupCoveragePayload {
   readonly included: boolean;
 }
 
-interface BackupCommandPayload {
-  readonly id: string;
-  readonly title: string;
-  readonly description: string;
-  readonly command: string;
-}
-
 interface BackupArtifactPayload {
   readonly id: string;
   readonly filename: string;
@@ -3454,7 +3444,6 @@ interface BackupArtifactPayload {
 function BackupSettings() {
   const [status, setStatus] = useState<BackupStatusPayload>();
   const [loading, setLoading] = useState(true);
-  const [copiedCommandId, setCopiedCommandId] = useState<string>();
   const [backupPassword, setBackupPassword] = useState("");
   const [encryptBackup, setEncryptBackup] = useState(true);
   const [selectedBackupPolicy, setSelectedBackupPolicy] = useState<BackupMailPolicyPayload>("lightweight");
@@ -3462,6 +3451,7 @@ function BackupSettings() {
   const [busyBackupId, setBusyBackupId] = useState<string>();
   const [artifactMenu, setArtifactMenu] = useState<ContextMenuState>();
   const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error" | "info"; readonly message: string }>();
+  const backupUploadRef = useRef<HTMLInputElement>(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -3472,7 +3462,7 @@ function BackupSettings() {
       setAutomaticDraft(payload.status.automatic);
       setSelectedBackupPolicy((current) => {
         const options = payload.status?.strategy?.options ?? [];
-        return options.some((option) => option.policy === current)
+        return options.some((option) => option.policy === current && option.available)
           ? current
           : payload.status?.strategy?.recommendedMailPolicy ?? "lightweight";
       });
@@ -3484,17 +3474,6 @@ function BackupSettings() {
   }, []);
 
   useEffect(() => { void loadStatus(); }, [loadStatus]);
-
-  const copyCommand = async (command: BackupCommandPayload) => {
-    try {
-      await navigator.clipboard?.writeText(command.command);
-      setCopiedCommandId(command.id);
-      setFeedback({ kind: "success", message: `已复制“${command.title}”命令` });
-      window.setTimeout(() => setCopiedCommandId((current) => current === command.id ? undefined : current), 1_600);
-    } catch {
-      setFeedback({ kind: "error", message: "无法复制命令，请手动选择文本" });
-    }
-  };
 
   const createBackup = async () => {
     if (encryptBackup && backupPassword.length < 8) {
@@ -3607,17 +3586,13 @@ function BackupSettings() {
   }];
   const selectedBackupOption = backupOptions.find((option) => option.policy === selectedBackupPolicy) ?? backupOptions[0];
   const selectedCoverage = selectedBackupOption?.coverage.length ? selectedBackupOption.coverage : strategy?.coverage ?? [];
+  const compactCoverage = selectedCoverage.filter((item) => item.included || item.id === "mail-bodies");
   const selectedPolicyAvailable = selectedBackupOption?.available !== false;
+  const availableBackupOptions = backupOptions.filter((option) => option.available);
   const mailCache = status?.mailCache;
   const mailCacheLabel = mailCache
     ? `${mailCache.cachedBodies}/${mailCache.totalMessages} 封正文 · ${formatFileSize(mailCache.cachedBodyBytes)}`
     : "—";
-  const toolItems = strategy ? [
-    { id: "pgDump", label: "pg_dump", ready: strategy.tools.pgDump },
-    { id: "pgRestore", label: "pg_restore", ready: strategy.tools.pgRestore },
-    { id: "tar", label: "tar", ready: strategy.tools.tar },
-    { id: "openssl", label: "openssl", ready: strategy.tools.openssl },
-  ] : [];
   const automatic = automaticDraft ?? status?.automatic;
   const artifactMenuItem = artifactMenu ? status?.artifacts?.find((artifact) => artifact.id === artifactMenu.id) : undefined;
   const artifactCommands: readonly ResolvedContextCommand[] = artifactMenuItem ? [
@@ -3648,80 +3623,54 @@ function BackupSettings() {
       </div>
 
       <div className="backup-summary" aria-label="当前数据概况">
-        <article><span><HardDrive size={17} /></span><div><small>预计核心数据</small><strong>{loading ? "正在计算…" : formatFileSize(totalBytes)}</strong></div></article>
+        <article><span><HardDrive size={17} /></span><div><small>数据库占用</small><strong>{loading ? "正在计算…" : formatFileSize(totalBytes)}</strong></div></article>
         <article><span><NotebookPen size={17} /></span><div><small>笔记与任务</small><strong>{loading ? "—" : `${status?.counts.notes ?? 0} 篇 · ${status?.counts.tasks ?? 0} 项`}</strong></div></article>
-        <article><span><Mail size={17} /></span><div><small>邮件缓存</small><strong>{loading ? "—" : mailCacheLabel}</strong></div></article>
+        <article><span><Mail size={17} /></span><div><small>邮件缓存（不备份）</small><strong>{loading ? "—" : mailCacheLabel}</strong></div></article>
         <article><span><Paperclip size={17} /></span><div><small>草稿附件</small><strong>{loading ? "—" : `${status?.attachmentFiles ?? 0} 个 · ${formatFileSize(status?.attachmentBytes ?? 0)}`}</strong></div></article>
       </div>
 
-      <section className="backup-type-picker" aria-label="备份类型">
-        <header>
-          <div><h3>备份类型</h3><p>先选范围，再创建备份；不可用类型会说明缺少的后端能力。</p></div>
-          {selectedBackupOption && <span>{backupPolicyLabel(selectedBackupOption.policy)}</span>}
-        </header>
-        <div>
-          {backupOptions.map((option) => (
-            <button
-              type="button"
-              className={`${option.policy === selectedBackupPolicy ? "active" : ""} ${option.available ? "" : "unavailable"}`}
-              key={option.policy}
-              aria-pressed={option.policy === selectedBackupPolicy}
-              onClick={() => setSelectedBackupPolicy(option.policy)}
-            >
-              <span>{option.available ? <Check size={14} /> : <AlertCircle size={14} />}</span>
-              <strong>{option.label}{option.recommended && <em>推荐</em>}</strong>
-              <small>{option.description}</small>
-              {!option.available && option.disabledReason && <i>{option.disabledReason}</i>}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <div className="backup-operation-grid">
-        <article className="backup-operation-card">
-          <div className="backup-operation-icon"><DatabaseBackup size={20} /></div>
-          <div><h3>备份范围</h3><p>{selectedBackupOption?.description ?? "数据库负责结构化数据，本地文件只包含草稿附件。"}</p></div>
-          <div className="backup-coverage-list">
-            {selectedCoverage.map((item) => (
-              <div key={item.id} className={item.included ? "included" : ""}>
-                <span>{item.included ? <Check size={13} /> : <Circle size={13} />}</span>
-                <strong>{item.label}</strong>
-                <small>{item.description}</small>
-              </div>
-            )) ?? <div><span><LoaderCircle className="spin" size={13} /></span><strong>正在读取</strong><small>备份策略加载中</small></div>}
+      {availableBackupOptions.length > 1 && (
+        <section className="backup-type-picker" aria-label="备份类型">
+          <header><h3>备份类型</h3></header>
+          <div>
+            {availableBackupOptions.map((option) => (
+              <button
+                type="button"
+                className={option.policy === selectedBackupPolicy ? "active" : ""}
+                key={option.policy}
+                aria-pressed={option.policy === selectedBackupPolicy}
+                onClick={() => setSelectedBackupPolicy(option.policy)}
+              >
+                <span><Check size={14} /></span>
+                <strong>{option.label}</strong>
+                <small>{option.description}</small>
+              </button>
+            ))}
           </div>
-        </article>
+        </section>
+      )}
 
-        <article className="backup-operation-card">
-          <div className="backup-operation-icon"><ShieldCheck size={20} /></div>
-          <div><h3>环境检查</h3><p>备份命令不显示数据库密码；密钥状态只检查是否存在。</p></div>
-          <div className="backup-tool-grid">
-            {toolItems.map((tool) => (
-              <span key={tool.id} className={tool.ready ? "ready" : "missing"}>
-                {tool.ready ? <Check size={13} /> : <AlertCircle size={13} />}{tool.label}
+      <div className="backup-live-actions backup-live-actions-single">
+        <article className="backup-create-card">
+          <header>
+            <DatabaseBackup size={18} />
+            <div><h3>创建{selectedBackupOption ? backupPolicyLabel(selectedBackupOption.policy) : "备份"}</h3><p>保存工作区数据和草稿附件，邮件正文恢复后按需重新获取。</p></div>
+          </header>
+          <div className="backup-scope-summary" aria-label="备份范围">
+            {compactCoverage.map((item) => (
+              <span key={item.id} className={item.included ? "included" : "excluded"}>
+                {item.included ? <Check size={12} /> : <Circle size={12} />}{item.label}
               </span>
             ))}
           </div>
-          <div className={status?.keySource === "environment" ? "backup-key-state ready" : "backup-key-state missing"}>
-            {status?.keySource === "environment" ? <Check size={14} /> : <AlertCircle size={14} />}
-            <span>{status?.keySource === "environment" ? "已检测到 KALENDER_MASTER_KEY" : "未检测到 KALENDER_MASTER_KEY"}</span>
+          <div className="backup-create-controls">
+            <label className="secure-toggle"><input type="checkbox" checked={encryptBackup} onChange={(event) => setEncryptBackup(event.target.checked)} /><span>加密备份</span></label>
+            {encryptBackup && <input value={backupPassword} type="password" placeholder="输入备份密码（至少 8 位）" onChange={(event) => setBackupPassword(event.target.value)} />}
+            <button className="primary-button" disabled={Boolean(busyBackupId) || !selectedPolicyAvailable || !toolsReady} onClick={() => void createBackup()}>{busyBackupId === "create" ? <LoaderCircle className="spin" size={14} /> : <DatabaseBackup size={14} />}创建备份</button>
           </div>
-          {strategy && <small className="backup-path-label">{strategy.backupDirectory}</small>}
-        </article>
-      </div>
-
-      <div className="backup-live-actions">
-        <article>
-          <header><DatabaseBackup size={18} /><div><h3>一键创建备份</h3><p>生成服务器历史文件，可下载，也可直接从历史恢复。</p></div></header>
-          <label className="secure-toggle"><input type="checkbox" checked={encryptBackup} onChange={(event) => setEncryptBackup(event.target.checked)} /><span>加密备份文件</span></label>
-          <input value={backupPassword} type="password" placeholder="备份密码（加密或恢复加密备份时使用）" onChange={(event) => setBackupPassword(event.target.value)} />
           {!selectedPolicyAvailable && selectedBackupOption?.disabledReason && <small className="backup-risk">{selectedBackupOption.disabledReason}</small>}
-          {!encryptBackup && <small className="backup-risk">未加密备份会包含敏感配置和已缓存内容，请只保存在可信设备。</small>}
-          <button className="primary-button" disabled={Boolean(busyBackupId) || !selectedPolicyAvailable} onClick={() => void createBackup()}>{busyBackupId === "create" ? <LoaderCircle className="spin" size={14} /> : <DatabaseBackup size={14} />}创建{selectedBackupOption ? backupPolicyLabel(selectedBackupOption.policy) : "备份"}</button>
-        </article>
-        <article>
-          <header><Upload size={18} /><div><h3>上传备份文件</h3><p>上传 `.qgwbackup` 或 `.qgwbackup.enc` 后会出现在备份历史。</p></div></header>
-          <input type="file" accept=".qgwbackup,.enc,application/octet-stream" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadBackup(file); event.currentTarget.value = ""; }} />
+          {!toolsReady && <small className="backup-risk">服务器缺少备份工具，请先完成运行环境配置。</small>}
+          {!encryptBackup && <small className="backup-risk">未加密备份包含敏感配置，请只保存在可信设备。</small>}
         </article>
       </div>
 
@@ -3747,7 +3696,23 @@ function BackupSettings() {
       )}
 
       <div className="backup-history">
-        <h3>备份历史</h3>
+        <div className="backup-history-heading">
+          <h3>备份历史</h3>
+          <input
+            ref={backupUploadRef}
+            className="backup-file-input"
+            type="file"
+            accept=".qgwbackup,.enc,application/octet-stream"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void uploadBackup(file);
+              event.currentTarget.value = "";
+            }}
+          />
+          <button className="secondary-button" disabled={Boolean(busyBackupId)} onClick={() => backupUploadRef.current?.click()}>
+            {busyBackupId === "upload" ? <LoaderCircle className="spin" size={13} /> : <Upload size={13} />}上传备份
+          </button>
+        </div>
         {status?.artifacts?.length ? status.artifacts.map((artifact) => (
           <article
             key={artifact.id}
@@ -3768,13 +3733,6 @@ function BackupSettings() {
         )) : <div className="accounts-empty">还没有备份历史</div>}
       </div>
 
-      {strategy && (
-        <div className="backup-command-layout">
-          <BackupCommandGroup title="创建备份" commands={strategy.backupCommands} copiedCommandId={copiedCommandId} onCopy={copyCommand} />
-          <BackupCommandGroup title="恢复备份" commands={strategy.restoreCommands} copiedCommandId={copiedCommandId} onCopy={copyCommand} />
-        </div>
-      )}
-
       {feedback && <div className={`backup-feedback ${feedback.kind}`} role="status"><span>{feedback.message}</span><button aria-label="关闭提示" onClick={() => setFeedback(undefined)}><X size={13} /></button></div>}
       {artifactMenu && artifactMenuItem && (
         <ContextMenu
@@ -3789,42 +3747,12 @@ function BackupSettings() {
         />
       )}
 
-      <div className="backup-notes">
-        <ShieldCheck size={16} />
-        <div><strong>恢复依赖原始主密钥</strong><p>{strategy?.warnings.join(" ") ?? "请单独保存 KALENDER_MASTER_KEY，并在恢复前停止应用写入。"}</p></div>
-        <small>{status?.latestAutomaticBackupAt ? `最近的恢复前副本：${formatAccountTime(status.latestAutomaticBackupAt)}` : "尚未创建恢复前副本"}</small>
-      </div>
-    </section>
-  );
-}
-
-function BackupCommandGroup({
-  title,
-  commands,
-  copiedCommandId,
-  onCopy,
-}: {
-  readonly title: string;
-  readonly commands: readonly BackupCommandPayload[];
-  readonly copiedCommandId?: string;
-  readonly onCopy: (command: BackupCommandPayload) => void;
-}) {
-  return (
-    <section className="backup-command-group">
-      <h3>{title}</h3>
-      <div>
-        {commands.map((command) => (
-          <article key={command.id}>
-            <header>
-              <div><strong>{command.title}</strong><small>{command.description}</small></div>
-              <button className="ghost-button" onClick={() => onCopy(command)}>
-                {copiedCommandId === command.id ? <Check size={13} /> : <Copy size={13} />}{copiedCommandId === command.id ? "已复制" : "复制"}
-              </button>
-            </header>
-            <pre><code>{command.command}</code></pre>
-          </article>
-        ))}
-      </div>
+      {status?.keySource !== "environment" && (
+        <div className="backup-notes">
+          <ShieldCheck size={16} />
+          <div><strong>缺少 KALENDER_MASTER_KEY</strong><p>恢复账户凭据需要使用创建备份时的原始主密钥。</p></div>
+        </div>
+      )}
     </section>
   );
 }

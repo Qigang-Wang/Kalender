@@ -2591,18 +2591,6 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .backup-tool-grid span.missing, .backup-key-state.missing { color: #efb7b0; background: #39231f; }
 .backup-key-state { grid-column: 2; }
 .backup-path-label { display: block; overflow: hidden; grid-column: 2; color: var(--muted-2); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.backup-command-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
-.backup-command-group { min-width: 0; padding: 13px; background: #191c1a; border: 1px solid #343835; border-radius: 11px; }
-.backup-command-group h3 { margin: 0 0 10px; font-size: 13px; }
-.backup-command-group > div { display: grid; gap: 8px; }
-.backup-command-group article { min-width: 0; overflow: hidden; background: #121512; border: 1px solid #2a302b; border-radius: 8px; }
-.backup-command-group article header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 9px 9px 7px; border-bottom: 1px solid #2a302b; }
-.backup-command-group article strong, .backup-command-group article small { display: block; }
-.backup-command-group article strong { color: #e2e6e3; font-size: 12px; }
-.backup-command-group article small { margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
-.backup-command-group article button { flex: 0 0 auto; min-height: 26px; padding: 0 8px; font-size: 12px; }
-.backup-command-group pre { max-width: 100%; margin: 0; padding: 10px; overflow-x: auto; color: #ced9cf; background: #0d100e; font-size: 12px; line-height: 1.55; }
-.backup-command-group code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; white-space: pre; }
 .backup-file-input { display: none; }
 .backup-restore-actions { display: flex; flex-wrap: wrap; grid-column: 2; gap: 7px; }
 .backup-restore-actions button { min-height: 34px; }
@@ -2620,6 +2608,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .backup-notes p { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .backup-notes > small { color: var(--muted-2); font-size: 12px; white-space: nowrap; }
 .backup-live-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.backup-live-actions-single { grid-template-columns: minmax(0, 1fr); }
 .backup-live-actions article { min-width: 0; padding: 13px; background: #191c1a; border: 1px solid #343835; border-radius: 11px; }
 .backup-live-actions header { display: flex; gap: 9px; align-items: flex-start; margin-bottom: 10px; }
 .backup-live-actions header > svg { flex: 0 0 auto; color: var(--blue); }
@@ -2629,6 +2618,13 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .backup-live-actions .secure-toggle { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
 .backup-risk { display: block; margin-top: 7px; color: #efb7b0; font-size: 12px; line-height: 1.45; }
 .backup-live-actions button { margin-top: 10px; }
+.backup-scope-summary { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.backup-scope-summary span { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 0 8px; color: var(--muted); background: #222723; border: 1px solid #343a36; border-radius: 7px; font-size: 12px; }
+.backup-scope-summary span.included { color: #b9dfc2; background: #1a3020; border-color: #31543a; }
+.backup-create-controls { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.backup-create-controls .secure-toggle { min-height: 36px; flex: 0 0 auto; padding: 0 9px; background: #222723; border: 1px solid #3a403b; border-radius: 8px; }
+.backup-create-controls input[type="password"] { min-width: 220px; flex: 1 1 320px; margin-top: 0; }
+.backup-create-controls button { flex: 0 0 auto; margin: 0 0 0 auto; }
 .automatic-backup-card { margin-top: 14px; padding: 13px; background: #191c1a; border: 1px solid #343835; border-radius: 11px; }
 .automatic-backup-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .automatic-backup-card h3 { color: #e2e7e3; font-size: 13px; }
@@ -2643,7 +2639,9 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .automatic-backup-card footer { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .automatic-backup-card footer small { padding: 4px 7px; color: var(--muted); background: #222723; border-radius: 7px; font-size: 12px; }
 .backup-history { margin-top: 14px; padding: 13px; background: #191c1a; border: 1px solid #343835; border-radius: 11px; }
-.backup-history h3 { margin-bottom: 10px; font-size: 13px; }
+.backup-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.backup-history h3 { font-size: 13px; }
+.backup-history-heading button { min-height: 30px; padding: 0 9px; font-size: 12px; }
 .backup-history article { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; min-height: 48px; padding: 8px; border-top: 1px solid #2c312d; }
 .backup-history article:first-of-type { border-top: 0; }
 .backup-history strong, .backup-history small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2786,6 +2784,9 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 
 @media (max-width: 1180px) {
   .page-grid { grid-template-columns: 1fr; }
+  .backup-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .automatic-backup-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .automatic-backup-controls button { grid-column: 2; justify-self: end; }
   .projects-page { grid-template-columns: minmax(0, 1fr); }
   .project-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .project-content-grid { grid-template-columns: 1fr; }
@@ -2983,9 +2984,9 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .backup-type-picker > div { grid-template-columns: 1fr; }
   .backup-operation-grid { grid-template-columns: 1fr; }
   .appearance-layout, .appearance-choice-grid.mode, .appearance-choice-grid.tone, .appearance-preview > div, .backup-live-actions, .operations-grid, .operations-detail-grid, .ai-automation-grid, .automatic-backup-controls { grid-template-columns: 1fr; }
+  .automatic-backup-controls button { grid-column: auto; justify-self: stretch; }
   .backup-history article { grid-template-columns: minmax(0, 1fr) auto; }
   .backup-history article .secondary-button, .backup-history article .danger-confirm-button { justify-self: start; }
-  .backup-command-layout { grid-template-columns: 1fr; }
   .backup-notes { grid-template-columns: 18px minmax(0, 1fr); }
   .backup-notes > small { grid-column: 2; white-space: normal; }
   .diagnostic-summary, .diagnostic-user-grid { grid-template-columns: 1fr; }
@@ -3034,8 +3035,10 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .backup-operation-card { grid-template-columns: 34px minmax(0, 1fr); padding: 12px; }
   .backup-operation-icon { width: 34px; height: 34px; }
   .backup-tool-grid { grid-template-columns: 1fr; }
-  .backup-command-group article header { display: grid; }
-  .backup-command-group article button { justify-self: start; }
+  .backup-create-controls { align-items: stretch; flex-direction: column; }
+  .backup-create-controls .secure-toggle { min-height: 42px; }
+  .backup-create-controls input[type="password"] { width: 100%; min-width: 0; flex: 0 0 42px; }
+  .backup-create-controls button { width: 100%; min-height: 42px; margin-left: 0; }
   .notes-page-grid { min-height: calc(100dvh - 62px); }
   .notes-page-grid .page-main, .notes-page { display: block; }
   .schedule-panel .today-empty { min-height: 100px; }
@@ -3299,7 +3302,6 @@ html[data-qgw-scheme="light"] :is(
   .backup-live-actions article,
   .automatic-backup-card,
   .backup-history,
-  .backup-command-group,
   .ai-automation-grid label,
   .ai-provider-settings,
   .workspace-diagnostics-settings,
@@ -3322,7 +3324,8 @@ html[data-qgw-scheme="light"] :is(
   .operations-recommendation-list p,
   .backup-type-picker button,
   .backup-coverage-list > div,
-  .backup-command-group article,
+  .backup-scope-summary span,
+  .backup-create-controls .secure-toggle,
   .job-toolbar button,
   .mail-project-dialog-subject,
   .sidebar-user-menu,
@@ -3339,7 +3342,8 @@ html[data-qgw-scheme="light"] :is(
   .appearance-choice-grid button.active,
   .job-toolbar button.active,
   .backup-type-picker button.active,
-  .backup-coverage-list > div.included
+  .backup-coverage-list > div.included,
+  .backup-scope-summary span.included
 ) {
   color: color-mix(in srgb, var(--blue) 50%, #122435);
   background: var(--blue-deep);
@@ -3379,7 +3383,6 @@ html[data-qgw-scheme="light"] :is(
   .backup-type-picker strong,
   .backup-coverage-list strong,
   .backup-history strong,
-  .backup-command-group article strong,
   .ai-automation-grid strong,
   .settings-section-heading h2,
   .auth-panel h1,
@@ -3398,7 +3401,6 @@ html[data-qgw-scheme="light"] :is(
   .backup-operation-card p,
   .backup-coverage-list small,
   .backup-history small,
-  .backup-command-group article small,
   .backup-notes p,
   .settings-section-heading p,
   .auth-panel p,
@@ -3407,7 +3409,7 @@ html[data-qgw-scheme="light"] :is(
 ) {
   color: var(--muted);
 }
-html[data-qgw-scheme="light"] :is(.backup-command-group pre, .job-row code) {
+html[data-qgw-scheme="light"] .job-row code {
   color: #33414c;
   background: #f3f6f8;
   border-color: var(--line);
@@ -4151,7 +4153,6 @@ html[data-qgw-scheme="light"] :is(
 }
 html[data-qgw-scheme="light"] :is(
   .mail-body-html pre,
-  .backup-command-group pre,
   .job-row code
 ) {
   color: #33414c;
@@ -4315,8 +4316,6 @@ html[data-qgw-scheme="light"] :is(
   .task-project-groups > section > header,
   .task-time-blocks,
   .task-time-blocks article,
-  .backup-command-group article,
-  .backup-command-group article header,
   .shortcut-card,
   .shortcut-row,
   .provider-options button,
@@ -4410,8 +4409,6 @@ html[data-qgw-scheme="light"] :is(
   .ai-provider-meta button:focus-visible,
   .ai-discovered-models button:hover,
   .ai-discovered-models button:focus-visible,
-  .backup-command-group article button:hover,
-  .backup-command-group article button:focus-visible,
   .backup-history .secondary-button:hover,
   .backup-history .secondary-button:focus-visible
 ) {

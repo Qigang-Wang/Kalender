@@ -405,6 +405,7 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
   const startedAt = new Date().toISOString();
   const database = await getDatabase();
   const counts = await readTableCounts(database);
+  const mailCache = await readMailCacheStats(database);
   const root = dataRoot();
   const databaseDump = path.join(workDir, "database.dump");
   const attachments = path.join(workDir, "mail-draft-attachments.tgz");
@@ -412,7 +413,7 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
   const sumsPath = path.join(workDir, "SHA256SUMS");
   try {
     await appendJobLog(job.id, "正在导出 PostgreSQL 数据库");
-    await runCommand("pg_dump", ["--format=custom", "--no-owner", "--no-acl", `--file=${databaseDump}`, databaseUrl()]);
+    await runCommand("pg_dump", buildDatabaseDumpArgs(mailPolicy, databaseDump, databaseUrl()));
     await updateJobProgress(job.id, 35);
 
     await appendJobLog(job.id, "正在打包草稿附件");
@@ -435,6 +436,10 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
       attachmentBytes: attachmentSize.size,
       attachmentFiles: (await directorySize(attachmentRoot)).files,
       mailPolicy,
+      mailBodyCache: {
+        ...mailCache,
+        included: mailPolicy === "full-archive",
+      },
       encrypted,
       requiresMasterKey: true,
       counts,
@@ -529,7 +534,13 @@ export async function runBackupRestoreJob(job: AppJob): Promise<Readonly<Record<
   if (!tools.tar) throw new BackupError("服务器缺少 tar", 501);
 
   await appendJobLog(job.id, "正在创建恢复前安全备份");
-  const safety = await runBackupCreateJob({ ...job, id: `${job.id}-safety`, title: "恢复前安全备份", payload: { encrypted: false }, kind: "backup.create" });
+  const safety = await runBackupCreateJob({
+    ...job,
+    id: `${job.id}-safety`,
+    title: "恢复前安全备份",
+    payload: { encrypted: false, mailPolicy: "full-archive" },
+    kind: "backup.create",
+  });
   await updateJobProgress(job.id, 20);
   const workDir = await mkdtemp(path.join(tmpdir(), "qgw-restore-"));
   try {
@@ -577,18 +588,25 @@ async function readTableCounts(database: DatabaseExecutor): Promise<Readonly<Rec
 
 async function readMailCacheStats(database: DatabaseExecutor): Promise<BackupMailCacheStats> {
   const available = await database.query<{ table_name: string }>(
-    `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'mail_messages'`,
+    `SELECT table_name
+       FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name IN ('mail_messages', 'mail_message_bodies')`,
   );
-  if (!available.rows.length) return { totalMessages: 0, cachedBodies: 0, cachedBodyBytes: 0 };
+  const tables = new Set(available.rows.map((row) => row.table_name));
+  if (!tables.has("mail_messages")) return { totalMessages: 0, cachedBodies: 0, cachedBodyBytes: 0 };
+  if (!tables.has("mail_message_bodies")) {
+    return { totalMessages: Number((await database.query<{ count: number }>("SELECT count(*)::int AS count FROM mail_messages")).rows[0]?.count ?? 0), cachedBodies: 0, cachedBodyBytes: 0 };
+  }
   const result = await database.query<{
     total_messages: string | number;
     cached_bodies: string | number;
     cached_body_bytes: string | number;
   }>(
-    `SELECT count(*)::int AS total_messages,
-            count(*) FILTER (WHERE body_loaded_at IS NOT NULL)::int AS cached_bodies,
+    `SELECT (SELECT count(*)::int FROM mail_messages) AS total_messages,
+            count(*)::int AS cached_bodies,
             COALESCE(sum(COALESCE(octet_length(text_body), 0) + COALESCE(octet_length(html_body), 0)), 0)::bigint AS cached_body_bytes
-       FROM mail_messages`,
+       FROM mail_message_bodies`,
   );
   const row = result.rows[0];
   return {
@@ -627,7 +645,7 @@ function buildBackupStrategy(root: string, tools: BackupToolStatus, mailCache: B
     {
       id: "database",
       label: "PostgreSQL 数据库",
-      description: "包含用户、邮箱/日历连接、项目、笔记、任务、AI 配置、审计记录、同步状态和已缓存邮件内容。",
+      description: "包含用户、邮箱/日历连接、邮件索引、项目、笔记、任务、AI 配置、审计记录和同步状态。",
       included: true,
     },
     {
@@ -635,6 +653,12 @@ function buildBackupStrategy(root: string, tools: BackupToolStatus, mailCache: B
       label: "邮件草稿附件",
       description: "包含本地保存的草稿附件文件；这些字节不在 PostgreSQL 里。",
       included: true,
+    },
+    {
+      id: "mail-bodies",
+      label: "邮件正文缓存",
+      description: `${mailCache.cachedBodies}/${mailCache.totalMessages} 封、${formatBytes(mailCache.cachedBodyBytes)} 的正文缓存不进入轻量备份；恢复后查看邮件时按需重新下载。`,
+      included: false,
     },
     {
       id: "mail-archive",
@@ -712,7 +736,7 @@ function buildBackupStrategy(root: string, tools: BackupToolStatus, mailCache: B
       {
         policy: "lightweight",
         label: "轻量工作区快照",
-        description: "当前推荐。备份数据库和草稿附件，邮件正文只包含已经同步/缓存到本地数据库的部分。",
+        description: "当前推荐。备份工作区数据、邮件索引和草稿附件，不备份可从邮件服务器重新获取的正文缓存。",
         recommended: true,
         available: true,
         coverage: lightweightCoverage,
@@ -748,8 +772,8 @@ function buildBackupStrategy(root: string, tools: BackupToolStatus, mailCache: B
       {
         id: "database",
         title: "导出 PostgreSQL",
-        description: "使用 PostgreSQL custom format，恢复时可以做一致性校验和清理式导入。",
-        command: `pg_dump --format=custom --no-owner --no-acl --file="$BACKUP_DIR/database.dump" "$DATABASE_URL"`,
+        description: "使用 PostgreSQL custom format，并跳过可重新下载的邮件正文缓存。",
+        command: `pg_dump --format=custom --no-owner --no-acl --exclude-table-data=mail_message_bodies --file="$BACKUP_DIR/database.dump" "$DATABASE_URL"`,
       },
       {
         id: "attachments",
@@ -922,6 +946,23 @@ function normalizeBackupMailPolicy(value: BackupMailPolicy | string | undefined)
   return value === "full-archive" || value === "configuration-only" || value === "lightweight"
     ? value
     : "lightweight";
+}
+
+export function buildDatabaseDumpArgs(
+  mailPolicy: BackupMailPolicy,
+  outputPath: string,
+  connectionString: string,
+): readonly string[] {
+  const args = ["--format=custom", "--no-owner", "--no-acl"];
+  if (mailPolicy === "lightweight") args.push("--exclude-table-data=mail_message_bodies");
+  args.push(`--file=${outputPath}`, connectionString);
+  return args;
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function normalizeBackupFilename(filename: string): string {
