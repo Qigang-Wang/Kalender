@@ -4,6 +4,8 @@ import { Eye, EyeOff, LoaderCircle, LockKeyhole, Mail, ShieldCheck, UserRound } 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 
+import { BrandLogo } from "@/components/brand-logo";
+
 type AuthMode = "login" | "setup";
 
 interface AuthPanelProps {
@@ -47,8 +49,8 @@ export function ChangePasswordPanel({ displayName }: { readonly displayName: str
   return (
     <main className="auth-screen">
       <section className="auth-brand">
-        <div className="auth-brand-mark"><ShieldCheck size={18} /></div>
-        <div><strong>QGW Workspace</strong><span>Quiet Intelligence</span></div>
+        <BrandLogo className="auth-brand-mark" />
+        <div><strong>个人工作台</strong><span>Quiet Intelligence</span></div>
       </section>
       <section className="auth-panel" aria-labelledby="change-password-title">
         <header>
@@ -109,8 +111,8 @@ export function InviteAcceptPanel({
   return (
     <main className="auth-screen">
       <section className="auth-brand">
-        <div className="auth-brand-mark"><ShieldCheck size={18} /></div>
-        <div><strong>QGW Workspace</strong><span>Quiet Intelligence</span></div>
+        <BrandLogo className="auth-brand-mark" />
+        <div><strong>个人工作台</strong><span>Quiet Intelligence</span></div>
       </section>
       <section className="auth-panel" aria-labelledby="invite-title">
         <header>
@@ -168,9 +170,9 @@ export function AuthPanel({ mode }: AuthPanelProps) {
   return (
     <main className="auth-screen">
       <section className="auth-brand">
-        <div className="auth-brand-mark"><ShieldCheck size={18} /></div>
+        <BrandLogo className="auth-brand-mark" />
         <div>
-          <strong>QGW Workspace</strong>
+          <strong>个人工作台</strong>
           <span>Quiet Intelligence</span>
         </div>
       </section>

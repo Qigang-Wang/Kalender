@@ -20,6 +20,7 @@ import { resolveReplyRecipients } from "@/lib/mail-reply-recipients";
 import { isSmimeSignatureAttachment } from "@/lib/mail-smime";
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
 import { useVisiblePageRefresh } from "@/hooks/use-visible-page-refresh";
+import { useRealtimeRefresh } from "@/components/realtime-context";
 import { AppSelect } from "../app-select";
 import { ContextMenu } from "../context-menu";
 import { resolveContextCommands, type ContextCommandId, type MailMessageCommandId } from "../context-commands";
@@ -65,6 +66,30 @@ function mailFolderLabel(folder: { readonly role: string; readonly name: string 
 
 function mailMessageHref(messageId: string): string {
   return `/inbox?message=${encodeURIComponent(messageId)}`;
+}
+
+function clampEmailBodyFontSizes(html?: string): string | undefined {
+  if (!html || typeof DOMParser === "undefined") return html;
+  const document = new DOMParser().parseFromString(html, "text/html");
+  for (const element of document.body.querySelectorAll<HTMLElement>("[style*='font-size'], font[size]")) {
+    const hasOwnText = Array.from(element.childNodes).some((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim());
+    if (!hasOwnText) continue;
+    const rawSize = element.style.fontSize.trim().toLowerCase();
+    const match = rawSize.match(/^([\d.]+)(px|pt|em|rem|%)$/);
+    const value = match ? Number.parseFloat(match[1]!) : Number.NaN;
+    const unit = match?.[2];
+    const pixels = unit === "px" ? value
+      : unit === "pt" ? value * 4 / 3
+        : unit === "em" || unit === "rem" ? value * 16
+          : unit === "%" ? value * 0.16
+            : element.tagName === "FONT" && element.getAttribute("size") === "1" ? 10
+              : Number.NaN;
+    if (Number.isFinite(pixels) && pixels < 12) {
+      element.style.fontSize = "12px";
+      if (element.tagName === "FONT") element.removeAttribute("size");
+    }
+  }
+  return document.body.innerHTML;
 }
 
 function EditorLoading({ label }: { readonly label: string }) {
@@ -887,6 +912,7 @@ export function InboxPage({
     setRemoteItems((current) => mergeRefreshedInboxPage(current, refreshed));
   }, [initialCorrespondent, initialFolderId]);
   useVisiblePageRefresh(refreshVisibleInbox);
+  useRealtimeRefresh(["mail", "relation"], refreshVisibleInbox);
   useEffect(() => {
     const refreshAfterSync = () => { void refreshVisibleInbox().catch(() => undefined); };
     window.addEventListener(MAIL_SYNCED_EVENT, refreshAfterSync);
@@ -971,7 +997,7 @@ export function InboxPage({
           return result.body;
         })
         .then((body) => {
-          setBodies((current) => ({ ...current, [messageId]: { status: "ready", text: body.text, html: body.html, cached: body.cached, hasBlockedRemoteImages: body.hasBlockedRemoteImages } }));
+          setBodies((current) => ({ ...current, [messageId]: { status: "ready", text: body.text, html: clampEmailBodyFontSizes(body.html), cached: body.cached, hasBlockedRemoteImages: body.hasBlockedRemoteImages } }));
           setRemoteItems((current) => current?.map((item) => item.id === messageId ? { ...item, preview: body.snippet } : item) ?? current);
         })
         .catch((error: unknown) => {
@@ -1003,7 +1029,7 @@ export function InboxPage({
         [messageId]: {
           status: "ready",
           text: body.text,
-          html: body.html,
+          html: clampEmailBodyFontSizes(body.html),
           cached: body.cached,
           hasBlockedRemoteImages: body.hasBlockedRemoteImages,
         },
@@ -1943,14 +1969,13 @@ export function InboxPage({
     {mailProjectTarget && (
       <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setMailProjectTargetId(undefined); }}>
         <section className="calendar-dialog mail-project-dialog panel" role="dialog" aria-modal="true" aria-labelledby="mail-project-dialog-title">
-          <header><div><span>只关联需要长期保留上下文的邮件</span><h2 id="mail-project-dialog-title">关联到项目</h2></div><button aria-label="关闭" onClick={() => setMailProjectTargetId(undefined)}><X size={18} /></button></header>
+          <header><div><h2 id="mail-project-dialog-title">关联到项目</h2></div><button aria-label="关闭" onClick={() => setMailProjectTargetId(undefined)}><X size={18} /></button></header>
           <p className="mail-project-dialog-subject">{mailProjectTarget.subject}</p>
           <ProjectAssociationControl kind="mail" entityId={mailProjectTarget.id} onChanged={() => {
             setMailRelatedVersion((current) => current + 1);
             setMailProjectTargetId(undefined);
             setMailNotice("已更新邮件项目关联");
           }} />
-          <footer><small>普通通知和临时沟通无需归入项目。</small><div><button className="secondary-button" onClick={() => setMailProjectTargetId(undefined)}>完成</button></div></footer>
         </section>
       </div>
     )}
@@ -2058,7 +2083,7 @@ export function InboxPage({
       <div className="mail-send-confirmation-backdrop">
         <section className="mail-send-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="mail-send-confirmation-title" data-testid="mail-send-confirmation">
           <div className="confirmation-icon"><Send size={20} /></div>
-          <h2 id="mail-send-confirmation-title">确认发送这封邮件？</h2>
+          <h2 id="mail-send-confirmation-title">发送邮件？</h2>
           <dl>
             <div><dt>发件人</dt><dd>{composerAccount?.displayName} &lt;{composerAccount?.emailAddress}&gt;</dd></div>
             <div><dt>收件人</dt><dd>{[...composer.to, ...composer.cc, ...composer.bcc].join(", ")}</dd></div>
@@ -2066,10 +2091,10 @@ export function InboxPage({
             {composerFileAttachments.length > 0 && <div><dt>附件</dt><dd>{composerFileAttachments.length} 个 · {formatFileSize(composerFileAttachments.reduce((total, item) => total + item.sizeBytes, 0))}</dd></div>}
             {composerInlineImages.length > 0 && <div><dt>正文图片</dt><dd>{composerInlineImages.length} 张</dd></div>}
           </dl>
-          <p>点击“确认发送”后会立即通过邮箱服务器发出，无法撤回。</p>
+          <p>发送后无法撤回。</p>
           <footer>
             <button className="secondary-button" disabled={sendBusy} onClick={() => setSendConfirmationKey(undefined)}>返回修改</button>
-            <button className="primary-button" disabled={sendBusy} onClick={() => void confirmSend()}>{sendBusy ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}确认发送</button>
+            <button className="primary-button" disabled={sendBusy} onClick={() => void confirmSend()}>{sendBusy ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}发送</button>
           </footer>
         </section>
       </div>
@@ -2081,10 +2106,10 @@ export function InboxPage({
         <section className="mail-send-confirmation batch-delete-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="batch-delete-confirmation-title">
           <div className="confirmation-icon danger"><Trash2 size={20} /></div>
           <h2 id="batch-delete-confirmation-title">删除选中的 {selectedBatchItems.length} 封邮件？</h2>
-          <p>这些邮件会同步移至各自邮箱账户的“已删除邮件”文件夹。若部分账户操作失败，失败邮件会继续保持选中。</p>
+          <p>邮件将移至各自账户的“已删除邮件”文件夹；失败项会保持选中。</p>
           <footer>
             <button className="secondary-button" disabled={Boolean(batchActionBusy)} onClick={() => setBatchDeletePending(false)}>取消</button>
-            <button className="primary-button danger-button" disabled={Boolean(batchActionBusy)} onClick={() => void runBatchMessageAction("delete")}>
+            <button className="danger-confirm-button" disabled={Boolean(batchActionBusy)} onClick={() => void runBatchMessageAction("delete")}>
               {batchActionBusy === "delete" ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}确认删除
             </button>
           </footer>

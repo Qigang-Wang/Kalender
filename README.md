@@ -8,10 +8,10 @@ Kalender 将个人信息流组织成一条连续工作流：从邮件识别行�
 
 ## 当前状态
 
-项目处于活跃开发阶段。Web MVP 的邮件、日历、任务、笔记、Today、全局搜索、AI 对话和备份基础已经成型；当前重点是跨模块 AI 上下文、可确认的工具操作，以及真实数据下的长期稳定性。
+项目处于活跃开发阶段。邮件、日历、任务、笔记、Today、全局搜索、AI 对话、备份和实时更新基础已经成型；当前重点是跨模块 AI 上下文、可确认的工具操作，以及真实数据下的长期稳定性。
 
 > [!WARNING]
-> 当前版本面向本机或可信私网中的个人使用。单用户登录、完整会话保护、CSP 和 CSRF 防护尚未完成，不应直接暴露到公网。
+> 当前版本面向本机或可信私网使用。部署时应设置强随机数据库密码和固定主密钥，并通过 HTTPS 反向代理和网络访问控制提供服务。未经安全审计，不要把端口 `3000` 直接暴露到公网。
 
 ## 已实现能力
 
@@ -23,7 +23,8 @@ Kalender 将个人信息流组织成一条连续工作流：从邮件识别行�
 - **Notes**：Plate 富文本编辑器、自动保存、项目组织、搜索、置顶和笔记转任务。
 - **EntityLink**：邮件、事件、任务和笔记之间的双向关联及“相关内容”面板。
 - **AI**：可配置 OpenAI-compatible Provider、多模型管理、功能绑定、流式对话、主/备用模型回退、邮件总结、行动项提取和回复草稿。
-- **备份**：完整 ZIP 导出、检查、恢复，以及恢复前安全副本。
+- **备份**：PostgreSQL 原生转储与草稿附件归档，支持加密、检查、下载、恢复和历史管理；邮件正文缓存默认不进入轻量备份。
+- **实时更新**：通过 WebSocket 和 PostgreSQL `LISTEN/NOTIFY` 推送邮件、日历、任务、项目、笔记、后台任务和备份状态。
 - **全局操作**：`Ctrl/Cmd + K` 搜索与命令栏、快速记录和统一对象上下文菜单。
 
 ## 技术栈
@@ -31,6 +32,7 @@ Kalender 将个人信息流组织成一条连续工作流：从邮件识别行�
 - TypeScript
 - Next.js + React
 - PostgreSQL
+- WebSocket + PostgreSQL `LISTEN/NOTIFY`
 - Plate 53 + Radix/shadcn 风格组件
 - IMAPFlow、Nodemailer、PostalMime
 - CalDAV、ICS、Exchange Web Services
@@ -45,10 +47,11 @@ Kalender 将个人信息流组织成一条连续工作流：从邮件识别行�
 
 ### 安装与启动
 
-```powershell
+```bash
 git clone https://github.com/Qigang-Wang/Kalender.git
 cd Kalender
 npm install
+npm run typecheck
 npm run dev
 ```
 
@@ -62,8 +65,10 @@ npm run dev
 
 | 变量 | 用途 |
 |---|---|
-| `KALENDER_MASTER_KEY` | 可选的 32 字节 Base64 主密钥，用于加密保存的凭据 |
+| `KALENDER_MASTER_KEY` | 32 字节 Base64 主密钥，用于加密保存的凭据；生产部署必须固定设置 |
 | `KALENDER_DATA_DIR` | 覆盖本地文件目录，默认是项目根目录的 `.data` |
+| `KALENDER_BACKUP_DIR` | 覆盖备份文件目录 |
+| `KALENDER_BACKUP_PASSWORD` | 自动加密备份使用的密码 |
 | `DATABASE_URL` | 必填的 PostgreSQL 连接字符串 |
 | `KALENDER_POSTGRES_PASSWORD` | Docker Compose 中 PostgreSQL 服务的密码 |
 | `KALENDER_SYNC_INTERVAL_MS` | 邮箱后台同步的首次初始化间隔，默认 3 分钟 |
@@ -80,7 +85,8 @@ npm run dev
 
 | 命令 | 说明 |
 |---|---|
-| `npm run dev` | 启动 Next.js 开发服务器 |
+| `npm run dev` | 启动实时网关和 Next.js 开发服务器 |
+| `npm run dev:next` | 仅启动 Next.js 开发服务器（不提供实时推送） |
 | `npm run typecheck` | 检查核心包和 Web 应用类型 |
 | `npm run db:migrations:status` | 查看数据库当前版本、迁移历史和待执行版本 |
 | `npm test` | 最多并行 4 组运行完整测试；可用 `KALENDER_TEST_CONCURRENCY` 调整并发 |
@@ -93,8 +99,8 @@ Docker 部署见 [Docker Deployment](docs/deployment-docker.md)；飞牛 NAS 可
 
 ## 数据与安全
 
-- 本地数据库、凭据和缓存保存在 `.data`，不会进入 Git。
-- 数据库升级使用带校验值的版本化迁移；旧库升级前会在 `.data/automatic-backups` 创建恢复点。
+- PostgreSQL 保存结构化数据；`.data` 保存草稿附件、开发主密钥等本地文件，两者都不会进入 Git。
+- 数据库升级使用带校验值的版本化迁移；重大升级前应从“设置 > 备份”创建并下载备份。
 - 邮件、日历和 AI API 凭据使用 AES-256-GCM 加密保存。
 - `.backups`、`.logs`、`.next`、`.env`、健康检查输出和构建缓存均被版本控制排除。
 - 邮件 HTML 会经过服务端清洗，远程图片默认按需显示。
@@ -106,8 +112,10 @@ Docker 部署见 [Docker Deployment](docs/deployment-docker.md)；飞牛 NAS 可
 ```text
 apps/web/          Next.js Web 应用与 API
 src/mail/          MailProvider 核心接口和通用实现
+scripts/           开发、测试与实时网关脚本
 docs/architecture/ 架构与同步设计
 docs/design/       UI 规范、原型和实现截图
+docker-compose*.yml Docker 与飞牛 NAS 部署配置
 docs/roadmap.md    分阶段开发路线图
 PROJECT.md         完整产品说明
 ```

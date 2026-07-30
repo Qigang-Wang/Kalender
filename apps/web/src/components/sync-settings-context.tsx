@@ -10,6 +10,8 @@ import {
   type ReactNode,
 } from "react";
 
+import { useRealtimeRefresh } from "@/components/realtime-context";
+
 export interface ClientSyncSettings {
   readonly mailSyncEnabled: boolean;
   readonly mailSyncIntervalMs: number;
@@ -75,6 +77,7 @@ export function SyncSettingsProvider({ children }: { readonly children: ReactNod
   }, []);
 
   useEffect(() => { void reload(); }, [reload]);
+  useRealtimeRefresh(["settings"], reload);
 
   const save = useCallback(async (nextSettings: ClientSyncSettings) => {
     const response = await fetch("/api/sync-settings", {

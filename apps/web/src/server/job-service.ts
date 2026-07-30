@@ -58,10 +58,13 @@ interface JobRow {
 declare global {
   var qgwJobRunnerTimer: ReturnType<typeof setInterval> | undefined;
   var qgwJobRunnerActive: boolean | undefined;
+  var qgwJobRunnerStartedAt: Date | undefined;
+  var qgwJobRecovery: Promise<void> | undefined;
   var qgwJobSecrets: Map<string, string> | undefined;
 }
 
 const MAX_LOG_LINES = 120;
+const JOB_RUNNER_STARTED_AT = globalThis.qgwJobRunnerStartedAt ??= new Date();
 
 export async function enqueueJob(input: {
   readonly kind: AppJobKind;
@@ -103,6 +106,8 @@ export async function listJobs(actor: AppUser, options: {
   readonly kind?: AppJobKind;
   readonly limit?: number;
 } = {}): Promise<readonly AppJob[]> {
+  await recoverInterruptedJobs();
+  ensureJobRunner();
   const database = await getDatabase();
   const params: unknown[] = [];
   const filters: string[] = [];
@@ -128,6 +133,7 @@ export async function listJobs(actor: AppUser, options: {
 }
 
 export async function getJob(actor: AppUser, jobId: string): Promise<AppJob> {
+  await recoverInterruptedJobs();
   const database = await getDatabase();
   const result = await database.query<JobRow>(
     `SELECT * FROM app_jobs WHERE id = $1${actor.role === "admin" ? "" : " AND user_id = $2"} LIMIT 1`,
@@ -150,6 +156,23 @@ export async function cancelJob(actor: AppUser, jobId: string): Promise<AppJob> 
     [job.id],
   );
   return mapJob(result.rows[0]!);
+}
+
+export async function deleteJob(actor: AppUser, jobId: string): Promise<void> {
+  const job = await getJob(actor, jobId);
+  if (job.status === "queued" || job.status === "running") {
+    throw new JobError("排队或运行中的任务不能删除", 409);
+  }
+  const database = await getDatabase();
+  const result = await database.query<{ readonly id: string }>(
+    `DELETE FROM app_jobs
+      WHERE id = $1
+        AND status IN ('succeeded', 'failed', 'cancelled')
+        ${actor.role === "admin" ? "" : "AND user_id = $2"}
+      RETURNING id`,
+    actor.role === "admin" ? [job.id] : [job.id, actor.id],
+  );
+  if (!result.rows[0]) throw new JobError("任务状态已变化，请刷新后重试", 409);
 }
 
 export async function retryJob(actor: AppUser, jobId: string): Promise<AppJob> {
@@ -175,6 +198,8 @@ export async function getJobSummary(): Promise<{
   readonly failed: number;
   readonly latest?: AppJob;
 }> {
+  await recoverInterruptedJobs();
+  ensureJobRunner();
   const database = await getDatabase();
   const counts = await database.query<{ status: AppJobStatus; count: number | string }>(
     `SELECT status, count(*) AS count
@@ -208,9 +233,18 @@ export function ensureJobRunner(): void {
   const timer = setInterval(() => void drainJobQueue(), interval);
   timer.unref();
   globalThis.qgwJobRunnerTimer = timer;
+  void recoverInterruptedJobs()
+    .then(() => drainJobQueue())
+    .catch((error) => console.error("Job recovery failed", error));
+}
+
+export async function initializeJobRunner(): Promise<void> {
+  ensureJobRunner();
+  await recoverInterruptedJobs();
 }
 
 export async function drainJobQueue(limit = 3): Promise<void> {
+  await recoverInterruptedJobs();
   if (globalThis.qgwJobRunnerActive) return;
   globalThis.qgwJobRunnerActive = true;
   try {
@@ -222,6 +256,35 @@ export async function drainJobQueue(limit = 3): Promise<void> {
     }
   } finally {
     globalThis.qgwJobRunnerActive = false;
+  }
+}
+
+async function recoverInterruptedJobs(): Promise<void> {
+  if (!globalThis.qgwJobRecovery) {
+    globalThis.qgwJobRecovery = (async () => {
+      const database = await getDatabase();
+      const result = await database.query<{ readonly id: string }>(
+        `UPDATE app_jobs
+            SET status = 'failed',
+                progress = 100,
+                error_message = '服务重启导致任务中断，请重试',
+                log_lines = log_lines || jsonb_build_array('任务因服务重启而中断'),
+                finished_at = now(),
+                updated_at = now()
+          WHERE status = 'running' AND updated_at < $1
+          RETURNING id`,
+        [JOB_RUNNER_STARTED_AT],
+      );
+      if (result.rows.length > 0) {
+        console.warn(`Marked ${result.rows.length} interrupted job(s) as failed`);
+      }
+    })();
+  }
+  try {
+    await globalThis.qgwJobRecovery;
+  } catch (error) {
+    globalThis.qgwJobRecovery = undefined;
+    throw error;
   }
 }
 

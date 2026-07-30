@@ -44,6 +44,8 @@ RUN groupadd --system --gid 1001 nodejs \
 
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/realtime-gateway.mjs ./scripts/realtime-gateway.mjs
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/ws ./node_modules/ws
 
 USER nextjs
 
@@ -52,4 +54,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD curl -fsS http://127.0.0.1:3000/api/health >/dev/null || exit 1
 
-CMD ["node", "apps/web/server.js"]
+CMD ["node", "scripts/realtime-gateway.mjs"]

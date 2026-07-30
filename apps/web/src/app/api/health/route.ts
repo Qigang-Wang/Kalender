@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getDatabase } from "@/server/database";
+import { initializeJobRunner } from "@/server/job-service";
 
 export const runtime = "nodejs";
 
@@ -12,6 +13,7 @@ export async function GET(request: Request) {
   }
   try {
     await (await getDatabase()).query("SELECT 1");
+    await initializeJobRunner();
     return NextResponse.json({ ok: true, status: "healthy", checkedAt: new Date().toISOString() });
   } catch {
     return NextResponse.json({ ok: false, status: "unhealthy", checkedAt: new Date().toISOString() }, { status: 503 });

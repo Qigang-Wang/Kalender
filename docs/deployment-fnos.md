@@ -89,6 +89,10 @@ curl -fsS http://127.0.0.1:3000/api/health
 
 健康接口返回 `"status":"healthy"` 后即可访问应用。
 
+应用的 HTTP 页面和实时 WebSocket 都使用端口 `3000`，不需要额外开放端口。如果在
+飞牛前面配置了 HTTPS 反向代理，请为 `/api/realtime` 启用 WebSocket Upgrade 转发。
+未启用时页面仍可使用，但后台邮件、日历、任务和备份状态会退回低频刷新。
+
 ## 五、更新应用
 
 先在开发电脑完成测试并将代码推送到 GitHub `main`：

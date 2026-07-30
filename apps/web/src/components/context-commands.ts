@@ -101,13 +101,15 @@ export type JobCommandId =
   | "job.copy-id"
   | "job.copy-logs"
   | "job.retry"
-  | "job.cancel";
+  | "job.cancel"
+  | "job.delete";
 
 export type BackupArtifactCommandId =
   | "backup.download"
   | "backup.restore"
   | "backup.copy-name"
-  | "backup.copy-checksum";
+  | "backup.copy-checksum"
+  | "backup.delete";
 
 export type SearchResultCommandId =
   | "search.open"

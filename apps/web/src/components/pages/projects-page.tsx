@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
 import { appConfirm } from "@/components/app-dialog-provider";
+import { useRealtimeRefresh } from "@/components/realtime-context";
 import { AppSelect } from "../app-select";
 import { ContextMenu } from "../context-menu";
 import {
@@ -385,14 +386,21 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     return () => window.removeEventListener(EDIT_PROJECT_DIALOG_EVENT, editProjectDialog);
   }, [projects]);
 
+  const refreshProjectPage = useCallback(async () => {
+    await loadProjects();
+    if (selectedProjectId) {
+      await Promise.all([
+        loadOverview(selectedProjectId),
+        loadProjectMembers(selectedProjectId),
+      ]);
+    }
+  }, [loadOverview, loadProjectMembers, loadProjects, selectedProjectId]);
   useEffect(() => {
-    const refreshProjectPage = () => {
-      void loadProjects();
-      if (selectedProjectId) void loadOverview(selectedProjectId);
-    };
-    window.addEventListener(PROJECTS_CHANGED_EVENT, refreshProjectPage);
-    return () => window.removeEventListener(PROJECTS_CHANGED_EVENT, refreshProjectPage);
-  }, [loadOverview, loadProjects, selectedProjectId]);
+    const refreshAfterProjectChange = () => { void refreshProjectPage(); };
+    window.addEventListener(PROJECTS_CHANGED_EVENT, refreshAfterProjectChange);
+    return () => window.removeEventListener(PROJECTS_CHANGED_EVENT, refreshAfterProjectChange);
+  }, [refreshProjectPage]);
+  useRealtimeRefresh(["project", "task", "note", "relation"], refreshProjectPage);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -775,7 +783,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
         {loading && !overview ? <div className="project-overview-loading"><LoaderCircle className="spin" size={18} />正在整理项目…</div> : overview ? <>
           <section className="project-hero panel">
             <header>
-              <div className="project-identity"><i style={{ background: overview.project.color }} /><div><span>{overview.project.areaName ?? "未设置领域"} · {overview.project.status === "archived" ? "已归档" : "进行中"}</span><h1>{overview.project.name}</h1><p>{overview.project.description ?? "为这个项目补充目标和完成标准，让每一步都有清晰上下文。"}</p></div></div>
+              <div className="project-identity"><i style={{ background: overview.project.color }} /><div><span>{overview.project.areaName ?? "未设置领域"} · {overview.project.status === "archived" ? "已归档" : "进行中"}</span><h1>{overview.project.name}</h1>{overview.project.description && <p>{overview.project.description}</p>}</div></div>
               <button className="secondary-button" onClick={() => { setProjectDialogError(undefined); setProjectDraft({ id: overview.project.id, name: overview.project.name, description: overview.project.description ?? "", areaName: overview.project.areaName ?? "", color: overview.project.color, status: overview.project.status }); }}><Pencil size={14} />编辑项目</button>
             </header>
             <div className="project-progress"><div><span>任务进度</span><strong>{overview.stats.completionPercent}%</strong></div><i><b style={{ width: `${overview.stats.completionPercent}%`, background: overview.project.color }} /></i></div>
@@ -864,7 +872,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
 
       {projectDraft && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) { setProjectDialogError(undefined); setProjectDraft(undefined); } }}>
         <section className="calendar-dialog note-project-dialog panel" role="dialog" aria-modal="true" aria-labelledby="project-management-dialog-title">
-          <header><div><span>定义项目边界和持续推进的上下文</span><h2 id="project-management-dialog-title">{projectDraft.id ? "编辑项目" : "新建项目"}</h2></div><button aria-label="关闭" onClick={() => { setProjectDialogError(undefined); setProjectDraft(undefined); }} disabled={busy}><X size={18} /></button></header>
+          <header><div><h2 id="project-management-dialog-title">{projectDraft.id ? "编辑项目" : "新建项目"}</h2></div><button aria-label="关闭" onClick={() => { setProjectDialogError(undefined); setProjectDraft(undefined); }} disabled={busy}><X size={18} /></button></header>
           <div className="note-project-form">
             {projectDialogError && <div className="project-dialog-error" role="alert"><AlertCircle size={15} /><span><strong>{projectDraft.id ? "保存失败" : "创建失败"}</strong><small>{projectDialogError}</small></span></div>}
             <label><span>项目名称</span><input autoFocus value={projectDraft.name} maxLength={100} onChange={(event) => setProjectDraft({ ...projectDraft, name: event.target.value })} placeholder="例如 博士论文" /></label>
@@ -873,23 +881,23 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
             {projectDraft.id && <label><span>状态</span><AppSelect ariaLabel="项目状态" value={projectDraft.status} onValueChange={(status) => setProjectDraft({ ...projectDraft, status: status as "active" | "archived" })} options={[{ value: "active", label: "进行中" }, { value: "archived", label: "已归档" }]} /></label>}
             <label className="note-project-description"><span>项目说明</span><textarea value={projectDraft.description} maxLength={2_000} onChange={(event) => setProjectDraft({ ...projectDraft, description: event.target.value })} placeholder="这个项目要达成什么？完成标准是什么？" /></label>
           </div>
-          <footer><small>{busy ? "正在保存项目…" : "归档项目会保留历史任务和笔记，但不能新增内容。"}</small><div><button className="secondary-button" disabled={busy} onClick={() => { setProjectDialogError(undefined); setProjectDraft(undefined); }}>取消</button><button className="primary-button" disabled={busy || !projectDraft.name.trim()} onClick={() => void saveProject()}>{busy && <LoaderCircle className="spin" size={14} />}{busy ? (projectDraft.id ? "保存中" : "创建中") : (projectDraft.id ? "保存修改" : "创建项目")}</button></div></footer>
+          <footer><div><button className="secondary-button" disabled={busy} onClick={() => { setProjectDialogError(undefined); setProjectDraft(undefined); }}>取消</button><button className="primary-button" disabled={busy || !projectDraft.name.trim()} onClick={() => void saveProject()}>{busy && <LoaderCircle className="spin" size={14} />}{busy ? (projectDraft.id ? "保存中" : "创建中") : (projectDraft.id ? "保存修改" : "创建项目")}</button></div></footer>
         </section>
       </div>}
       {milestoneDraft && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setMilestoneDraft(undefined); }}>
         <section className="calendar-dialog project-milestone-dialog panel" role="dialog" aria-modal="true" aria-labelledby="project-milestone-dialog-title">
-          <header><div><span>定义一个可验证的项目节点</span><h2 id="project-milestone-dialog-title">{milestoneDraft.id ? "编辑里程碑" : "新建里程碑"}</h2></div><button aria-label="关闭" onClick={() => setMilestoneDraft(undefined)} disabled={busy}><X size={18} /></button></header>
+          <header><div><h2 id="project-milestone-dialog-title">{milestoneDraft.id ? "编辑里程碑" : "新建里程碑"}</h2></div><button aria-label="关闭" onClick={() => setMilestoneDraft(undefined)} disabled={busy}><X size={18} /></button></header>
           <div className="project-milestone-form">
             <label className="wide"><span>标题</span><input autoFocus value={milestoneDraft.title} maxLength={240} onChange={(event) => setMilestoneDraft({ ...milestoneDraft, title: event.target.value })} placeholder="例如 完成无人机飞行原型" /></label>
             <label><span>目标日期</span><input type="date" value={milestoneDraft.dueOn} onChange={(event) => setMilestoneDraft({ ...milestoneDraft, dueOn: event.target.value })} /></label>
             <label><span>状态</span><AppSelect ariaLabel="里程碑状态" value={milestoneDraft.status} onValueChange={(status) => setMilestoneDraft({ ...milestoneDraft, status: status as ClientProjectMilestone["status"] })} options={[{ value: "planned", label: "计划中" }, { value: "active", label: "进行中" }, { value: "done", label: "已完成" }]} /></label>
           </div>
-          <footer><small>里程碑只保留关键节点；具体工作继续放在任务中。</small><div><button className="secondary-button" disabled={busy} onClick={() => setMilestoneDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !milestoneDraft.title.trim()} onClick={() => void saveMilestone()}>{busy && <LoaderCircle className="spin" size={14} />}{milestoneDraft.id ? "保存修改" : "添加里程碑"}</button></div></footer>
+          <footer><div><button className="secondary-button" disabled={busy} onClick={() => setMilestoneDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !milestoneDraft.title.trim()} onClick={() => void saveMilestone()}>{busy && <LoaderCircle className="spin" size={14} />}{milestoneDraft.id ? "保存修改" : "添加里程碑"}</button></div></footer>
         </section>
       </div>}
       {ganttDraft && overview && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setGanttDraft(undefined); }}>
         <section className="calendar-dialog project-gantt-dialog panel" role="dialog" aria-modal="true" aria-labelledby="project-gantt-dialog-title">
-          <header><div><span>设置计划时间和前置任务</span><h2 id="project-gantt-dialog-title">{ganttDraft.taskTitle}</h2></div><button aria-label="关闭" onClick={() => setGanttDraft(undefined)} disabled={busy}><X size={18} /></button></header>
+          <header><div><h2 id="project-gantt-dialog-title">{ganttDraft.taskTitle}</h2></div><button aria-label="关闭" onClick={() => setGanttDraft(undefined)} disabled={busy}><X size={18} /></button></header>
           <div className="project-gantt-form">
             <label><span>所属阶段</span><AppSelect ariaLabel="所属阶段" value={ganttDraft.phaseId} onValueChange={(phaseId) => setGanttDraft({ ...ganttDraft, phaseId })} options={[{ value: "", label: "未分组" }, ...overview.phases.map((phase) => ({ value: phase.id, label: phase.name }))]} /></label>
             <label><span>计划开始</span><input type="date" disabled={ganttDraft.autoSchedule && ganttDraft.dependencyIds.length > 0} value={ganttDraft.plannedStart} onChange={(event) => {
@@ -907,22 +915,22 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
               setGanttDraft({ ...ganttDraft, dependencyIds, autoSchedule: event.target.checked ? true : ganttDraft.autoSchedule });
             }} /><span>{task.title}</span></label>)}</div>{overview.ganttTasks.length <= 1 && <p>项目中还没有其他任务可作为依赖。</p>}</fieldset>
           </div>
-          <footer><small>系统会拒绝跨项目依赖、自依赖和循环依赖。</small><div><button className="secondary-button" disabled={busy} onClick={() => setGanttDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !ganttDraft.plannedStart || !ganttDraft.plannedEnd} onClick={() => void saveGanttPlan()}>{busy && <LoaderCircle className="spin" size={14} />}保存计划</button></div></footer>
+          <footer><div><button className="secondary-button" disabled={busy} onClick={() => setGanttDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !ganttDraft.plannedStart || !ganttDraft.plannedEnd} onClick={() => void saveGanttPlan()}>{busy && <LoaderCircle className="spin" size={14} />}保存计划</button></div></footer>
         </section>
       </div>}
       {phaseDraft && overview && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setPhaseDraft(undefined); }}>
         <section className="calendar-dialog project-phase-dialog panel" role="dialog" aria-modal="true" aria-labelledby="project-phase-dialog-title">
-          <header><div><span>用阶段组织较长项目中的任务</span><h2 id="project-phase-dialog-title">{phaseDraft.id ? "编辑阶段" : "新建阶段"}</h2></div><button aria-label="关闭" onClick={() => setPhaseDraft(undefined)} disabled={busy}><X size={18} /></button></header>
+          <header><div><h2 id="project-phase-dialog-title">{phaseDraft.id ? "编辑阶段" : "新建阶段"}</h2></div><button aria-label="关闭" onClick={() => setPhaseDraft(undefined)} disabled={busy}><X size={18} /></button></header>
           <div className="project-phase-form">
             <label><span>阶段名称</span><input autoFocus maxLength={120} value={phaseDraft.name} onChange={(event) => setPhaseDraft({ ...phaseDraft, name: event.target.value })} placeholder="例如 原型开发" /></label>
             <label className="note-project-color"><span>颜色</span><input type="color" value={phaseDraft.color} onChange={(event) => setPhaseDraft({ ...phaseDraft, color: event.target.value })} /></label>
           </div>
-          <footer><small>阶段日期和进度会根据内部任务自动计算。</small><div><button className="secondary-button" disabled={busy} onClick={() => setPhaseDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !phaseDraft.name.trim()} onClick={() => void savePhase()}>{busy && <LoaderCircle className="spin" size={14} />}{phaseDraft.id ? "保存修改" : "添加阶段"}</button></div></footer>
+          <footer><div><button className="secondary-button" disabled={busy} onClick={() => setPhaseDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !phaseDraft.name.trim()} onClick={() => void savePhase()}>{busy && <LoaderCircle className="spin" size={14} />}{phaseDraft.id ? "保存修改" : "添加阶段"}</button></div></footer>
         </section>
       </div>}
       {ganttTaskDraft && overview && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setGanttTaskDraft(undefined); }}>
         <section className="calendar-dialog project-gantt-task-dialog panel" role="dialog" aria-modal="true" aria-labelledby="project-gantt-task-dialog-title">
-          <header><div><span>直接添加到当前项目计划</span><h2 id="project-gantt-task-dialog-title">新建任务</h2></div><button aria-label="关闭" onClick={() => setGanttTaskDraft(undefined)} disabled={busy}><X size={18} /></button></header>
+          <header><div><h2 id="project-gantt-task-dialog-title">新建任务</h2></div><button aria-label="关闭" onClick={() => setGanttTaskDraft(undefined)} disabled={busy}><X size={18} /></button></header>
           <div className="project-gantt-task-form">
             <label className="wide"><span>任务名称</span><input autoFocus maxLength={240} value={ganttTaskDraft.title} onChange={(event) => setGanttTaskDraft({ ...ganttTaskDraft, title: event.target.value })} placeholder="需要完成什么？" /></label>
             <label><span>所属阶段</span><AppSelect ariaLabel="所属阶段" value={ganttTaskDraft.phaseId} onValueChange={(phaseId) => setGanttTaskDraft({ ...ganttTaskDraft, phaseId })} options={[{ value: "", label: "未分组" }, ...overview.phases.map((phase) => ({ value: phase.id, label: phase.name }))]} /></label>

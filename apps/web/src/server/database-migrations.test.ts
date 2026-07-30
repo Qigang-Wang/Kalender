@@ -31,6 +31,7 @@ async function main() {
   await withTemporaryDatabase(verifyAtomicMigrations);
   await withTemporaryDatabase(verifyLegacyUpgrade);
   await withTemporaryDatabase(verifyApplicationDatabaseStartup);
+  await withTemporaryDatabase(verifyRealtimeNotifications);
   console.log("Database migration tests passed");
 }
 
@@ -253,6 +254,68 @@ async function verifyApplicationDatabaseStartup(database: TestPostgresDatabase, 
   );
   assert((tables.rows[0]?.count ?? 0) > 0, "application startup creates PostgreSQL tables");
   await closeDatabaseForRestore();
+}
+
+async function verifyRealtimeNotifications(database: TestPostgresDatabase, databaseUrl: string) {
+  await runDatabaseMigrations(database, DATABASE_MIGRATIONS);
+  const listener = new pg.Client({ connectionString: databaseUrl });
+  const notifications: string[] = [];
+  listener.on("notification", (notification) => {
+    if (notification.channel === "kalender_realtime" && notification.payload) {
+      notifications.push(notification.payload);
+    }
+  });
+  await listener.connect();
+  await listener.query("LISTEN kalender_realtime");
+  try {
+    await database.query(`
+      INSERT INTO sync_settings (id, updated_at)
+      VALUES ('workspace', now())
+      ON CONFLICT (id) DO UPDATE SET updated_at = EXCLUDED.updated_at
+    `);
+    await waitFor(() => notifications.some((payload) => {
+      const event = JSON.parse(payload) as {
+        readonly topic?: string;
+        readonly action?: string;
+        readonly entityType?: string;
+        readonly entityId?: string;
+      };
+      return event.topic === "settings"
+        && event.entityType === "sync_settings"
+        && event.entityId === "workspace"
+        && (event.action === "insert" || event.action === "update");
+    }));
+
+    await database.query(
+      `INSERT INTO app_jobs (id, kind, status, title, progress)
+       VALUES ($1, 'maintenance', 'running', 'Realtime test', 42)`,
+      ["realtime-job"],
+    );
+    await waitFor(() => notifications.some((payload) => {
+      const event = JSON.parse(payload) as {
+        readonly topic?: string;
+        readonly entityType?: string;
+        readonly entityId?: string;
+        readonly status?: string;
+        readonly progress?: number;
+      };
+      return event.topic === "job"
+        && event.entityType === "app_jobs"
+        && event.entityId === "realtime-job"
+        && event.status === "running"
+        && event.progress === 42;
+    }));
+  } finally {
+    await listener.end();
+  }
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error("Timed out waiting for PostgreSQL realtime notification");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 }
 
 async function withTemporaryDatabase(

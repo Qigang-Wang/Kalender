@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: workspaceRoot,
   reactStrictMode: true,
   devIndicators: false,
-  allowedDevOrigins: ["127.0.0.1", "localhost", "192.168.178.49", ...configuredDevOrigins],
+  allowedDevOrigins: ["127.0.0.1", "localhost", ...configuredDevOrigins],
   serverExternalPackages: ["imapflow", "nodemailer", "pg", "postal-mime"],
 };
 

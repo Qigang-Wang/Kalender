@@ -58,6 +58,7 @@ import {
   UserRound,
   Users,
   WandSparkles,
+  Wifi,
   WifiOff,
   X,
 } from "lucide-react";
@@ -65,6 +66,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 
 import { ContextMenu } from "./context-menu";
 import { AppSelect } from "./app-select";
+import { BrandLogo } from "./brand-logo";
 import { MailSignatureSettings } from "./mail-signature-settings";
 import { readThemePreference, saveThemePreference } from "./theme-controller";
 import { TransientToast } from "./workspace-shared";
@@ -82,6 +84,14 @@ import { WorkspaceAssistantProvider, useWorkspaceAssistant } from "./workspace-a
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
 import { appConfirm, appPrompt } from "@/components/app-dialog-provider";
+import {
+  RealtimeProvider,
+  useRealtimeConnection,
+  useRealtimeEvent,
+  useRealtimeRefresh,
+  type RealtimeEvent,
+  type RealtimeTopic,
+} from "@/components/realtime-context";
 import {
   SyncSettingsProvider,
   useSyncSettings,
@@ -225,6 +235,7 @@ interface SidebarProjectSummary {
   readonly areaName?: string;
   readonly color: string;
   readonly status: "active" | "archived";
+  readonly noteCount?: number;
 }
 
 interface SidebarProjectMenuState {
@@ -283,28 +294,26 @@ const sidebarTaskViews: ReadonlyArray<{
   { view: "matrix", label: "四象限", icon: LayoutGrid },
 ];
 
-type SettingsTab = "appearance" | "profile" | "users" | "diagnostics" | "jobs" | "operations" | "sync" | "mail" | "calendar" | "shortcuts" | "ai" | "backup" | "todo";
+type SettingsTab = "appearance" | "profile" | "users" | "diagnostics" | "jobs" | "operations" | "sync" | "mail" | "calendar" | "shortcuts" | "ai" | "backup";
 
 const settingsNavigation: ReadonlyArray<{
   tab: SettingsTab;
   label: string;
   icon: typeof Inbox;
   adminOnly?: boolean;
-  badge?: string;
 }> = [
   { tab: "appearance", label: "外观", icon: Palette },
-  { tab: "profile", label: "个人", icon: UserRound },
-  { tab: "users", label: "用户", icon: Users, adminOnly: true },
-  { tab: "diagnostics", label: "诊断", icon: ShieldCheck, adminOnly: true },
-  { tab: "jobs", label: "任务", icon: Clock3 },
-  { tab: "operations", label: "运维", icon: HardDrive, adminOnly: true },
+  { tab: "profile", label: "账号", icon: UserRound },
+  { tab: "users", label: "用户管理", icon: Users, adminOnly: true },
+  { tab: "diagnostics", label: "数据诊断", icon: ShieldCheck, adminOnly: true },
+  { tab: "jobs", label: "后台任务", icon: Clock3 },
+  { tab: "operations", label: "系统状态", icon: HardDrive, adminOnly: true },
   { tab: "sync", label: "同步", icon: RefreshCw },
-  { tab: "mail", label: "邮件", icon: Mail },
-  { tab: "calendar", label: "日历", icon: CalendarDays },
+  { tab: "mail", label: "邮箱账户", icon: Mail },
+  { tab: "calendar", label: "日历账户", icon: CalendarDays },
   { tab: "shortcuts", label: "快捷键", icon: Keyboard },
-  { tab: "ai", label: "AI", icon: WandSparkles },
+  { tab: "ai", label: "AI 设置", icon: WandSparkles },
   { tab: "backup", label: "备份", icon: DatabaseBackup },
-  { tab: "todo", label: "ToDo", icon: ListChecks, badge: "预留" },
 ];
 
 function visibleSettingsNavigation(role: AppRole) {
@@ -407,11 +416,18 @@ interface WorkspaceAppProps {
   readonly initialEventId?: string;
   readonly initialCalendarDate?: string;
   readonly initialNoteId?: string;
+  readonly initialNoteFilter?: "pinned" | "unfiled";
   readonly initialProjectId?: string;
 }
 
 export function WorkspaceApp(props: WorkspaceAppProps) {
-  return <SyncSettingsProvider><WorkspaceAppContent {...props} /></SyncSettingsProvider>;
+  return (
+    <RealtimeProvider>
+      <SyncSettingsProvider>
+        <WorkspaceAppContent {...props} />
+      </SyncSettingsProvider>
+    </RealtimeProvider>
+  );
 }
 
 function WorkspaceAppContent({
@@ -428,6 +444,7 @@ function WorkspaceAppContent({
   initialEventId,
   initialCalendarDate,
   initialNoteId,
+  initialNoteFilter,
   initialProjectId,
 }: WorkspaceAppProps) {
   useVisualViewportLayout();
@@ -621,6 +638,7 @@ function WorkspaceAppContent({
     else await refreshSidebarMailSummary();
   }, [refreshSidebarMail, refreshSidebarMailSummary, section]);
   useVisiblePageRefresh(refreshVisibleSidebarMail);
+  useRealtimeRefresh(["mail"], refreshVisibleSidebarMail);
 
   const refreshSidebarCalendars = useCallback(async () => {
     const response = await workspaceFetch("/api/calendars", {}, 0);
@@ -683,6 +701,49 @@ function WorkspaceAppContent({
     setSidebarProjects(projectsPayload.projects ?? []);
     setSidebarTasks(tasksPayload.tasks ?? []);
   }, []);
+  const refreshRealtimeSidebarCalendars = useCallback(async () => {
+    if (section === "calendar") await refreshSidebarCalendars();
+  }, [refreshSidebarCalendars, section]);
+  const refreshRealtimeSidebarTasks = useCallback(async () => {
+    if (section === "tasks") await refreshSidebarTasks();
+  }, [refreshSidebarTasks, section]);
+  const refreshRealtimeSidebarProjects = useCallback(async () => {
+    if (section === "projects" || section === "notes") await refreshSidebarProjects();
+  }, [refreshSidebarProjects, section]);
+  useRealtimeRefresh(["calendar"], refreshRealtimeSidebarCalendars);
+  useRealtimeRefresh([], refreshRealtimeSidebarTasks);
+  useRealtimeRefresh(["project", "task", "note"], refreshRealtimeSidebarProjects);
+  const applyRealtimeSidebarTask = useCallback(async (event: RealtimeEvent) => {
+    if (section !== "tasks") return;
+    if (event.entityType !== "tasks" || !event.entityId) {
+      await refreshSidebarTasks();
+      return;
+    }
+    if (event.action === "delete") {
+      setSidebarTasks((current) => current?.filter((task) => task.id !== event.entityId));
+      return;
+    }
+    const response = await workspaceFetch(`/api/tasks/${encodeURIComponent(event.entityId)}`, {}, 0);
+    if (response.status === 404) {
+      setSidebarTasks((current) => current?.filter((task) => task.id !== event.entityId));
+      return;
+    }
+    const payload = await response.json() as {
+      readonly ok?: boolean;
+      readonly task?: SidebarTaskSummary;
+    };
+    if (!response.ok || !payload.ok || !payload.task) throw new Error("无法增量刷新任务");
+    setSidebarTasks((current) => {
+      if (!current) return [payload.task!];
+      const found = current.some((task) => task.id === payload.task!.id);
+      return found
+        ? current.map((task) => task.id === payload.task!.id ? payload.task! : task)
+        : [payload.task!, ...current];
+    });
+  }, [refreshSidebarTasks, section]);
+  useRealtimeEvent(["task"], (event) => {
+    void applyRealtimeSidebarTask(event).catch(() => refreshSidebarTasks().catch(() => undefined));
+  });
 
   useEffect(() => {
     if (section !== "calendar") return;
@@ -700,7 +761,7 @@ function WorkspaceAppContent({
   }, [refreshSidebarTasks, section]);
 
   useEffect(() => {
-    if (section !== "projects") return;
+    if (section !== "projects" && section !== "notes") return;
     setSidebarProjects(undefined);
     void refreshSidebarProjects().catch(() => setSidebarProjects([]));
     const refresh = () => { void refreshSidebarProjects().catch(() => undefined); };
@@ -716,6 +777,9 @@ function WorkspaceAppContent({
 
   const sidebarTaskCounts = sidebarTasks ? createSidebarTaskCounts(sidebarTasks) : undefined;
   const sidebarProjectTaskCounts = sidebarTasks ? createSidebarProjectTaskCounts(sidebarTasks) : undefined;
+  const sidebarProjectNoteCounts = sidebarProjects
+    ? new Map(sidebarProjects.map((project) => [project.id, project.noteCount ?? 0]))
+    : undefined;
   const activeSidebarProjects = sidebarProjects?.filter((project) => project.status === "active") ?? [];
   const archivedSidebarProjects = sidebarProjects?.filter((project) => project.status === "archived") ?? [];
   const activeSidebarProjectGroups = groupSidebarProjectsByArea(activeSidebarProjects);
@@ -908,7 +972,7 @@ function WorkspaceAppContent({
     <div className="app-shell" style={{ "--workspace-sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
         <div className="brand-row">
-          <div className="brand-mark"><Sparkles size={18} /></div>
+          <BrandLogo className="brand-mark" />
           <div><strong>个人工作台</strong><span>Quiet Intelligence</span></div>
           <button className="mobile-close" aria-label="关闭导航" onClick={() => setSidebarOpen(false)}><X /></button>
         </div>
@@ -925,7 +989,7 @@ function WorkspaceAppContent({
 
         {section === "settings" && <div className="account-block sidebar-context-block settings-sidebar-block">
           <nav className="sidebar-settings-links" aria-label="设置分类">
-            {visibleSettingItems.map(({ tab, label, icon: Icon, badge }) => (
+            {visibleSettingItems.map(({ tab, label, icon: Icon }) => (
               <Link
                 className={activeSettingsTab === tab ? "active" : ""}
                 href={`/settings?tab=${tab}`}
@@ -934,7 +998,6 @@ function WorkspaceAppContent({
               >
                 <Icon size={14} />
                 <span>{label}</span>
-                {badge && <em>{badge}</em>}
               </Link>
             ))}
           </nav>
@@ -1054,7 +1117,7 @@ function WorkspaceAppContent({
               collapsedAreas={collapsedProjectAreas}
               groups={activeSidebarProjectGroups}
               selectedProjectId={initialProjectId ?? defaultSidebarProjectId}
-              taskCounts={sidebarProjectTaskCounts}
+              counts={sidebarProjectTaskCounts}
               onNavigate={() => setSidebarOpen(false)}
               onAreaContextMenu={(areaName, x, y, returnFocus) => {
                 setSidebarProjectMenu(undefined);
@@ -1076,7 +1139,7 @@ function WorkspaceAppContent({
                 collapsedAreas={collapsedProjectAreas}
                 groups={archivedSidebarProjectGroups}
                 selectedProjectId={initialProjectId ?? defaultSidebarProjectId}
-                taskCounts={sidebarProjectTaskCounts}
+                counts={sidebarProjectTaskCounts}
                 onNavigate={() => setSidebarOpen(false)}
                 onAreaContextMenu={(areaName, x, y, returnFocus) => {
                   setSidebarProjectMenu(undefined);
@@ -1094,6 +1157,38 @@ function WorkspaceAppContent({
               />
             </details>}
           </> : <button className="sidebar-create-project" type="button" onClick={() => {
+            window.dispatchEvent(new Event(OPEN_PROJECT_DIALOG_EVENT));
+            setSidebarOpen(false);
+          }}><Plus size={13} />创建第一个项目</button>}
+        </div>}
+
+        {section === "notes" && <div className="account-block sidebar-context-block">
+          <div className="sidebar-context-heading">
+            <p className="eyebrow">笔记项目</p>
+            <button
+              type="button"
+              aria-label="新建项目"
+              title="新建项目"
+              onClick={() => {
+                window.dispatchEvent(new Event(OPEN_PROJECT_DIALOG_EVENT));
+                setSidebarOpen(false);
+              }}
+            ><Plus size={14} /></button>
+          </div>
+          {sidebarProjects === undefined ? <small>正在读取项目…</small> : activeSidebarProjects.length ? <SidebarProjectGroups
+            collapsedAreas={collapsedProjectAreas}
+            groups={activeSidebarProjectGroups}
+            selectedProjectId={initialProjectId}
+            counts={sidebarProjectNoteCounts}
+            countLabel="篇笔记"
+            projectHref={(project) => `/notes?project=${encodeURIComponent(project.id)}`}
+            onNavigate={() => setSidebarOpen(false)}
+            onToggleArea={(areaName) => setCollapsedProjectAreas((current) => {
+              const next = new Set(current);
+              if (next.has(areaName)) next.delete(areaName); else next.add(areaName);
+              return next;
+            })}
+          /> : <button className="sidebar-create-project" type="button" onClick={() => {
             window.dispatchEvent(new Event(OPEN_PROJECT_DIALOG_EVENT));
             setSidebarOpen(false);
           }}><Plus size={13} />创建第一个项目</button>}
@@ -1139,7 +1234,7 @@ function WorkspaceAppContent({
           style={{ "--context-assistant-width": `${assistantWidth}px` } as CSSProperties}
         >
           <main className="page-main">
-            <PageContent section={section} currentUser={currentUser} initialMessageId={initialMessageId} initialMailFolderId={initialMailFolderId} initialMailCorrespondent={initialMailCorrespondent} initialComposeTo={initialComposeTo} initialTaskId={initialTaskId} initialTaskView={initialTaskView} initialCreateTask={initialCreateTask} initialScheduleTaskId={initialScheduleTaskId} initialEventId={initialEventId} initialCalendarDate={initialCalendarDate} initialNoteId={initialNoteId} initialProjectId={initialProjectId} onOpenAssistant={() => setAssistantOpen(true)} />
+            <PageContent section={section} currentUser={currentUser} initialMessageId={initialMessageId} initialMailFolderId={initialMailFolderId} initialMailCorrespondent={initialMailCorrespondent} initialComposeTo={initialComposeTo} initialTaskId={initialTaskId} initialTaskView={initialTaskView} initialCreateTask={initialCreateTask} initialScheduleTaskId={initialScheduleTaskId} initialEventId={initialEventId} initialCalendarDate={initialCalendarDate} initialNoteId={initialNoteId} initialNoteFilter={initialNoteFilter} initialProjectId={initialProjectId} onOpenAssistant={() => setAssistantOpen(true)} />
           </main>
           {assistantAvailable && assistantOpen && <>
             <button className="assistant-scrim" type="button" aria-label="关闭上下文助手" onClick={() => setAssistantOpen(false)} />
@@ -1232,8 +1327,8 @@ function WorkspaceAppContent({
         if (event.target === event.currentTarget && !sidebarProjectBusyId) setSidebarProjectAreaTargetId(undefined);
       }}>
         <section className="calendar-dialog project-area-dialog panel" role="dialog" aria-modal="true" aria-labelledby="project-area-dialog-title">
-          <header><div><span>重新组织项目</span><h2 id="project-area-dialog-title">移动到领域</h2></div><button aria-label="关闭" disabled={Boolean(sidebarProjectBusyId)} onClick={() => setSidebarProjectAreaTargetId(undefined)}><X size={18} /></button></header>
-          <p>选择“{sidebarProjectAreaTarget.name}”所属的领域。</p>
+          <header><div><h2 id="project-area-dialog-title">移动到领域</h2></div><button aria-label="关闭" disabled={Boolean(sidebarProjectBusyId)} onClick={() => setSidebarProjectAreaTargetId(undefined)}><X size={18} /></button></header>
+          <p>“{sidebarProjectAreaTarget.name}”所属领域</p>
           <div className="project-area-options">
             {Array.from(new Set([...allSidebarProjectAreas, "未分类"])).map((areaName) => {
               const currentAreaName = sidebarProjectAreaTarget.areaName?.trim() || "未分类";
@@ -1248,7 +1343,6 @@ function WorkspaceAppContent({
               }}><Folder size={14} /><span>{areaName}</span>{current && <Check size={13} />}</button>;
             })}
           </div>
-          <footer><small>移动领域不会改变项目中的任务、笔记或日程。</small><div><button className="secondary-button" disabled={Boolean(sidebarProjectBusyId)} onClick={() => setSidebarProjectAreaTargetId(undefined)}>取消</button></div></footer>
         </section>
       </div>}
     </div>
@@ -2006,7 +2100,9 @@ function SidebarProjectGroups({
   collapsedAreas,
   groups,
   selectedProjectId,
-  taskCounts,
+  counts,
+  countLabel = "个未完成任务",
+  projectHref = (project) => `/projects?project=${encodeURIComponent(project.id)}`,
   onNavigate,
   onAreaContextMenu,
   onToggleArea,
@@ -2015,17 +2111,20 @@ function SidebarProjectGroups({
   readonly collapsedAreas: ReadonlySet<string>;
   readonly groups: readonly SidebarProjectGroup[];
   readonly selectedProjectId?: string;
-  readonly taskCounts?: ReadonlyMap<string, number>;
+  readonly counts?: ReadonlyMap<string, number>;
+  readonly countLabel?: string;
+  readonly projectHref?: (project: SidebarProjectSummary) => string;
   readonly onNavigate: () => void;
-  readonly onAreaContextMenu: (areaName: string, x: number, y: number, returnFocus?: HTMLElement | null) => void;
+  readonly onAreaContextMenu?: (areaName: string, x: number, y: number, returnFocus?: HTMLElement | null) => void;
   readonly onToggleArea: (areaName: string) => void;
-  readonly onProjectContextMenu: (projectId: string, x: number, y: number, returnFocus?: HTMLElement | null) => void;
+  readonly onProjectContextMenu?: (projectId: string, x: number, y: number, returnFocus?: HTMLElement | null) => void;
 }) {
   return <div className="sidebar-project-groups">
     {groups.map((group) => {
       const collapsed = collapsedAreas.has(group.areaName);
       return <section className={`sidebar-project-group ${collapsed ? "collapsed" : ""}`} key={group.areaName}>
       <h3 onContextMenu={(event) => {
+        if (!onAreaContextMenu) return;
         event.preventDefault();
         onAreaContextMenu(group.areaName, event.clientX, event.clientY, event.currentTarget.querySelector("button"));
       }}><button type="button" aria-expanded={!collapsed} onClick={() => onToggleArea(group.areaName)}><ChevronRight size={11} />{group.areaName}</button><span>{group.projects.length}</span></h3>
@@ -2034,7 +2133,9 @@ function SidebarProjectGroups({
           active={selectedProjectId === project.id}
           key={project.id}
           project={project}
-          taskCount={taskCounts?.get(project.id) ?? 0}
+          count={counts?.get(project.id) ?? 0}
+          countLabel={countLabel}
+          href={projectHref(project)}
           onNavigate={onNavigate}
           onContextMenu={onProjectContextMenu}
         />)}
@@ -2047,28 +2148,33 @@ function SidebarProjectGroups({
 function SidebarProjectLink({
   active,
   project,
-  taskCount,
+  count,
+  countLabel,
+  href,
   onNavigate,
   onContextMenu,
 }: {
   readonly active: boolean;
   readonly project: SidebarProjectSummary;
-  readonly taskCount: number;
+  readonly count: number;
+  readonly countLabel: string;
+  readonly href: string;
   readonly onNavigate: () => void;
-  readonly onContextMenu: (projectId: string, x: number, y: number, returnFocus?: HTMLElement | null) => void;
+  readonly onContextMenu?: (projectId: string, x: number, y: number, returnFocus?: HTMLElement | null) => void;
 }) {
   return <Link
     className={active ? "active" : ""}
-    href={`/projects?project=${encodeURIComponent(project.id)}`}
+    href={href}
     onClick={onNavigate}
     onContextMenu={(event) => {
+      if (!onContextMenu) return;
       event.preventDefault();
       onContextMenu(project.id, event.clientX, event.clientY, event.currentTarget);
     }}
   >
     <i style={{ background: project.color }} />
     <span><strong>{project.name}</strong></span>
-    <em title={`${taskCount} 个未完成任务`}>{taskCount}</em>
+    <em title={`${count} ${countLabel}`}>{count}</em>
   </Link>;
 }
 
@@ -2086,6 +2192,7 @@ function PageContent({
   initialEventId,
   initialCalendarDate,
   initialNoteId,
+  initialNoteFilter,
   initialProjectId,
   onOpenAssistant,
 }: {
@@ -2107,6 +2214,7 @@ function PageContent({
   readonly initialEventId?: string;
   readonly initialCalendarDate?: string;
   readonly initialNoteId?: string;
+  readonly initialNoteFilter?: "pinned" | "unfiled";
   readonly initialProjectId?: string;
   readonly onOpenAssistant: () => void;
 }) {
@@ -2116,7 +2224,7 @@ function PageContent({
     case "calendar": return <CalendarPage initialEventId={initialEventId} initialCalendarDate={initialCalendarDate} />;
     case "tasks": return <TasksPage initialTaskId={initialTaskId} initialTaskView={initialTaskView} initialCreateTask={initialCreateTask} initialProjectId={initialProjectId} initialScheduleTaskId={initialScheduleTaskId} />;
     case "projects": return <ProjectsPage initialProjectId={initialProjectId} />;
-    case "notes": return <NotesPage initialNoteId={initialNoteId} />;
+    case "notes": return <NotesPage initialNoteId={initialNoteId} initialFilter={initialNoteFilter} initialProjectId={initialProjectId} />;
     case "ai": return <AiPage />;
     case "settings": return <SettingsPage currentUser={currentUser} />;
   }
@@ -2140,7 +2248,7 @@ function SettingsPage({ currentUser }: { readonly currentUser: WorkspaceUser }) 
         {activeTab === "profile" && <ProfileSettings currentUser={currentUser} />}
         {activeTab === "users" && currentUser.role === "admin" && <UserManagementSettings currentUser={currentUser} />}
         {activeTab === "diagnostics" && currentUser.role === "admin" && <WorkspaceDiagnosticsSettings />}
-        {activeTab === "jobs" && <JobCenterSettings currentUser={currentUser} />}
+        {activeTab === "jobs" && <JobCenterSettings />}
         {activeTab === "operations" && currentUser.role === "admin" && <OperationsSettings />}
         {activeTab === "sync" && <SyncSettings />}
         {activeTab === "mail" && <MailAccountSettings onManageExchange={() => router.push("/settings?tab=calendar")} />}
@@ -2148,13 +2256,6 @@ function SettingsPage({ currentUser }: { readonly currentUser: WorkspaceUser }) 
         {activeTab === "shortcuts" && <ShortcutsSettings />}
         {activeTab === "ai" && <><AiAutomationSettings /><AiProviderSettings /></>}
         {activeTab === "backup" && <BackupSettings />}
-        {activeTab === "todo" && (
-          <section className="settings-placeholder panel">
-            <div className="assistant-icon"><ListChecks size={17} /></div>
-            <div><h2>ToDo 服务连接</h2><p>这里将用于连接 Microsoft To Do、Todoist 等服务。当前任务仍保存在 Kalender 本地。</p></div>
-            <span className="step-badge">后续阶段</span>
-          </section>
-        )}
       </div>
     </div>
   );
@@ -2163,7 +2264,6 @@ function SettingsPage({ currentUser }: { readonly currentUser: WorkspaceUser }) 
 const shortcutGroups = [
   {
     title: "全局",
-    description: "在工作台任意位置可用，输入框和编辑器内除外。",
     shortcuts: [
       { keys: ["Ctrl/Cmd", "K"], action: "打开全局搜索" },
       { keys: ["Esc"], action: "关闭搜索、菜单或当前确认弹窗" },
@@ -2171,7 +2271,6 @@ const shortcutGroups = [
   },
   {
     title: "搜索",
-    description: "全局搜索结果和结果菜单。",
     shortcuts: [
       { keys: ["Enter"], action: "打开当前搜索结果" },
       { keys: ["Esc"], action: "关闭搜索面板" },
@@ -2181,7 +2280,6 @@ const shortcutGroups = [
   },
   {
     title: "上下文菜单",
-    description: "适用于已经打开的操作菜单。",
     shortcuts: [
       { keys: ["↑↓"], action: "在菜单项之间移动焦点" },
       { keys: ["Home"], action: "跳到第一个菜单项" },
@@ -2191,7 +2289,6 @@ const shortcutGroups = [
   },
   {
     title: "左侧导航",
-    description: "聚焦左侧导航宽度调节条后可用。",
     shortcuts: [
       { keys: ["←"], action: "缩小左侧导航" },
       { keys: ["→"], action: "放大左侧导航" },
@@ -2202,7 +2299,6 @@ const shortcutGroups = [
   },
   {
     title: "邮件",
-    description: "聚焦邮件列表或邮件线程后可用。",
     shortcuts: [
       { keys: ["↑↓"], action: "选择上一封或下一封邮件" },
       { keys: ["Shift", "↑↓"], action: "连续选择多封邮件" },
@@ -2220,7 +2316,6 @@ const shortcutGroups = [
   },
   {
     title: "日历",
-    description: "聚焦日历事件后可用。",
     shortcuts: [
       { keys: ["菜单键"], action: "打开日历事件操作菜单" },
       { keys: ["Shift", "F10"], action: "打开日历事件操作菜单" },
@@ -2229,7 +2324,6 @@ const shortcutGroups = [
   },
   {
     title: "项目计划",
-    description: "项目甘特图和计划条目。",
     shortcuts: [
       { keys: ["Ctrl", "滚轮"], action: "缩放项目甘特图时间轴" },
       { keys: ["Enter"], action: "编辑聚焦的计划任务" },
@@ -2240,7 +2334,6 @@ const shortcutGroups = [
   },
   {
     title: "笔记",
-    description: "笔记列表和富文本编辑器。",
     shortcuts: [
       { keys: ["菜单键"], action: "打开笔记操作菜单" },
       { keys: ["Shift", "F10"], action: "打开笔记操作菜单" },
@@ -2257,18 +2350,14 @@ const shortcutGroups = [
   },
   {
     title: "设置与运维",
-    description: "任务中心和备份历史列表。",
     shortcuts: [
-      { keys: ["菜单键"], action: "打开后台任务操作菜单" },
-      { keys: ["Shift", "F10"], action: "打开后台任务操作菜单" },
-      { keys: ["菜单键"], action: "打开备份历史操作菜单" },
-      { keys: ["Shift", "F10"], action: "打开备份历史操作菜单" },
+      { keys: ["菜单键"], action: "打开当前任务或备份的操作菜单" },
+      { keys: ["Shift", "F10"], action: "打开当前任务或备份的操作菜单" },
       { keys: ["Esc"], action: "关闭用户菜单或文件夹编辑浮层" },
     ],
   },
   {
     title: "编辑器块级格式",
-    description: "在笔记编辑器和邮件正文编辑器中使用。",
     shortcuts: [
       { keys: ["Ctrl/Cmd", "Alt", "1-6"], action: "切换为 1 至 6 级标题" },
       { keys: ["Ctrl/Cmd", "Alt", "8"], action: "切换代码块" },
@@ -2279,7 +2368,6 @@ const shortcutGroups = [
   },
   {
     title: "编辑器 AI 与工具弹层",
-    description: "Plate 编辑器内的 AI、评论、媒体和输入弹层。",
     shortcuts: [
       { keys: ["Tab"], action: "接受 AI 补全文本" },
       { keys: ["Ctrl/Cmd", "→"], action: "接受 AI 补全的下一个词" },
@@ -2295,7 +2383,6 @@ const shortcutGroups = [
   },
   {
     title: "AI Command",
-    description: "AI Command 对话输入框。",
     shortcuts: [
       { keys: ["Enter"], action: "发送当前消息" },
       { keys: ["Shift", "Enter"], action: "在消息中换行" },
@@ -2307,16 +2394,12 @@ function ShortcutsSettings() {
   return (
     <section className="shortcuts-settings panel">
       <div className="settings-section-heading">
-        <div><h2>快捷键</h2><p>把界面里的键盘提示集中放在这里，减少列表头部的信息负担。</p></div>
-        <span className="step-badge">操作参考</span>
+        <h2>快捷键</h2>
       </div>
       <div className="shortcuts-layout">
         {shortcutGroups.map((group) => (
           <section className="shortcut-card" key={group.title}>
-            <header>
-              <div className="assistant-icon"><Keyboard size={16} /></div>
-              <div><h3>{group.title}</h3><p>{group.description}</p></div>
-            </header>
+            <header><h3>{group.title}</h3></header>
             <div className="shortcut-list">
               {group.shortcuts.map((shortcut) => (
                 <div className="shortcut-row" key={`${group.title}:${shortcut.action}`}>
@@ -2390,9 +2473,10 @@ interface ContextMenuState {
   readonly returnFocus?: HTMLElement | null;
 }
 
-function JobCenterSettings({ currentUser }: { readonly currentUser: WorkspaceUser }) {
+function JobCenterSettings() {
   const [jobs, setJobs] = useState<readonly AppJobPayload[]>([]);
   const [loading, setLoading] = useState(true);
+  const [busyJobId, setBusyJobId] = useState<string>();
   const [filter, setFilter] = useState("active");
   const [menu, setMenu] = useState<ContextMenuState>();
   const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error"; readonly message: string }>();
@@ -2413,11 +2497,35 @@ function JobCenterSettings({ currentUser }: { readonly currentUser: WorkspaceUse
 
   useEffect(() => {
     void loadJobs();
-    const timer = window.setInterval(() => void loadJobs(), 5000);
-    return () => window.clearInterval(timer);
   }, [loadJobs]);
+  useRealtimeRefresh([], loadJobs, 80);
+  useRealtimeEvent(["job"], (event) => {
+    if (event.entityType !== "app_jobs" || !event.entityId) {
+      void loadJobs();
+      return;
+    }
+    if (event.action === "delete") {
+      setJobs((current) => current.filter((job) => job.id !== event.entityId));
+      return;
+    }
+    const nextStatus = appJobStatus(event.status);
+    const knownJob = jobs.some((job) => job.id === event.entityId);
+    setJobs((current) => current.map((job) => {
+      if (job.id !== event.entityId) return job;
+      return {
+        ...job,
+        ...(nextStatus ? { status: nextStatus } : {}),
+        ...(typeof event.progress === "number" ? { progress: event.progress } : {}),
+      };
+    }));
+    if (!knownJob || nextStatus === "succeeded" || nextStatus === "failed" || nextStatus === "cancelled") {
+      void loadJobs();
+    }
+  });
+  useVisiblePageRefresh(loadJobs, 60_000);
 
   const updateJob = async (job: AppJobPayload, action: "cancel" | "retry") => {
+    setBusyJobId(job.id);
     try {
       const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}`, {
         method: "PATCH",
@@ -2430,15 +2538,40 @@ function JobCenterSettings({ currentUser }: { readonly currentUser: WorkspaceUse
       await loadJobs();
     } catch (error) {
       setFeedback({ kind: "error", message: error instanceof Error ? error.message : "任务操作失败" });
+    } finally {
+      setBusyJobId(undefined);
+    }
+  };
+
+  const deleteJobRecord = async (job: AppJobPayload) => {
+    if (!await appConfirm({
+      title: `删除任务记录“${job.title}”？`,
+      description: "只会删除任务历史和日志，不会删除任务已经生成的备份或其他数据。",
+      confirmLabel: "删除记录",
+      tone: "danger",
+    })) return;
+    setBusyJobId(job.id);
+    try {
+      const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}`, { method: "DELETE" });
+      const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "无法删除任务记录");
+      setFeedback({ kind: "success", message: "任务记录已删除" });
+      await loadJobs();
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法删除任务记录" });
+    } finally {
+      setBusyJobId(undefined);
     }
   };
 
   const menuJob = menu ? jobs.find((job) => job.id === menu.id) : undefined;
+  const menuJobFinished = menuJob ? !["queued", "running"].includes(menuJob.status) : false;
   const jobCommands: readonly ResolvedContextCommand[] = menuJob ? [
     { id: "job.copy-id", label: "复制任务 ID", group: "primary", risk: "read", icon: "copy" },
     { id: "job.copy-logs", label: "复制日志", group: "primary", risk: "read", icon: "info", disabledReason: menuJob.logLines.length ? undefined : "暂无日志" },
     { id: "job.retry", label: "重新排队", group: "state", risk: "local-write", icon: "restore", disabledReason: menuJob.status === "failed" || menuJob.status === "cancelled" ? undefined : "只有失败或取消的任务可重试" },
     { id: "job.cancel", label: "取消任务", group: "danger", risk: "local-write", icon: "trash", disabledReason: menuJob.status === "queued" ? undefined : "只能取消排队任务" },
+    { id: "job.delete", label: "删除任务记录", group: "danger", risk: "destructive", icon: "trash", disabledReason: menuJobFinished ? undefined : "排队或运行中的任务不能删除" },
   ] : [];
 
   const openJobMenu = (event: ReactMouseEvent<HTMLElement>, job: AppJobPayload) => {
@@ -2452,12 +2585,13 @@ function JobCenterSettings({ currentUser }: { readonly currentUser: WorkspaceUse
     if (commandId === "job.copy-logs") void copyText(menuJob.logLines.join("\n"), "任务日志已复制", setFeedback);
     if (commandId === "job.retry") void updateJob(menuJob, "retry");
     if (commandId === "job.cancel") void updateJob(menuJob, "cancel");
+    if (commandId === "job.delete") void deleteJobRecord(menuJob);
   };
 
   return (
     <section className="job-center-settings panel">
       <div className="settings-section-heading">
-        <div><h2>任务中心</h2><p>{currentUser.role === "admin" ? "查看所有后台任务、进度和失败日志。" : "查看由你触发的后台任务。"}</p></div>
+        <h2>后台任务</h2>
         <span className="step-badge">{loading ? "读取中" : `${jobs.length} 个任务`}</span>
       </div>
       <div className="job-toolbar">
@@ -2488,8 +2622,9 @@ function JobCenterSettings({ currentUser }: { readonly currentUser: WorkspaceUse
             {job.errorMessage && <p>{job.errorMessage}</p>}
             {job.logLines.length > 0 && <details><summary>日志</summary>{job.logLines.slice(0, 8).map((line, index) => <code key={`${job.id}-${index}`}>{line}</code>)}</details>}
             <footer>
-              {job.status === "queued" && <button className="ghost-button" onClick={() => void updateJob(job, "cancel")}><X size={13} />取消</button>}
-              {(job.status === "failed" || job.status === "cancelled") && <button className="secondary-button" onClick={() => void updateJob(job, "retry")}><RefreshCw size={13} />重试</button>}
+              {job.status === "queued" && <button className="ghost-button" disabled={busyJobId === job.id} onClick={() => void updateJob(job, "cancel")}><X size={13} />取消</button>}
+              {(job.status === "failed" || job.status === "cancelled") && <button className="secondary-button" disabled={busyJobId === job.id} onClick={() => void updateJob(job, "retry")}><RefreshCw size={13} />重试</button>}
+              {!["queued", "running"].includes(job.status) && <button className="ghost-button danger-button" disabled={busyJobId === job.id} onClick={() => void deleteJobRecord(job)}><Trash2 size={13} />删除记录</button>}
             </footer>
           </article>
         )) : <div className="accounts-empty">{loading ? "正在读取任务…" : "暂无任务"}</div>}
@@ -2530,7 +2665,6 @@ interface OperationsPayload {
       readonly bytes: number;
       readonly files: number;
     }[];
-    readonly dockerRecommendation: readonly string[];
   };
   readonly jobs: { readonly queued: number; readonly running: number; readonly failed: number };
   readonly recentErrors: readonly {
@@ -2564,7 +2698,7 @@ function OperationsSettings() {
   return (
     <section className="operations-settings panel">
       <div className="settings-section-heading">
-        <div><h2>运维状态</h2><p>数据库、迁移、任务队列、备份工具和数据目录的运行状态。</p></div>
+        <h2>系统状态</h2>
         <button className="secondary-button" onClick={() => void loadOperations()}><RefreshCw size={14} />刷新</button>
       </div>
       {operations ? (
@@ -2579,11 +2713,11 @@ function OperationsSettings() {
           </div>
           <div className="operations-detail-grid">
             <section>
-              <h3>环境变量</h3>
+              <h3>功能配置</h3>
               <div className="operations-check-list">
-                <span className={operations.environment.aiAutoExecutionEnabled ? "ready" : ""}><Check size={13} />AI 自动执行入口：{operations.environment.aiAutoExecutionEnabled ? "开启" : "关闭"}</span>
-                <span className={operations.environment.backupPasswordConfigured ? "ready" : ""}>{operations.environment.backupPasswordConfigured ? <Check size={13} /> : <AlertCircle size={13} />}自动加密密码：{operations.environment.backupPasswordConfigured ? "已配置" : "未配置"}</span>
-                <span className={operations.environment.healthcheckTokenConfigured ? "ready" : ""}><ShieldCheck size={13} />健康检查令牌：{operations.environment.healthcheckTokenConfigured ? "已配置" : "公开轻量检查"}</span>
+                <span className={operations.environment.aiAutoExecutionEnabled ? "ready" : "optional"}><Check size={13} />AI 自动执行：{operations.environment.aiAutoExecutionEnabled ? "开启" : "关闭"}</span>
+                <span className={operations.environment.backupPasswordConfigured ? "ready" : "optional"}>{operations.environment.backupPasswordConfigured ? <Check size={13} /> : <Circle size={13} />}自动备份密码：{operations.environment.backupPasswordConfigured ? "已配置" : "按需配置"}</span>
+                <span className={operations.environment.healthcheckTokenConfigured ? "ready" : "optional"}><ShieldCheck size={13} />健康检查：{operations.environment.healthcheckTokenConfigured ? "受令牌保护" : "公开轻量检查"}</span>
               </div>
             </section>
             <section>
@@ -2603,12 +2737,6 @@ function OperationsSettings() {
                 {operations.recentErrors.length ? operations.recentErrors.map((item) => (
                   <article key={item.id}><strong>{item.title}</strong><small>{formatAccountTime(item.createdAt)}</small><p>{item.message}</p></article>
                 )) : <div className="accounts-empty">最近没有失败任务</div>}
-              </div>
-            </section>
-            <section>
-              <h3>Docker 文件夹建议</h3>
-              <div className="operations-recommendation-list">
-                {operations.storage.dockerRecommendation.map((item) => <p key={item}>{item}</p>)}
               </div>
             </section>
           </div>
@@ -2637,6 +2765,7 @@ const clientRefreshIntervals = [
 
 function SyncSettings() {
   const { settings, loading, canEdit, error, save } = useSyncSettings();
+  const realtime = useRealtimeConnection();
   const [draft, setDraft] = useState<ClientSyncSettings>(settings);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error"; readonly message: string }>();
@@ -2645,6 +2774,8 @@ function SyncSettings() {
 
   const changed = syncSettingsChanged(settings, draft);
   const activeServices = Number(draft.mailSyncEnabled) + Number(draft.calendarSyncEnabled);
+  const realtimeStatus = realtimeConnectionCopy(realtime.status);
+  const fallbackActive = realtime.status !== "connected" && draft.clientRefreshEnabled;
 
   const saveSettings = async () => {
     if (!canEdit || saving || !changed) return;
@@ -2664,24 +2795,48 @@ function SyncSettings() {
   return (
     <section className="sync-settings panel" aria-labelledby="sync-settings-title">
       <div className="settings-section-heading">
-        <div>
-          <h2 id="sync-settings-title">自动同步</h2>
-          <p>统一控制服务器后台同步和浏览器中的实时数据刷新，修改后无需重启服务。</p>
-        </div>
+        <h2 id="sync-settings-title">同步</h2>
         <span className="step-badge">{loading ? "读取中" : `${activeServices}/2 项运行`}</span>
       </div>
 
-      <div className="sync-settings-notice">
-        <RefreshCw size={17} />
-        <div>
-          <strong>工作区级设置</strong>
-          <span>后台同步会更新所有已启用账户；隐藏页面不会反复刷新，重新打开页面时会立即获取最新数据。</span>
+      <div className={`sync-realtime-overview ${realtime.status}`} role="status">
+        <span className="sync-realtime-icon">
+          {realtime.status === "connected"
+            ? <Wifi size={18} />
+            : realtime.status === "connecting"
+              ? <LoaderCircle className="spin" size={18} />
+              : <WifiOff size={18} />}
+        </span>
+        <div className="sync-realtime-copy">
+          <strong>{realtimeStatus.title}</strong>
+          <small>
+            {realtime.status === "connected"
+              ? "邮件、日历、任务和备份变化会立即推送到当前页面。"
+              : fallbackActive
+                ? `当前使用 ${formatRealtimeFallbackInterval(draft.clientRefreshIntervalMs)} 断线备用刷新。`
+                : realtimeStatus.description}
+          </small>
         </div>
+        <dl className="sync-realtime-metrics">
+          <div><dt>最近事件</dt><dd>{realtime.lastEvent ? `${realtimeTopicLabel(realtime.lastEvent.topic)} · ${formatAccountTime(realtime.lastEvent.occurredAt)}` : "暂无"}</dd></div>
+          <div><dt>本次连接</dt><dd>{realtime.connectedAt ? formatAccountTime(realtime.connectedAt) : "尚未连接"}</dd></div>
+          <div><dt>自动重连</dt><dd>{realtime.reconnectCount} 次</dd></div>
+        </dl>
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={realtime.status === "connecting"}
+          title="重新建立实时连接"
+          onClick={realtime.reconnect}
+        >
+          <RefreshCw size={14} />
+          重新连接
+        </button>
       </div>
 
       <div className="sync-settings-group">
         <header>
-          <div><h3>后台数据同步</h3><p>由服务器连接邮件与日历服务，即使浏览器页面关闭也会继续运行。</p></div>
+          <div><h3>后台数据同步</h3></div>
           <span>{activeServices ? "运行中" : "已暂停"}</span>
         </header>
         <SyncSettingsRow
@@ -2710,13 +2865,13 @@ function SyncSettings() {
 
       <div className="sync-settings-group">
         <header>
-          <div><h3>界面自动刷新</h3><p>后台同步完成后，自动让邮件、日历和侧边栏显示最新本地数据。</p></div>
-          <span>{draft.clientRefreshEnabled ? "已开启" : "已关闭"}</span>
+          <div><h3>断线备用刷新</h3></div>
+          <span>{draft.clientRefreshEnabled ? "备用已开启" : "备用已关闭"}</span>
         </header>
         <SyncSettingsRow
           icon={<Monitor size={17} />}
-          title="可见页面刷新"
-          description="仅在页面可见时轮询；切回窗口时立即刷新一次。"
+          title="可见页面备用刷新"
+          description="仅在实时连接断开且页面可见时运行；切回窗口时校验一次。"
           enabled={draft.clientRefreshEnabled}
           intervalMs={draft.clientRefreshIntervalMs}
           intervals={clientRefreshIntervals}
@@ -2747,6 +2902,36 @@ function SyncSettings() {
       </footer>
     </section>
   );
+}
+
+function realtimeConnectionCopy(status: ReturnType<typeof useRealtimeConnection>["status"]): {
+  readonly title: string;
+  readonly description: string;
+} {
+  if (status === "connected") return { title: "WebSocket 已连接", description: "实时推送工作正常。" };
+  if (status === "connecting") return { title: "正在连接实时服务", description: "正在建立经过会话鉴权的连接。" };
+  if (status === "offline") return { title: "浏览器当前离线", description: "网络恢复后会自动重新连接。" };
+  return { title: "实时连接已断开", description: "系统正在自动重连。" };
+}
+
+function realtimeTopicLabel(topic: RealtimeTopic): string {
+  return ({
+    system: "连接",
+    mail: "邮件",
+    calendar: "日历",
+    task: "任务",
+    project: "项目",
+    note: "笔记",
+    relation: "关联",
+    job: "后台任务",
+    backup: "备份",
+    settings: "设置",
+  } as Record<RealtimeTopic, string>)[topic];
+}
+
+function formatRealtimeFallbackInterval(intervalMs: number): string {
+  if (intervalMs < 60_000) return `${Math.round(intervalMs / 1_000)} 秒`;
+  return `${Math.round(intervalMs / 60_000)} 分钟`;
 }
 
 function SyncSettingsRow({
@@ -2825,15 +3010,15 @@ type DarkThemeTone = "dark-pro";
 
 function AppearanceSettings() {
   const [preference, setPreference] = useState(() => readThemePreference());
-  const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error"; readonly message: string }>();
+  const [feedback, setFeedback] = useState<string>();
 
   const saveAppearance = (next = preference) => {
     try {
       saveThemePreference(next);
       setPreference(next);
-      setFeedback({ kind: "success", message: "外观设置已保存" });
+      setFeedback(undefined);
     } catch {
-      setFeedback({ kind: "error", message: "无法保存外观设置" });
+      setFeedback("无法保存外观设置");
     }
   };
 
@@ -2858,8 +3043,7 @@ function AppearanceSettings() {
   return (
     <section className="appearance-settings panel">
       <div className="settings-section-heading">
-        <div><h2>外观</h2><p>选择默认模式和色调预设；主题会保存在当前浏览器。</p></div>
-        <span className="step-badge">{appearanceModeLabel(preference.mode)}</span>
+        <h2>外观</h2>
       </div>
       <div className="appearance-layout">
         <section>
@@ -2896,32 +3080,14 @@ function AppearanceSettings() {
             </button>
           </div>
         </section>
-        <section className="appearance-preview">
-          <h3>预览</h3>
-          <div>
-            <article>
-              <header><span /><strong>今日</strong><small>系统健康</small></header>
-              <p>5 个日程 · 8 项任务 · 12 封未读</p>
-              <button>查看工作台</button>
-            </article>
-            <article>
-              <header><span /><strong>备份</strong><small>自动策略</small></header>
-              <p>下次执行 02:00 · 保留 14 份</p>
-              <button>立即备份</button>
-            </article>
-          </div>
-        </section>
       </div>
-      {feedback && <div className={`user-settings-feedback ${feedback.kind}`}>{feedback.message}</div>}
+      {feedback && <div className="user-settings-feedback error">{feedback}</div>}
     </section>
   );
 }
 
-function appearanceModeLabel(mode: ThemeMode): string {
-  return mode === "system" ? "跟随系统" : mode === "light" ? "浅色" : "深色";
-}
-
 function ProfileSettings({ currentUser }: { readonly currentUser: WorkspaceUser }) {
+  const router = useRouter();
   const [displayName, setDisplayName] = useState(currentUser.displayName);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -2952,7 +3118,7 @@ function ProfileSettings({ currentUser }: { readonly currentUser: WorkspaceUser 
       setNewPassword("");
       setConfirmPassword("");
       setFeedback({ kind: "success", message: "个人账号已更新" });
-      window.setTimeout(() => window.location.reload(), 800);
+      router.refresh();
     } catch (error) {
       setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法更新个人账号" });
     } finally {
@@ -2963,7 +3129,7 @@ function ProfileSettings({ currentUser }: { readonly currentUser: WorkspaceUser 
   return (
     <section className="profile-settings panel" aria-labelledby="profile-settings-title">
       <div className="settings-section-heading">
-        <div><h2 id="profile-settings-title">个人账号</h2><p>这里修改的是进入工作台的本地账号，不会影响已连接的邮箱或日历服务。</p></div>
+        <h2 id="profile-settings-title">账号</h2>
         <span className="step-badge">{roleLabel(currentUser.role)}</span>
       </div>
       <div className="account-form profile-form">
@@ -3103,7 +3269,7 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
   return (
     <section className="user-management-settings panel" aria-labelledby="user-management-title">
       <div className="settings-section-heading">
-        <div><h2 id="user-management-title">用户管理</h2><p>创建可登录工作台的本地账号。每个用户登录后只会看到自己的邮箱、日历、任务、笔记和 AI 配置。</p></div>
+        <h2 id="user-management-title">用户管理</h2>
         <span className="step-badge">{users.filter((user) => !user.disabledAt).length} 个可用用户</span>
       </div>
 
@@ -3203,6 +3369,7 @@ function WorkspaceDiagnosticsSettings() {
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState(false);
   const [targetUserId, setTargetUserId] = useState("");
+  const [showAllAuditEvents, setShowAllAuditEvents] = useState(false);
   const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error"; readonly message: string }>();
 
   const loadDiagnostics = useCallback(async () => {
@@ -3255,10 +3422,11 @@ function WorkspaceDiagnosticsSettings() {
   }
 
   const unownedEntries = Object.entries(diagnostic?.unownedCounts ?? {}).filter(([, count]) => count > 0);
+  const visibleAuditEvents = showAllAuditEvents ? auditEvents : auditEvents.slice(0, 10);
   return (
     <section className="workspace-diagnostics-settings panel" aria-labelledby="workspace-diagnostics-title">
       <div className="settings-section-heading">
-        <div><h2 id="workspace-diagnostics-title">数据隔离诊断</h2><p>按用户查看工作区数据归属，并处理迁移前留下的未归属数据。</p></div>
+        <h2 id="workspace-diagnostics-title">数据诊断</h2>
         <button className="secondary-button" disabled={loading} onClick={() => { setLoading(true); void loadDiagnostics(); }}>
           {loading ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}刷新
         </button>
@@ -3298,8 +3466,13 @@ function WorkspaceDiagnosticsSettings() {
       </div>
 
       <div className="diagnostic-audit">
-        <h3>最近审计</h3>
-        {auditEvents.length ? auditEvents.map((event) => (
+        <div className="diagnostic-audit-heading">
+          <h3>最近审计</h3>
+          {auditEvents.length > 10 && <button className="quiet-button" onClick={() => setShowAllAuditEvents((current) => !current)}>
+            {showAllAuditEvents ? "收起" : `查看全部 ${auditEvents.length} 条`}
+          </button>}
+        </div>
+        {visibleAuditEvents.length ? visibleAuditEvents.map((event) => (
           <article key={event.id}>
             <span>{auditActionLabel(event.action)}</span>
             <strong>{event.actorDisplayName ?? event.actorEmail ?? "系统"}</strong>
@@ -3354,8 +3527,7 @@ function AiAutomationSettings() {
   return (
     <section className="ai-automation-settings panel">
       <div className="settings-section-heading">
-        <div><h2>AI 自动执行</h2><p>允许 AI 在任务中心中执行受控工具；所有写入和外部动作都会进入审计日志。</p></div>
-        <span className="step-badge">{current.autoExecutionEnabled ? "已开启" : "关闭"}</span>
+        <h2>AI 自动执行</h2>
       </div>
       <div className="ai-automation-grid">
         <label><input type="checkbox" checked={current.autoExecutionEnabled} disabled={saving} onChange={(event) => void save({ ...current, autoExecutionEnabled: event.target.checked, highRiskAutoEnabled: event.target.checked ? current.highRiskAutoEnabled : false })} /><span><strong>允许自动写入</strong><small>创建任务、笔记、日程和邮件草稿。</small></span></label>
@@ -3368,6 +3540,7 @@ function AiAutomationSettings() {
 
 interface BackupStatusPayload {
   readonly databaseBytes: number;
+  readonly estimatedLightweightBytes: number;
   readonly attachmentBytes: number;
   readonly attachmentFiles: number;
   readonly keySource: "environment" | "none";
@@ -3450,16 +3623,20 @@ function BackupSettings() {
   const [automaticDraft, setAutomaticDraft] = useState<AutomaticBackupPayload>();
   const [busyBackupId, setBusyBackupId] = useState<string>();
   const [artifactMenu, setArtifactMenu] = useState<ContextMenuState>();
+  const [activeBackupJobId, setActiveBackupJobId] = useState<string>();
   const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error" | "info"; readonly message: string }>();
   const backupUploadRef = useRef<HTMLInputElement>(null);
 
-  const loadStatus = useCallback(async () => {
+  const loadStatus = useCallback(async (options: {
+    readonly preserveAutomaticDraft?: boolean;
+    readonly silent?: boolean;
+  } = {}) => {
     try {
       const response = await fetch("/api/backups", { cache: "no-store" });
       const payload = await response.json() as { readonly ok?: boolean; readonly status?: BackupStatusPayload; readonly message?: string };
       if (!response.ok || !payload.ok || !payload.status) throw new Error(payload.message || "无法读取备份状态");
       setStatus(payload.status);
-      setAutomaticDraft(payload.status.automatic);
+      if (!options.preserveAutomaticDraft) setAutomaticDraft(payload.status.automatic);
       setSelectedBackupPolicy((current) => {
         const options = payload.status?.strategy?.options ?? [];
         return options.some((option) => option.policy === current && option.available)
@@ -3467,13 +3644,35 @@ function BackupSettings() {
           : payload.status?.strategy?.recommendedMailPolicy ?? "lightweight";
       });
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法读取备份状态" });
+      if (!options.silent) {
+        setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法读取备份状态" });
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { void loadStatus(); }, [loadStatus]);
+  useEffect(() => {
+    void loadStatus();
+  }, [loadStatus]);
+  const refreshBackupStatus = useCallback(
+    () => loadStatus({ preserveAutomaticDraft: true, silent: true }),
+    [loadStatus],
+  );
+  useRealtimeRefresh(["backup"], refreshBackupStatus, 100);
+  useVisiblePageRefresh(refreshBackupStatus, 60_000);
+  useRealtimeEvent(["job"], (event) => {
+    if (!activeBackupJobId || event.entityId !== activeBackupJobId) return;
+    if (event.status === "succeeded") {
+      setActiveBackupJobId(undefined);
+      setFeedback({ kind: "success", message: "备份创建完成，历史记录已更新" });
+      void refreshBackupStatus();
+    } else if (event.status === "failed" || event.status === "cancelled") {
+      setActiveBackupJobId(undefined);
+      setFeedback({ kind: "error", message: event.status === "failed" ? "备份创建失败，请在任务中心查看日志" : "备份任务已取消" });
+      void refreshBackupStatus();
+    }
+  });
 
   const createBackup = async () => {
     if (encryptBackup && backupPassword.length < 8) {
@@ -3487,10 +3686,14 @@ function BackupSettings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ encrypted: encryptBackup, mailPolicy: selectedBackupPolicy, password: encryptBackup ? backupPassword : undefined }),
       });
-      const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message || "无法创建备份任务");
-      setFeedback({ kind: "success", message: "备份任务已创建，可在任务中心查看进度" });
-      await loadStatus();
+      const payload = await response.json() as {
+        readonly ok?: boolean;
+        readonly job?: Pick<AppJobPayload, "id">;
+        readonly message?: string;
+      };
+      if (!response.ok || !payload.ok || !payload.job) throw new Error(payload.message || "无法创建备份任务");
+      setActiveBackupJobId(payload.job.id);
+      setFeedback({ kind: "info", message: "正在创建备份，完成后会自动更新历史" });
     } catch (error) {
       setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法创建备份任务" });
     } finally {
@@ -3546,6 +3749,27 @@ function BackupSettings() {
     }
   };
 
+  const deleteArtifact = async (artifact: BackupArtifactPayload) => {
+    if (!await appConfirm({
+      title: `永久删除备份“${artifact.filename}”？`,
+      description: `服务器上的备份文件和历史记录都会被删除，将释放 ${formatFileSize(artifact.sizeBytes)} 空间。此操作无法撤销。`,
+      confirmLabel: "删除备份",
+      tone: "danger",
+    })) return;
+    setBusyBackupId(artifact.id);
+    try {
+      const response = await fetch(`/api/backups/${encodeURIComponent(artifact.id)}`, { method: "DELETE" });
+      const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "无法删除备份");
+      setFeedback({ kind: "success", message: "备份文件和历史记录已删除" });
+      await loadStatus();
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法删除备份" });
+    } finally {
+      setBusyBackupId(undefined);
+    }
+  };
+
   const saveAutomaticSettings = async () => {
     const draft = automaticDraft ?? status?.automatic;
     if (!draft) return;
@@ -3573,7 +3797,6 @@ function BackupSettings() {
     }
   };
 
-  const totalBytes = (status?.databaseBytes ?? 0) + (status?.attachmentBytes ?? 0);
   const strategy = status?.strategy;
   const toolsReady = Boolean(strategy?.tools.pgDump && strategy.tools.pgRestore && strategy.tools.tar);
   const backupOptions = strategy?.options ?? [{
@@ -3600,6 +3823,7 @@ function BackupSettings() {
     { id: "backup.copy-name", label: "复制文件名", group: "primary", risk: "read", icon: "copy" },
     { id: "backup.copy-checksum", label: "复制 SHA256", group: "primary", risk: "read", icon: "info" },
     { id: "backup.restore", label: "从此备份恢复", group: "danger", risk: "destructive", icon: "restore" },
+    { id: "backup.delete", label: "永久删除备份", group: "danger", risk: "destructive", icon: "trash" },
   ] : [];
 
   const openArtifactMenu = (event: ReactMouseEvent<HTMLElement>, artifact: BackupArtifactPayload) => {
@@ -3613,18 +3837,19 @@ function BackupSettings() {
     if (commandId === "backup.restore") void restoreArtifact(artifactMenuItem);
     if (commandId === "backup.copy-name") void copyText(artifactMenuItem.filename, "备份文件名已复制", setFeedback);
     if (commandId === "backup.copy-checksum") void copyText(artifactMenuItem.checksumSha256, "SHA256 已复制", setFeedback);
+    if (commandId === "backup.delete") void deleteArtifact(artifactMenuItem);
   };
 
   return (
     <section className="backup-settings panel" aria-labelledby="backup-settings-title">
       <div className="settings-section-heading">
-        <div><h2 id="backup-settings-title">备份中心</h2><p>使用 PostgreSQL 原生备份，草稿附件单独打包；邮件默认恢复后重新同步。</p></div>
+        <h2 id="backup-settings-title">备份</h2>
         <span className="step-badge">{loading ? "检查中" : toolsReady ? "可执行" : "需安装工具"}</span>
       </div>
 
       <div className="backup-summary" aria-label="当前数据概况">
-        <article><span><HardDrive size={17} /></span><div><small>数据库占用</small><strong>{loading ? "正在计算…" : formatFileSize(totalBytes)}</strong></div></article>
-        <article><span><NotebookPen size={17} /></span><div><small>笔记与任务</small><strong>{loading ? "—" : `${status?.counts.notes ?? 0} 篇 · ${status?.counts.tasks ?? 0} 项`}</strong></div></article>
+        <article><span><HardDrive size={17} /></span><div><small>数据库占用</small><strong>{loading ? "正在计算…" : formatFileSize(status?.databaseBytes ?? 0)}</strong></div></article>
+        <article title="根据 PostgreSQL 压缩转储和草稿附件估算；结果缓存 5 分钟，实际文件可能略有差异"><span><DatabaseBackup size={17} /></span><div><small>预计轻量备份</small><strong>{loading ? "正在估算…" : `约 ${formatFileSize(status?.estimatedLightweightBytes ?? 0)}`}</strong></div></article>
         <article><span><Mail size={17} /></span><div><small>邮件缓存（不备份）</small><strong>{loading ? "—" : mailCacheLabel}</strong></div></article>
         <article><span><Paperclip size={17} /></span><div><small>草稿附件</small><strong>{loading ? "—" : `${status?.attachmentFiles ?? 0} 个 · ${formatFileSize(status?.attachmentBytes ?? 0)}`}</strong></div></article>
       </div>
@@ -3702,7 +3927,7 @@ function BackupSettings() {
             ref={backupUploadRef}
             className="backup-file-input"
             type="file"
-            accept=".qgwbackup,.enc,application/octet-stream"
+            accept=".backup,.qgwbackup,.enc,application/octet-stream"
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (file) void uploadBackup(file);
@@ -3729,6 +3954,7 @@ function BackupSettings() {
             <span>{formatFileSize(artifact.sizeBytes)}</span>
             <a className="secondary-button" href={`/api/backups/${encodeURIComponent(artifact.id)}/download`}><Download size={13} />下载</a>
             <button className="danger-confirm-button" disabled={Boolean(busyBackupId)} onClick={() => void restoreArtifact(artifact)}>{busyBackupId === artifact.id ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}恢复</button>
+            <button className="ghost-button danger-button" disabled={Boolean(busyBackupId)} onClick={() => void deleteArtifact(artifact)}><Trash2 size={13} />删除</button>
           </article>
         )) : <div className="accounts-empty">还没有备份历史</div>}
       </div>
@@ -3823,6 +4049,16 @@ function jobStatusLabel(value: string): string {
   return { queued: "排队", running: "运行中", succeeded: "成功", failed: "失败", cancelled: "已取消" }[value] ?? value;
 }
 
+function appJobStatus(value: string | undefined): AppJobPayload["status"] | undefined {
+  return value === "queued"
+    || value === "running"
+    || value === "succeeded"
+    || value === "failed"
+    || value === "cancelled"
+    ? value
+    : undefined;
+}
+
 function jobKindLabel(value: string): string {
   return {
     "backup.create": "创建备份",
@@ -3892,7 +4128,7 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
   const [syncIntervalMs, setSyncIntervalMs] = useState(3 * 60 * 1000);
   const [accountAction, setAccountAction] = useState<{ readonly id: string; readonly kind: AccountAction }>();
   const [accountFeedback, setAccountFeedback] = useState("");
-  const [providerId, setProviderId] = useState("imap");
+  const providerId = "imap";
   const [emailAddress, setEmailAddress] = useState("");
   const [displayName, setDisplayName] = useState("个人邮箱");
   const [imapHost, setImapHost] = useState("");
@@ -3937,17 +4173,15 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
     };
     setOnline(window.navigator.onLine);
     void loadAccounts();
-    const pollingTimer = window.setInterval(() => {
-      if (window.navigator.onLine) void loadAccounts();
-    }, 10_000);
     window.addEventListener("online", updateOnlineState);
     window.addEventListener("offline", updateOnlineState);
     return () => {
-      window.clearInterval(pollingTimer);
       window.removeEventListener("online", updateOnlineState);
       window.removeEventListener("offline", updateOnlineState);
     };
   }, []);
+  useRealtimeRefresh(["mail"], loadAccounts);
+  useVisiblePageRefresh(loadAccounts, 60_000);
 
   async function performAccountAction(account: SavedMailAccount, kind: Exclude<AccountAction, "edit">) {
     if (kind === "delete" && !await appConfirm({
@@ -4018,7 +4252,6 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
         };
       };
       if (!response.ok || !result.ok || !result.settings) throw new Error(result.message ?? "无法读取账户配置");
-      setProviderId("imap");
       setDisplayName(account.displayName);
       setEmailAddress(account.emailAddress);
       setSyncMode(account.syncMode);
@@ -4052,12 +4285,8 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
           providerId,
           emailAddress,
           displayName,
-          imap: providerId === "imap"
-            ? { host: imapHost, port: Number(imapPort), secure: imapSecure, username, password }
-            : undefined,
-          smtp: providerId === "imap"
-            ? { host: smtpHost, port: Number(smtpPort), secure: smtpSecure, username, password }
-            : undefined,
+          imap: { host: imapHost, port: Number(imapPort), secure: imapSecure, username, password },
+          smtp: { host: smtpHost, port: Number(smtpPort), secure: smtpSecure, username, password },
         }),
       });
       const result = await response.json() as {
@@ -4081,11 +4310,10 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
     }
   }
 
-  const canTest = emailAddress.includes("@") &&
-    (providerId !== "imap" || Boolean(imapHost && smtpHost && username && (password || editingAccountId)));
+  const canTest = emailAddress.includes("@") && Boolean(imapHost && smtpHost && username && (password || editingAccountId));
 
   async function saveAccount() {
-    if (state.kind !== "success" || providerId !== "imap") return;
+    if (state.kind !== "success") return;
     setSaving(true);
     try {
       const response = await fetch("/api/mail-accounts", {
@@ -4123,7 +4351,7 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
   return (<div className="account-settings-stack">
     <section className="saved-accounts panel" aria-labelledby="saved-accounts-title">
       <div className="settings-section-heading">
-        <div><h2 id="saved-accounts-title">已添加的邮箱</h2><p>查看连接健康状态、同步范围和最近一次成功同步。</p></div>
+        <h2 id="saved-accounts-title">邮箱账户</h2>
         <span className="step-badge">{accounts.length} 个账户</span>
       </div>
       {!online && (
@@ -4187,77 +4415,56 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
 
     <MailSignatureSettings accounts={accounts} />
 
-    <section className="account-settings panel" id="add-mail-account">
-      <div className="settings-section-heading">
-        <div><h2>{editingAccountId ? "重新配置邮箱账户" : "添加邮箱账户"}</h2><p>{editingAccountId ? "密码留空时保留原密码，不会把已保存密码返回浏览器。" : "测试过程不保存密码、令牌或账户记录。"}</p></div>
-        <span className="step-badge">1 · 测试连接</span>
-      </div>
-      <div className="provider-options" role="radiogroup" aria-label="邮箱类型">
-        {[
-          ["microsoft", "Microsoft 365", "Outlook / Exchange Online"],
-          ["gmail", "Gmail", "Google Workspace"],
-          ["imap", "IMAP / SMTP", "其他邮箱服务器"],
-        ].map(([id, label, detail]) => (
-          <button
-            className={providerId === id ? "active" : ""}
-            key={id}
-            onClick={() => { setProviderId(id); setState({ kind: "idle" }); }}
-            role="radio"
-            aria-checked={providerId === id}
-          >
-            <strong>{label}</strong><span>{detail}</span>
-          </button>
-        ))}
-      </div>
-      <div className="account-form">
+    <details className="account-settings panel" id="add-mail-account" open={editingAccountId ? true : undefined}>
+      <summary className="settings-disclosure-heading">
+        <span><strong>{editingAccountId ? "重新配置邮箱账户" : "添加邮箱账户"}</strong><small>IMAP / SMTP</small></span>
+        <ChevronDown size={16} />
+      </summary>
+      <div className="account-settings-body">
+        {editingAccountId && <p className="settings-inline-note">密码留空时保留原密码。</p>}
+        <div className="account-form">
         <label><span>账户名称</span><input value={displayName} onChange={(event) => { setDisplayName(event.target.value); setState({ kind: "idle" }); }} placeholder="例如：工作邮箱" /></label>
         <label><span>邮箱地址</span><input type="email" value={emailAddress} onChange={(event) => { setEmailAddress(event.target.value); setState({ kind: "idle" }); }} placeholder="name@example.com" /></label>
-        {providerId === "imap" && <>
-          <label><span>IMAP 服务器</span><input value={imapHost} onChange={(event) => { setImapHost(event.target.value); setState({ kind: "idle" }); }} placeholder="imap.example.com" /></label>
-          <label><span>端口</span><input inputMode="numeric" value={imapPort} onChange={(event) => { setImapPort(event.target.value); setState({ kind: "idle" }); }} /></label>
-          <label><span>SMTP 服务器</span><input value={smtpHost} onChange={(event) => { setSmtpHost(event.target.value); setState({ kind: "idle" }); }} placeholder="smtp.example.com" /></label>
-          <label><span>端口</span><input inputMode="numeric" value={smtpPort} onChange={(event) => { setSmtpPort(event.target.value); setState({ kind: "idle" }); }} /></label>
-          <label><span>用户名</span><input value={username} onChange={(event) => { setUsername(event.target.value); setState({ kind: "idle" }); }} autoComplete="username" /></label>
-          <label><span>密码或应用专用密码</span><input type="password" value={password} onChange={(event) => { setPassword(event.target.value); setState({ kind: "idle" }); }} autoComplete="new-password" placeholder={editingAccountId ? "留空则保留原密码" : undefined} /></label>
-          <label className="secure-toggle"><input type="checkbox" checked={imapSecure} onChange={(event) => { setImapSecure(event.target.checked); setState({ kind: "idle" }); }} /><span>IMAP 使用直接 TLS（通常为 993）</span></label>
-          <label className="secure-toggle"><input type="checkbox" checked={smtpSecure} onChange={(event) => { setSmtpSecure(event.target.checked); setState({ kind: "idle" }); }} /><span>SMTP 使用直接 TLS（通常为 465；587 请取消）</span></label>
-        </>}
-      </div>
-      {providerId !== "imap" && (
-        <div className="oauth-notice"><ShieldCheck size={18} /><div><strong>使用 OAuth 授权</strong><p>不会要求输入邮箱密码。真实连接器接入后，将先授权再执行测试。</p></div></div>
-      )}
-      {providerId === "imap" && (
-        <div className="sync-mode-picker">
-          <span>{editingAccountId ? "同步范围" : "首次同步范围"}</span>
-          <div>
-            {([
-              ["quick", "快速", "最近 30 天"],
-              ["recommended", "推荐", "最近 90 天"],
-              ["full", "完整", "后台补齐全部"],
-            ] as const).map(([id, label, detail]) => (
-              <button className={syncMode === id ? "active" : ""} key={id} onClick={() => { setSyncMode(id); setState({ kind: "idle" }); }}>
-                <strong>{label}</strong><small>{detail}</small>
-              </button>
-            ))}
-          </div>
+        <label><span>IMAP 服务器</span><input value={imapHost} onChange={(event) => { setImapHost(event.target.value); setState({ kind: "idle" }); }} placeholder="imap.example.com" /></label>
+        <label><span>端口</span><input inputMode="numeric" value={imapPort} onChange={(event) => { setImapPort(event.target.value); setState({ kind: "idle" }); }} /></label>
+        <label><span>SMTP 服务器</span><input value={smtpHost} onChange={(event) => { setSmtpHost(event.target.value); setState({ kind: "idle" }); }} placeholder="smtp.example.com" /></label>
+        <label><span>端口</span><input inputMode="numeric" value={smtpPort} onChange={(event) => { setSmtpPort(event.target.value); setState({ kind: "idle" }); }} /></label>
+        <label><span>用户名</span><input value={username} onChange={(event) => { setUsername(event.target.value); setState({ kind: "idle" }); }} autoComplete="username" /></label>
+        <label><span>密码或应用专用密码</span><input type="password" value={password} onChange={(event) => { setPassword(event.target.value); setState({ kind: "idle" }); }} autoComplete="new-password" placeholder={editingAccountId ? "留空则保留原密码" : undefined} /></label>
+        <label className="secure-toggle"><input type="checkbox" checked={imapSecure} onChange={(event) => { setImapSecure(event.target.checked); setState({ kind: "idle" }); }} /><span>IMAP 使用直接 TLS（通常为 993）</span></label>
+        <label className="secure-toggle"><input type="checkbox" checked={smtpSecure} onChange={(event) => { setSmtpSecure(event.target.checked); setState({ kind: "idle" }); }} /><span>SMTP 使用直接 TLS（通常为 465；587 请取消）</span></label>
         </div>
-      )}
-      <div className={`connection-result result-${state.kind}`} aria-live="polite">
+        <div className="sync-mode-picker">
+        <span>{editingAccountId ? "同步范围" : "首次同步范围"}</span>
+        <div>
+          {([
+            ["quick", "快速", "最近 30 天"],
+            ["recommended", "推荐", "最近 90 天"],
+            ["full", "完整", "后台补齐全部"],
+          ] as const).map(([id, label, detail]) => (
+            <button className={syncMode === id ? "active" : ""} key={id} onClick={() => { setSyncMode(id); setState({ kind: "idle" }); }}>
+              <strong>{label}</strong><small>{detail}</small>
+            </button>
+          ))}
+        </div>
+        </div>
+        <div className={`connection-result result-${state.kind}`} aria-live="polite">
         {state.kind === "idle" && <><Circle size={17} /><span>尚未测试。测试成功后才可保存账户。</span></>}
         {state.kind === "testing" && <><LoaderCircle className="spin" size={17} /><span>正在验证身份和读取权限…</span></>}
         {state.kind === "success" && <><CheckCircle2 size={17} /><span>{state.message} · {state.latencyMs} ms</span></>}
         {state.kind === "error" && <><X size={17} /><span>{state.message}</span></>}
-      </div>
-      <footer className="settings-actions">
+        </div>
+        <footer className="settings-actions">
         <button className="secondary-button test-button" disabled={!online || !canTest || state.kind === "testing"} onClick={testConnection}>
           {state.kind === "testing" ? <LoaderCircle className="spin" size={16} /> : <CheckCircle2 size={16} />}测试连接
         </button>
-        <button className="primary-button" disabled={!online || state.kind !== "success" || providerId !== "imap" || saving} onClick={saveAccount}>
+        <button className="primary-button" disabled={!online || state.kind !== "success" || saving} onClick={saveAccount}>
           {saving && <LoaderCircle className="spin" size={16} />}{saving ? "正在保存和同步…" : "保存并开始同步"}
         </button>
-      </footer>
-      <p className="settings-footnote">IMAP/SMTP 会执行真实登录与只读邮箱列表、SMTP 握手验证；Exchange / RWTH 邮箱与日历使用同一个 EWS 连接，并在“日历”标签统一管理。Microsoft 365 和 Gmail API 将在后续连接器中接入。</p>
-    </section>
+        </footer>
+        <p className="settings-footnote">凭据会加密保存。Exchange / RWTH 邮箱请在“日历账户”中统一连接。</p>
+      </div>
+    </details>
   </div>);
 }
 
@@ -4322,7 +4529,8 @@ function CalendarAccountSettings() {
   }, []);
 
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
-  useVisiblePageRefresh(loadAccounts, 10_000);
+  useRealtimeRefresh(["calendar"], loadAccounts);
+  useVisiblePageRefresh(loadAccounts, 60_000);
 
   const resetTest = () => setState({ kind: "idle" });
   const canTest = Boolean(displayName.trim() && (providerId === "ics"
@@ -4442,8 +4650,7 @@ function CalendarAccountSettings() {
   return (
     <section className="calendar-account-settings panel" aria-labelledby="calendar-accounts-title">
       <div className="settings-section-heading">
-        <div><h2 id="calendar-accounts-title">添加日历连接</h2><p>支持 CalDAV、Exchange / RWTH 和只读 ICS；Exchange 会将邮件与日历绑定为同一个账户。</p></div>
-        <span className="step-badge">安全同步</span>
+        <h2 id="calendar-accounts-title">日历账户</h2>
       </div>
       <div className="calendar-account-layout">
         <div className="calendar-provider-options" role="radiogroup" aria-label="日历连接类型">
@@ -4560,7 +4767,7 @@ function CalendarAccountSettings() {
         })}
       </div>
       {feedback && <TransientToast message={feedback} onClose={() => setFeedback("")} />}
-      <p className="settings-footnote">CalDAV 和 ICS 当前保持只读；Exchange / RWTH 使用一份加密凭据连接邮件与日历，两类数据分别同步。普通个人日程支持安全写回，会议邀请与重复日程仍受保护。地址必须使用 HTTPS；密码和包含访问令牌的 ICS 完整链接会使用 AES-256-GCM 加密，不会返回浏览器或写入日志。</p>
+      <p className="settings-footnote">CalDAV 与 ICS 为只读；Exchange 凭据会加密保存。会议邀请和重复日程请在原服务中修改。</p>
     </section>
   );
 }

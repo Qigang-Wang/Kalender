@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
 import { appConfirm } from "@/components/app-dialog-provider";
+import { useRealtimeRefresh } from "@/components/realtime-context";
 import { useVisiblePageRefresh } from "@/hooks/use-visible-page-refresh";
 import {
   EMPTY_PLATE_NOTE_CONTENT,
@@ -271,14 +272,16 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     if (storedView === "week" || storedView === "month") setViewMode(storedView);
   }, []);
 
-  useEffect(() => {
-    void workspaceFetch("/api/tasks")
-      .then(async (response) => {
-        const payload = await response.json() as { readonly tasks?: readonly ClientTask[] };
-        if (response.ok) setCalendarTasks(payload.tasks ?? []);
-      })
-      .catch(() => setCalendarTasks([]));
+  const loadCalendarTasks = useCallback(async () => {
+    const response = await workspaceFetch("/api/tasks", {}, 0);
+    const payload = await response.json() as { readonly tasks?: readonly ClientTask[] };
+    if (!response.ok) throw new Error("无法读取待安排任务");
+    setCalendarTasks(payload.tasks ?? []);
   }, []);
+
+  useEffect(() => {
+    void loadCalendarTasks().catch(() => setCalendarTasks([]));
+  }, [loadCalendarTasks]);
 
   const changeViewMode = (nextView: CalendarViewMode) => {
     setViewMode(nextView);
@@ -322,9 +325,11 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     await Promise.all([
       loadCalendars(),
       loadEvents({ background: true }),
+      loadCalendarTasks(),
     ]);
-  }, [loadCalendars, loadEvents]);
+  }, [loadCalendarTasks, loadCalendars, loadEvents]);
   useVisiblePageRefresh(refreshVisibleCalendar);
+  useRealtimeRefresh(["calendar", "task", "relation"], refreshVisibleCalendar);
   useEffect(() => {
     const refreshAfterSync = () => { void refreshVisibleCalendar(); };
     window.addEventListener(CALENDAR_SYNCED_EVENT, refreshAfterSync);
@@ -1177,16 +1182,15 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
               {draft.id && <ProjectAssociationControl kind="calendar" entityId={draft.recurrenceSeriesId ?? draft.id} onChanged={() => setRelatedVersion((current) => current + 1)} />}
               {draft.id && <RelatedContentPanel kind="calendar" entityId={draft.recurrenceSeriesId ?? draft.id} refreshKey={relatedVersion} hideWhenEmpty />}
             </div>}
-            <footer className={draftEditing ? "calendar-edit-footer" : "calendar-detail-footer"}>
-              {draftEditing && draft.id ? <button className="ghost-button danger-button" disabled={busy} onClick={() => { const event = events.find((item) => item.id === draft.id); if (event) void deleteEvent(event); }}><Trash2 size={15} />删除</button> : <span />}
+            {(draftEditing || !draftReadOnly) && <footer className={draftEditing ? "calendar-edit-footer" : "calendar-detail-footer"}>
+              {draftEditing && draft.id ? <button className="ghost-button danger-button" disabled={busy} onClick={() => { const event = events.find((item) => item.id === draft.id); if (event) void deleteEvent(event); }}><Trash2 size={15} />删除</button> : null}
               <div>{draftEditing ? <>
                 <button className="secondary-button" disabled={busy} onClick={() => { if (draftEvent) openEditDraft(draftEvent, "view"); else setDraft(undefined); }}>取消</button>
                 <button className={draft.conflicts.length ? "danger-confirm-button" : "primary-button"} disabled={busy} onClick={() => void saveDraft(draft.conflicts.length > 0)}>{busy && <LoaderCircle className="spin" size={15} />}{draft.conflicts.length ? "仍然保存" : draft.id ? "保存修改" : "创建日程"}</button>
               </> : <>
-                {!draftReadOnly && <button className="secondary-button" onClick={() => setDraftMode("edit")}><Pencil size={14} />编辑</button>}
-                <button className="primary-button" onClick={() => setDraft(undefined)}>关闭</button>
+                <button className="secondary-button" onClick={() => setDraftMode("edit")}><Pencil size={14} />编辑</button>
               </>}</div>
-            </footer>
+            </footer>}
           </section>
         </div>
       )}

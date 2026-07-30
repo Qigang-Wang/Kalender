@@ -45,13 +45,18 @@ Open:
 http://localhost:3000/today
 ```
 
+The container starts a same-port realtime gateway. Normal HTTP traffic and the authenticated
+WebSocket endpoint at `/api/realtime` both use port `3000`; no additional port is required.
+If a reverse proxy is placed in front of the container, enable WebSocket `Upgrade` forwarding.
+When WebSocket connectivity is unavailable, visible pages fall back to low-frequency refreshes.
+
 ## 3. Data Persistence
 
 Compose uses three persistent volumes:
 
 - `postgres-data` for PostgreSQL data at `/var/lib/postgresql`.
 - `kalender-data` for app-local files such as mail draft attachments at `/app/.data`.
-- `kalender-backups` for `.qgwbackup` files at `/app/.backups`.
+- `kalender-backups` for `.backup` files at `/app/.backups`.
 
 For local development and tests, Compose exposes PostgreSQL on `127.0.0.1:5432`.
 

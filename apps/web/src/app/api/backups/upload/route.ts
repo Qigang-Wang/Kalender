@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     if (Number.isFinite(declaredSize) && declaredSize > MAX_BACKUP_BYTES) {
       throw new BackupError("备份文件不能超过 512 MB", 413);
     }
-    const filename = request.headers.get("x-backup-filename") ?? "uploaded.qgwbackup";
+    const filename = request.headers.get("x-backup-filename") ?? "uploaded.backup";
     const artifact = await saveUploadedBackup(new Uint8Array(await request.arrayBuffer()), { actor, filename });
     return NextResponse.json({ ok: true, artifact }, { status: 201 });
   } catch (error) {

@@ -263,8 +263,8 @@ function QuickCaptureDialog({ onClose, onCreated }: { readonly onClose: () => vo
 
   return (
     <div className="quick-capture-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-      <form className="quick-capture panel" onSubmit={(event) => void submit(event)}>
-        <header><div><span>不用离开当前页面</span><h2>快速记录</h2></div><button type="button" aria-label="关闭" disabled={busy} onClick={onClose}><X size={18} /></button></header>
+      <form className="quick-capture panel" role="dialog" aria-modal="true" aria-labelledby="quick-capture-title" onSubmit={(event) => void submit(event)}>
+        <header><div><h2 id="quick-capture-title">快速记录</h2></div><button type="button" aria-label="关闭" disabled={busy} onClick={onClose}><X size={18} /></button></header>
         <nav aria-label="记录类型">
           {(["task", "note", "calendar"] as const).map((item) => {
             const Icon = item === "task" ? CheckCircle2 : item === "note" ? NotebookPen : CalendarDays;
@@ -275,7 +275,7 @@ function QuickCaptureDialog({ onClose, onCreated }: { readonly onClose: () => vo
         {kind === "calendar" && <div className="quick-capture-row"><label><span>开始时间</span><input type="datetime-local" value={startLocal} onChange={(event) => setStartLocal(event.target.value)} /></label><label><span>日历</span><AppSelect ariaLabel="快速记录日历" value={calendarId} onValueChange={setCalendarId} options={calendars.map((calendar) => ({ value: calendar.id, label: calendar.name }))} /></label></div>}
         <label><span>{kind === "task" ? "备注" : kind === "note" ? "正文" : "说明"}</span><textarea value={details} maxLength={10_000} onChange={(event) => setDetails(event.target.value)} placeholder="可选" /></label>
         {error && <div className="quick-capture-error" role="alert">{error}</div>}
-        <footer><small>{kind === "task" ? "任务会进入 Inbox，稍后再设置优先级。" : kind === "note" ? "笔记创建后会直接打开编辑器。" : "快速日程默认持续 1 小时。"}</small><div><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button><button className="primary-button" disabled={busy || !title.trim()}>{busy && <LoaderCircle className="spin" size={14} />}保存</button></div></footer>
+        <footer><div><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button><button className="primary-button" disabled={busy || !title.trim()}>{busy && <LoaderCircle className="spin" size={14} />}保存</button></div></footer>
       </form>
     </div>
   );

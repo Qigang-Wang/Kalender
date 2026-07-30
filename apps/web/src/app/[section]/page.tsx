@@ -16,6 +16,7 @@ interface SectionPageProps {
     readonly event?: string | readonly string[];
     readonly date?: string | readonly string[];
     readonly note?: string | readonly string[];
+    readonly filter?: string | readonly string[];
     readonly project?: string | readonly string[];
     readonly folder?: string | readonly string[];
     readonly correspondent?: string | readonly string[];
@@ -45,11 +46,12 @@ export default async function SectionPage({ params, searchParams }: SectionPageP
   const eventId = typeof query.event === "string" ? query.event : undefined;
   const calendarDate = typeof query.date === "string" ? query.date : undefined;
   const noteId = typeof query.note === "string" ? query.note : undefined;
+  const noteFilter = query.filter === "pinned" || query.filter === "unfiled" ? query.filter : undefined;
   const projectId = typeof query.project === "string" ? query.project : undefined;
   const mailFolderId = typeof query.folder === "string" ? query.folder : undefined;
   const mailCorrespondent = typeof query.correspondent === "string" ? query.correspondent : undefined;
   const initialComposeTo = query.compose === "true" && typeof query.to === "string" ? query.to : undefined;
-  return <WorkspaceApp section={section as WorkspaceSection} currentUser={currentUser} initialMessageId={messageId} initialMailFolderId={mailFolderId} initialMailCorrespondent={mailCorrespondent} initialComposeTo={initialComposeTo} initialTaskId={taskId} initialTaskView={taskView} initialCreateTask={createTask} initialScheduleTaskId={scheduleTaskId} initialEventId={eventId} initialCalendarDate={calendarDate} initialNoteId={noteId} initialProjectId={projectId} />;
+  return <WorkspaceApp section={section as WorkspaceSection} currentUser={currentUser} initialMessageId={messageId} initialMailFolderId={mailFolderId} initialMailCorrespondent={mailCorrespondent} initialComposeTo={initialComposeTo} initialTaskId={taskId} initialTaskView={taskView} initialCreateTask={createTask} initialScheduleTaskId={scheduleTaskId} initialEventId={eventId} initialCalendarDate={calendarDate} initialNoteId={noteId} initialNoteFilter={noteFilter} initialProjectId={projectId} />;
 }
 
 function toQueryString(query: SectionPageProps["searchParams"] extends Promise<infer T> ? T : never): string {

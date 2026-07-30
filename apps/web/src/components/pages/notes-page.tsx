@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   AlertCircle, ArrowRight, Check, ChevronDown, ChevronLeft, FileText, Folder,
   FolderPlus, Inbox, Link2, LoaderCircle, MoreHorizontal, NotebookPen, Pencil,
@@ -12,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EMPTY_PLATE_NOTE_CONTENT, noteContentToPlainText } from "@/lib/note-content";
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
 import { appConfirm } from "@/components/app-dialog-provider";
+import { useRealtimeRefresh } from "@/components/realtime-context";
 import { AppSelect } from "../app-select";
 import { ContextMenu } from "../context-menu";
 import { resolveContextCommands, type ContextCommandId, type NoteCommandId } from "../context-commands";
@@ -83,6 +85,9 @@ const noteTypeLabels: Record<ClientNoteType, string> = {
   daily: "每日笔记",
 };
 
+const PROJECTS_CHANGED_EVENT = "kalender:projects-changed";
+const OPEN_PROJECT_DIALOG_EVENT = "kalender:open-project-dialog";
+
 function EditorLoading({ label }: { readonly label: string }) {
   return <div className="editor-loading" role="status"><LoaderCircle className="spin" size={18} />{label}</div>;
 }
@@ -92,10 +97,19 @@ const PlateNoteEditor = dynamic(
   { loading: () => <EditorLoading label="正在加载笔记编辑器…" />, ssr: false },
 );
 
-export function NotesPage({ initialNoteId }: { readonly initialNoteId?: string }) {
+export function NotesPage({
+  initialNoteId,
+  initialFilter,
+  initialProjectId,
+}: {
+  readonly initialNoteId?: string;
+  readonly initialFilter?: "pinned" | "unfiled";
+  readonly initialProjectId?: string;
+}) {
+  const router = useRouter();
   const [projects, setProjects] = useState<readonly ClientProject[]>([]);
   const [notes, setNotes] = useState<readonly ClientNote[]>([]);
-  const [filter, setFilter] = useState<NoteFilter>("all");
+  const [filter, setFilter] = useState<NoteFilter>(initialProjectId ?? initialFilter ?? "all");
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<ClientNote>();
   const [loading, setLoading] = useState(true);
@@ -108,11 +122,24 @@ export function NotesPage({ initialNoteId }: { readonly initialNoteId?: string }
   const [mobileNoteDetail, setMobileNoteDetail] = useState(Boolean(initialNoteId));
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pendingNote = useRef<ClientNote | undefined>(undefined);
+  const selectedNoteId = useRef<string | undefined>(undefined);
   const openedInitialNote = useRef(false);
   const noteTitleRef = useRef<HTMLInputElement>(null);
 
-  const loadWorkspace = useCallback(async () => {
-    setLoading(true);
+  selectedNoteId.current = draft?.id;
+
+  const selectFilter = useCallback((nextFilter: NoteFilter) => {
+    setFilter(nextFilter);
+    const href = nextFilter === "all"
+      ? "/notes"
+      : nextFilter === "pinned" || nextFilter === "unfiled"
+        ? `/notes?filter=${nextFilter}`
+        : `/notes?project=${encodeURIComponent(nextFilter)}`;
+    router.replace(href, { scroll: false });
+  }, [router]);
+
+  const loadWorkspace = useCallback(async ({ background = false }: { readonly background?: boolean } = {}) => {
+    if (!background) setLoading(true);
     try {
       const [projectsResponse, notesResponse] = await Promise.all([
       workspaceFetch("/api/projects"),
@@ -125,19 +152,44 @@ export function NotesPage({ initialNoteId }: { readonly initialNoteId?: string }
       const loadedNotes = notesPayload.notes ?? [];
       setProjects(projectsPayload.projects ?? []);
       setNotes(loadedNotes);
-      const target = initialNoteId ? loadedNotes.find((note) => note.id === initialNoteId) : loadedNotes[0];
-      setDraft(target);
-      if (initialNoteId && !target) setFeedback("关联笔记已删除");
-      else setFeedback(undefined);
+      const requestedId = background ? selectedNoteId.current : initialNoteId;
+      const target = requestedId
+        ? loadedNotes.find((note) => note.id === requestedId)
+        : initialProjectId
+          ? loadedNotes.find((note) => note.projectId === initialProjectId)
+          : loadedNotes[0];
+      if (!background || !pendingNote.current) setDraft(target);
+      if (!background) {
+        if (initialNoteId && !target) setFeedback("关联笔记已删除");
+        else setFeedback(undefined);
+      }
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法读取笔记工作区");
+      if (!background) setFeedback(error instanceof Error ? error.message : "无法读取笔记工作区");
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
-  }, [initialNoteId]);
+  }, [initialNoteId, initialProjectId]);
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
+  useRealtimeRefresh(["note", "project", "task", "relation"], () => (
+    pendingNote.current ? undefined : loadWorkspace({ background: true })
+  ));
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
+  useEffect(() => {
+    setFilter(initialProjectId ?? initialFilter ?? "all");
+    if (!initialProjectId || loading) return;
+    setDraft((current) => current?.projectId === initialProjectId
+      ? current
+      : notes.find((note) => note.projectId === initialProjectId));
+  }, [initialFilter, initialProjectId, loading, notes]);
+  useEffect(() => {
+    const openProjectDialog = (event: Event) => {
+      const areaName = (event as CustomEvent<{ readonly areaName?: string }>).detail?.areaName ?? "";
+      setProjectDraft({ name: "", description: "", areaName, color: "#86bdf5" });
+    };
+    window.addEventListener(OPEN_PROJECT_DIALOG_EVENT, openProjectDialog);
+    return () => window.removeEventListener(OPEN_PROJECT_DIALOG_EVENT, openProjectDialog);
+  }, []);
 
   const persistNote = useCallback(async (snapshot: ClientNote): Promise<ClientNote | undefined> => {
     setSaveState("saving");
@@ -216,7 +268,7 @@ export function NotesPage({ initialNoteId }: { readonly initialNoteId?: string }
     if (!initialNoteId || openedInitialNote.current || loading) return;
     openedInitialNote.current = true;
     const target = notes.find((note) => note.id === initialNoteId);
-    if (target) {
+      if (target) {
       setFilter(target.projectId ?? "all");
       setDraft(target);
       setFeedback("已打开任务关联的笔记");
@@ -381,9 +433,10 @@ export function NotesPage({ initialNoteId }: { readonly initialNoteId?: string }
       const payload = await response.json() as { readonly ok: boolean; readonly project?: ClientProject; readonly message?: string };
       if (!response.ok || !payload.ok || !payload.project) throw new Error(payload.message ?? "无法创建项目");
       setProjects((current) => [payload.project!, ...current]);
-      setFilter(payload.project.id);
+      selectFilter(payload.project.id);
       setProjectDraft(undefined);
       setFeedback(`项目“${payload.project.name}”已创建`);
+      window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法创建项目");
     } finally {
@@ -413,11 +466,11 @@ export function NotesPage({ initialNoteId }: { readonly initialNoteId?: string }
     <div className={`notes-page ${mobileNoteDetail ? "mobile-detail-open" : ""}`}>
       <section className="notes-filter-bar" aria-label="笔记空间">
         <nav className="notes-filter-scroll" aria-label="笔记筛选">
-          <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}><FileText size={15} /><span>全部</span><em>{notes.length}</em></button>
-          <button className={filter === "pinned" ? "active" : ""} onClick={() => setFilter("pinned")}><Pin size={15} /><span>置顶</span><em>{notes.filter((note) => note.pinned).length}</em></button>
-          <button className={filter === "unfiled" ? "active" : ""} onClick={() => setFilter("unfiled")}><Inbox size={15} /><span>未归档</span><em>{notes.filter((note) => !note.projectId).length}</em></button>
+          <button className={filter === "all" ? "active" : ""} onClick={() => selectFilter("all")}><FileText size={15} /><span>全部</span><em>{notes.length}</em></button>
+          <button className={filter === "pinned" ? "active" : ""} onClick={() => selectFilter("pinned")}><Pin size={15} /><span>置顶</span><em>{notes.filter((note) => note.pinned).length}</em></button>
+          <button className={filter === "unfiled" ? "active" : ""} onClick={() => selectFilter("unfiled")}><Inbox size={15} /><span>未归档</span><em>{notes.filter((note) => !note.projectId).length}</em></button>
           {projects.length > 0 && <span className="notes-filter-divider" aria-hidden="true" />}
-          {projects.map((project) => <button className={`project-filter ${filter === project.id ? "active" : ""}`} key={project.id} onClick={() => setFilter(project.id)}><i style={{ background: project.color }} /><span>{project.name}</span><em>{notes.filter((note) => note.projectId === project.id).length}</em></button>)}
+          {projects.map((project) => <button className={`project-filter ${filter === project.id ? "active" : ""}`} key={project.id} onClick={() => selectFilter(project.id)}><i style={{ background: project.color }} /><span>{project.name}</span><em>{notes.filter((note) => note.projectId === project.id).length}</em></button>)}
         </nav>
         <button className="notes-new-project" aria-label="新建项目" title="新建项目" onClick={() => setProjectDraft({ name: "", description: "", areaName: "", color: "#86bdf5" })}><FolderPlus size={16} /><span>新建项目</span></button>
       </section>
@@ -513,14 +566,14 @@ export function NotesPage({ initialNoteId }: { readonly initialNoteId?: string }
 
       {projectDraft && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setProjectDraft(undefined); }}>
         <section className="calendar-dialog note-project-dialog panel" role="dialog" aria-modal="true" aria-labelledby="note-project-dialog-title">
-          <header><div><span>让笔记、任务和日程共享一个上下文</span><h2 id="note-project-dialog-title">新建项目</h2></div><button aria-label="关闭" onClick={() => setProjectDraft(undefined)} disabled={busy}><X size={18} /></button></header>
+          <header><div><h2 id="note-project-dialog-title">新建项目</h2></div><button aria-label="关闭" onClick={() => setProjectDraft(undefined)} disabled={busy}><X size={18} /></button></header>
           <div className="note-project-form">
             <label><span>项目名称</span><input autoFocus value={projectDraft.name} maxLength={100} onChange={(event) => setProjectDraft({ ...projectDraft, name: event.target.value })} placeholder="例如 Kalender 开发" /></label>
             <label><span>领域</span><input value={projectDraft.areaName} maxLength={100} onChange={(event) => setProjectDraft({ ...projectDraft, areaName: event.target.value })} placeholder="例如 工作 / 个人" /></label>
             <label className="note-project-color"><span>颜色</span><input type="color" value={projectDraft.color} onChange={(event) => setProjectDraft({ ...projectDraft, color: event.target.value })} /></label>
             <label className="note-project-description"><span>项目说明</span><textarea value={projectDraft.description} maxLength={2_000} onChange={(event) => setProjectDraft({ ...projectDraft, description: event.target.value })} placeholder="这个项目要达成什么？" /></label>
           </div>
-          <footer><small>后续邮件、日历和任务也会使用同一个项目对象。</small><div><button className="secondary-button" disabled={busy} onClick={() => setProjectDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !projectDraft.name.trim()} onClick={() => void saveProject()}>{busy && <LoaderCircle className="spin" size={14} />}创建项目</button></div></footer>
+          <footer><div><button className="secondary-button" disabled={busy} onClick={() => setProjectDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !projectDraft.name.trim()} onClick={() => void saveProject()}>{busy && <LoaderCircle className="spin" size={14} />}创建项目</button></div></footer>
         </section>
       </div>}
     </div>

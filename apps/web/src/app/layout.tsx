@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import type { ReactNode } from "react";
 import "./globals.css";
 import { Geist } from "next/font/google";
@@ -10,8 +11,14 @@ import { AppDialogProvider } from "@/components/app-dialog-provider";
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata: Metadata = {
+  applicationName: "个人 AI 工作台",
   title: "个人 AI 工作台",
   description: "统一邮箱、日历、任务和笔记的个人 AI 工作台",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    shortcut: "/icon.svg",
+  },
 };
 
 export const viewport: Viewport = {
@@ -51,7 +58,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   return (
     <html lang="zh-CN" className={cn("font-sans", geist.variable)} suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
+        <Script id="qgw-theme-bootstrap" strategy="beforeInteractive">{themeBootstrapScript}</Script>
       </head>
       <body>
         <ThemeController />

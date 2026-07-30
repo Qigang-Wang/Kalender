@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline as pipelineCallback, Readable } from "node:stream";
@@ -14,6 +14,14 @@ import { stopCalendarSyncScheduler } from "./calendar-sync-scheduler";
 
 const pipeline = promisify(pipelineCallback);
 const scrypt = promisify(scryptCallback);
+const BACKUP_ESTIMATE_CACHE_TTL_MS = 5 * 60 * 1000;
+const BACKUP_PACKAGE_OVERHEAD_BYTES = 64 * 1024;
+
+let lightweightEstimateCache: {
+  readonly fingerprint: string;
+  readonly expiresAt: number;
+  readonly bytes: number;
+} | undefined;
 
 export const MAX_BACKUP_BYTES = Math.max(1, Number(process.env.KALENDER_BACKUP_MAX_BYTES ?? 512 * 1024 * 1024));
 
@@ -97,6 +105,7 @@ export interface BackupManifest {
 
 export interface WorkspaceBackupStatus {
   readonly databaseBytes: number;
+  readonly estimatedLightweightBytes: number;
   readonly attachmentBytes: number;
   readonly attachmentFiles: number;
   readonly keySource: BackupKeySource;
@@ -164,9 +173,10 @@ export class BackupError extends Error {
 export async function getWorkspaceBackupStatus(): Promise<WorkspaceBackupStatus> {
   const root = dataRoot();
   const database = await getDatabase();
-  const [attachmentSize, databaseBytes, counts, mailCache, latestAutomaticBackupAt, tools, artifacts, automatic] = await Promise.all([
+  const [attachmentSize, databaseBytes, lightweightDatabaseBytes, counts, mailCache, latestAutomaticBackupAt, tools, artifacts, automatic] = await Promise.all([
     directorySize(path.join(root, "mail-draft-attachments")),
     readDatabaseBytes(database),
+    readLightweightDatabaseBytes(database),
     readTableCounts(database),
     readMailCacheStats(database),
     latestAutomaticBackupTime(database),
@@ -176,6 +186,11 @@ export async function getWorkspaceBackupStatus(): Promise<WorkspaceBackupStatus>
   ]);
   return {
     databaseBytes,
+    estimatedLightweightBytes: await readEstimatedLightweightBackupBytes(
+      lightweightDatabaseBytes,
+      attachmentSize.bytes,
+      tools.pgDump,
+    ),
     attachmentBytes: attachmentSize.bytes,
     attachmentFiles: attachmentSize.files,
     keySource: process.env.KALENDER_MASTER_KEY ? "environment" : "none",
@@ -258,7 +273,7 @@ export async function exportWorkspaceBackup(): Promise<WorkspaceBackupResult> {
 }
 
 export async function restoreWorkspaceBackup(input: Uint8Array): Promise<WorkspaceRestoreResult> {
-  const artifact = await saveUploadedBackup(input, { actor: undefined, filename: `uploaded-${Date.now()}.qgwbackup` });
+  const artifact = await saveUploadedBackup(input, { actor: undefined, filename: `uploaded-${Date.now()}.backup` });
   return {
     restoredAt: new Date().toISOString(),
     counts: objectCounts(artifact.manifest.counts),
@@ -267,7 +282,7 @@ export async function restoreWorkspaceBackup(input: Uint8Array): Promise<Workspa
 }
 
 export async function inspectWorkspaceBackup(input: Uint8Array): Promise<WorkspaceBackupInspection> {
-  const artifact = await saveUploadedBackup(input, { actor: undefined, filename: `inspection-${Date.now()}.qgwbackup`, transient: true });
+  const artifact = await saveUploadedBackup(input, { actor: undefined, filename: `inspection-${Date.now()}.backup`, transient: true });
   return {
     counts: objectCounts(artifact.manifest.counts),
     databaseBytes: Number(artifact.manifest.databaseBytes ?? 0),
@@ -328,6 +343,7 @@ export async function createRestoreJob(actor: AppUser, input: {
 
 export async function listBackupArtifacts(options: { readonly limit?: number } = {}): Promise<readonly BackupArtifact[]> {
   const database = await getDatabase();
+  await migrateLegacyBackupFilenames(database);
   const result = await database.query<BackupArtifactRow>(
     `SELECT * FROM backup_artifacts ORDER BY created_at DESC LIMIT $1`,
     [Math.max(1, Math.min(options.limit ?? 20, 100))],
@@ -339,6 +355,26 @@ export async function getBackupArtifact(id: string): Promise<BackupArtifact | un
   const database = await getDatabase();
   const result = await database.query<BackupArtifactRow>("SELECT * FROM backup_artifacts WHERE id = $1 LIMIT 1", [id]);
   return result.rows[0] ? mapArtifact(result.rows[0]) : undefined;
+}
+
+export async function deleteBackupArtifact(actor: AppUser, id: string): Promise<void> {
+  if (actor.role !== "admin") throw new BackupError("需要管理员权限", 403);
+  const database = await getDatabase();
+  const result = await database.query<BackupArtifactRow>("SELECT * FROM backup_artifacts WHERE id = $1 LIMIT 1", [id]);
+  const row = result.rows[0];
+  if (!row) throw new BackupError("备份不存在", 404);
+  const restoreJobs = await database.query<{ readonly id: string }>(
+    `SELECT id
+       FROM app_jobs
+      WHERE kind = 'backup.restore'
+        AND status IN ('queued', 'running')
+        AND payload->>'artifactId' = $1
+      LIMIT 1`,
+    [id],
+  );
+  if (restoreJobs.rows[0]) throw new BackupError("该备份正在恢复，暂时不能删除", 409);
+  await rm(artifactPath(row.filename), { force: true });
+  await database.query("DELETE FROM backup_artifacts WHERE id = $1", [id]);
 }
 
 export async function readBackupArtifactFile(id: string): Promise<{ readonly artifact: BackupArtifact; readonly bytes: Buffer }> {
@@ -453,7 +489,7 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
     await writeFile(sumsPath, `${hashes}\n`, { mode: 0o600 });
     await updateJobProgress(job.id, 72);
 
-    const baseName = `kalender-${new Date().toISOString().replace(/[:.]/g, "-")}.qgwbackup`;
+    const baseName = `kalender-${new Date().toISOString().replace(/[:.]/g, "-")}.backup`;
     const plainPackage = path.join(backupDirectory(), baseName);
     await runCommand("tar", ["-C", workDir, "-czf", plainPackage, "database.dump", "mail-draft-attachments.tgz", "manifest.json", "SHA256SUMS"]);
     const finalPath = encrypted ? `${plainPackage}.enc` : plainPackage;
@@ -547,7 +583,7 @@ export async function runBackupRestoreJob(job: AppJob): Promise<Readonly<Record<
     await appendJobLog(job.id, "正在停止邮件和日历同步");
     await Promise.all([stopMailSyncScheduler(), stopCalendarSyncScheduler()]);
     const packagePath = artifactPath(artifact.filename);
-    const plainPackage = artifact.encrypted ? path.join(workDir, "decrypted.qgwbackup") : packagePath;
+    const plainPackage = artifact.encrypted ? path.join(workDir, "decrypted.backup") : packagePath;
     if (artifact.encrypted) await decryptFile(packagePath, plainPackage, password!);
     await runCommand("tar", ["-C", workDir, "-xzf", plainPackage]);
     await verifyExtractedBackup(workDir);
@@ -620,6 +656,56 @@ async function readDatabaseBytes(database: DatabaseExecutor): Promise<number> {
   const result = await database.query<{ bytes: string | number }>("SELECT pg_database_size(current_database()) AS bytes");
   const value = result.rows[0]?.bytes;
   return typeof value === "number" ? value : Number(value ?? 0);
+}
+
+async function readLightweightDatabaseBytes(database: DatabaseExecutor): Promise<number> {
+  const result = await database.query<{ bytes: string | number }>(
+    `SELECT COALESCE(sum(pg_total_relation_size(relid)), 0)::bigint AS bytes
+       FROM pg_catalog.pg_statio_user_tables
+      WHERE schemaname = 'public'
+        AND relname <> 'mail_message_bodies'`,
+  );
+  return Number(result.rows[0]?.bytes ?? 0);
+}
+
+export function estimateLightweightBackupBytes(databaseBytes: number, attachmentBytes: number): number {
+  return Math.max(0, databaseBytes) + Math.max(0, attachmentBytes);
+}
+
+async function readEstimatedLightweightBackupBytes(
+  lightweightDatabaseBytes: number,
+  attachmentBytes: number,
+  pgDumpAvailable: boolean,
+): Promise<number> {
+  const fallback = estimateLightweightBackupBytes(lightweightDatabaseBytes, attachmentBytes);
+  if (!pgDumpAvailable) return fallback;
+
+  const fingerprint = `${lightweightDatabaseBytes}:${attachmentBytes}`;
+  if (
+    lightweightEstimateCache?.fingerprint === fingerprint
+    && lightweightEstimateCache.expiresAt > Date.now()
+  ) {
+    return lightweightEstimateCache.bytes;
+  }
+
+  const workDir = await mkdtemp(path.join(tmpdir(), "qgw-backup-estimate-"));
+  const dumpPath = path.join(workDir, "database.dump");
+  try {
+    await runCommand("pg_dump", buildDatabaseDumpArgs("lightweight", dumpPath, databaseUrl()));
+    const dumpSize = await stat(dumpPath);
+    const bytes = dumpSize.size + Math.max(0, attachmentBytes) + BACKUP_PACKAGE_OVERHEAD_BYTES;
+    lightweightEstimateCache = {
+      fingerprint,
+      expiresAt: Date.now() + BACKUP_ESTIMATE_CACHE_TTL_MS,
+      bytes,
+    };
+    return bytes;
+  } catch (error) {
+    console.warn("Unable to measure lightweight backup size; using storage estimate", error);
+    return fallback;
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
 }
 
 async function readBackupToolStatus(): Promise<BackupToolStatus> {
@@ -965,12 +1051,55 @@ function formatBytes(value: number): string {
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function normalizeBackupFilename(filename: string): string {
+export function normalizeBackupFilename(filename: string): string {
   const name = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, "-");
-  if (!name || !name.endsWith(".qgwbackup") && !name.endsWith(".qgwbackup.enc")) {
-    return `${name || "backup"}.qgwbackup`;
+  const modernName = modernizeBackupFilename(name);
+  const lowerName = modernName.toLowerCase();
+  const supportedExtension = [".backup", ".backup.enc"].some((extension) => lowerName.endsWith(extension));
+  if (!name || !supportedExtension) {
+    return `${modernName || "backup"}.backup`;
   }
-  return name;
+  return modernName;
+}
+
+function modernizeBackupFilename(filename: string): string {
+  if (filename.toLowerCase().endsWith(".qgwbackup.enc")) {
+    return `${filename.slice(0, -".qgwbackup.enc".length)}.backup.enc`;
+  }
+  if (filename.toLowerCase().endsWith(".qgwbackup")) {
+    return `${filename.slice(0, -".qgwbackup".length)}.backup`;
+  }
+  return filename;
+}
+
+async function migrateLegacyBackupFilenames(database: DatabaseExecutor): Promise<void> {
+  const result = await database.query<{ readonly id: string; readonly filename: string }>(
+    `SELECT id, filename
+       FROM backup_artifacts
+      WHERE lower(filename) LIKE '%.qgwbackup'
+         OR lower(filename) LIKE '%.qgwbackup.enc'`,
+  );
+  for (const row of result.rows) {
+    const filename = modernizeBackupFilename(row.filename);
+    const legacyPath = artifactPath(row.filename);
+    const modernPath = artifactPath(filename);
+    try {
+      const [legacyExists, modernExists] = await Promise.all([pathExists(legacyPath), pathExists(modernPath)]);
+      if (legacyExists && modernExists) {
+        console.warn(`Unable to rename legacy backup because the target already exists: ${filename}`);
+        continue;
+      }
+      if (legacyExists) await rename(legacyPath, modernPath);
+      if (legacyExists || modernExists) {
+        await database.query(
+          "UPDATE backup_artifacts SET filename = $2, file_path = $3 WHERE id = $1",
+          [row.id, filename, modernPath],
+        );
+      }
+    } catch (error) {
+      console.warn(`Unable to rename legacy backup ${row.filename}`, error);
+    }
+  }
 }
 
 function databaseUrl(): string {
@@ -993,14 +1122,9 @@ async function runCommand(command: string, args: readonly string[]): Promise<voi
   });
 }
 
-async function sha256File(filePath: string): Promise<string> {
+export async function sha256File(filePath: string): Promise<string> {
   const hash = createHash("sha256");
-  await pipeline(createReadStream(filePath), async function* (source) {
-    for await (const chunk of source) {
-      hash.update(chunk as Buffer);
-      yield chunk;
-    }
-  });
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk as Buffer);
   return hash.digest("hex");
 }
 
@@ -1011,7 +1135,7 @@ async function inspectBackupFile(filePath: string, password: string | undefined)
   const workDir = await mkdtemp(path.join(tmpdir(), "qgw-inspect-"));
   try {
     const encrypted = await isEncryptedBackup(filePath);
-    const plainPath = encrypted ? path.join(workDir, "decrypted.qgwbackup") : filePath;
+    const plainPath = encrypted ? path.join(workDir, "decrypted.backup") : filePath;
     if (encrypted) {
       if (!password) return { encrypted: true, manifest: { encrypted: true, inspected: false } };
       await decryptFile(filePath, plainPath, password);

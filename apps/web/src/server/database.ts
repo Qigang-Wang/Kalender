@@ -1337,6 +1337,226 @@ const MAIL_MESSAGE_METADATA_COMPACTION_SQL = String.raw`
   ANALYZE mail_messages;
 `;
 
+const REALTIME_EVENTS_SCHEMA_SQL = String.raw`
+  CREATE OR REPLACE FUNCTION kalender_notify_realtime_topic()
+  RETURNS trigger
+  LANGUAGE plpgsql
+  AS $$
+  BEGIN
+    PERFORM pg_notify(
+      'kalender_realtime',
+      json_build_object(
+        'topic', TG_ARGV[0],
+        'action', lower(TG_OP)
+      )::text
+    );
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+    RETURN NEW;
+  END;
+  $$;
+
+  CREATE OR REPLACE FUNCTION kalender_notify_realtime_job()
+  RETURNS trigger
+  LANGUAGE plpgsql
+  AS $$
+  DECLARE
+    job app_jobs%ROWTYPE;
+  BEGIN
+    IF TG_OP = 'DELETE' THEN
+      job := OLD;
+    ELSE
+      job := NEW;
+    END IF;
+    PERFORM pg_notify(
+      'kalender_realtime',
+      json_build_object(
+        'topic', 'job',
+        'action', lower(TG_OP),
+        'entityId', job.id,
+        'userId', job.user_id,
+        'kind', job.kind,
+        'status', job.status,
+        'progress', job.progress
+      )::text
+    );
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+    RETURN NEW;
+  END;
+  $$;
+
+  DROP TRIGGER IF EXISTS kalender_realtime_accounts ON accounts;
+  CREATE TRIGGER kalender_realtime_accounts
+    AFTER INSERT OR UPDATE OR DELETE ON accounts
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('mail');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_mail_folders ON mail_folders;
+  CREATE TRIGGER kalender_realtime_mail_folders
+    AFTER INSERT OR UPDATE OR DELETE ON mail_folders
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('mail');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_mail_threads ON mail_threads;
+  CREATE TRIGGER kalender_realtime_mail_threads
+    AFTER INSERT OR UPDATE OR DELETE ON mail_threads
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('mail');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_mail_messages ON mail_messages;
+  CREATE TRIGGER kalender_realtime_mail_messages
+    AFTER INSERT OR UPDATE OR DELETE ON mail_messages
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('mail');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_mail_drafts ON mail_drafts;
+  CREATE TRIGGER kalender_realtime_mail_drafts
+    AFTER INSERT OR UPDATE OR DELETE ON mail_drafts
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('mail');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_mail_signatures ON mail_signatures;
+  CREATE TRIGGER kalender_realtime_mail_signatures
+    AFTER INSERT OR UPDATE OR DELETE ON mail_signatures
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('mail');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_sync_runs ON sync_runs;
+  CREATE TRIGGER kalender_realtime_sync_runs
+    AFTER INSERT OR UPDATE OR DELETE ON sync_runs
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('mail');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_calendar_accounts ON calendar_accounts;
+  CREATE TRIGGER kalender_realtime_calendar_accounts
+    AFTER INSERT OR UPDATE OR DELETE ON calendar_accounts
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('calendar');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_calendars ON calendars;
+  CREATE TRIGGER kalender_realtime_calendars
+    AFTER INSERT OR UPDATE OR DELETE ON calendars
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('calendar');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_calendar_events ON calendar_events;
+  CREATE TRIGGER kalender_realtime_calendar_events
+    AFTER INSERT OR UPDATE OR DELETE ON calendar_events
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('calendar');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_tasks ON tasks;
+  CREATE TRIGGER kalender_realtime_tasks
+    AFTER INSERT OR UPDATE OR DELETE ON tasks
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('task');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_projects ON projects;
+  CREATE TRIGGER kalender_realtime_projects
+    AFTER INSERT OR UPDATE OR DELETE ON projects
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('project');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_project_phases ON project_phases;
+  CREATE TRIGGER kalender_realtime_project_phases
+    AFTER INSERT OR UPDATE OR DELETE ON project_phases
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('project');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_project_milestones ON project_milestones;
+  CREATE TRIGGER kalender_realtime_project_milestones
+    AFTER INSERT OR UPDATE OR DELETE ON project_milestones
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('project');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_project_members ON project_members;
+  CREATE TRIGGER kalender_realtime_project_members
+    AFTER INSERT OR UPDATE OR DELETE ON project_members
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('project');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_notes ON notes;
+  CREATE TRIGGER kalender_realtime_notes
+    AFTER INSERT OR UPDATE OR DELETE ON notes
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('note');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_entity_links ON entity_links;
+  CREATE TRIGGER kalender_realtime_entity_links
+    AFTER INSERT OR UPDATE OR DELETE ON entity_links
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('relation');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_app_jobs ON app_jobs;
+  CREATE TRIGGER kalender_realtime_app_jobs
+    AFTER INSERT OR UPDATE OR DELETE ON app_jobs
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_job();
+
+  DROP TRIGGER IF EXISTS kalender_realtime_backup_artifacts ON backup_artifacts;
+  CREATE TRIGGER kalender_realtime_backup_artifacts
+    AFTER INSERT OR UPDATE OR DELETE ON backup_artifacts
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('backup');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_backup_settings ON backup_settings;
+  CREATE TRIGGER kalender_realtime_backup_settings
+    AFTER INSERT OR UPDATE OR DELETE ON backup_settings
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('backup');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_sync_settings ON sync_settings;
+  CREATE TRIGGER kalender_realtime_sync_settings
+    AFTER INSERT OR UPDATE OR DELETE ON sync_settings
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('settings');
+`;
+
+const REALTIME_ENTITY_EVENTS_SCHEMA_SQL = String.raw`
+  CREATE OR REPLACE FUNCTION kalender_notify_realtime_topic()
+  RETURNS trigger
+  LANGUAGE plpgsql
+  AS $$
+  DECLARE
+    row_data jsonb;
+  BEGIN
+    IF TG_OP = 'DELETE' THEN
+      row_data := to_jsonb(OLD);
+    ELSE
+      row_data := to_jsonb(NEW);
+    END IF;
+    PERFORM pg_notify(
+      'kalender_realtime',
+      json_strip_nulls(json_build_object(
+        'topic', TG_ARGV[0],
+        'action', lower(TG_OP),
+        'entityType', TG_TABLE_NAME,
+        'entityId', row_data->>'id',
+        'userId', row_data->>'user_id'
+      ))::text
+    );
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+    RETURN NEW;
+  END;
+  $$;
+
+  CREATE OR REPLACE FUNCTION kalender_notify_realtime_job()
+  RETURNS trigger
+  LANGUAGE plpgsql
+  AS $$
+  DECLARE
+    job app_jobs%ROWTYPE;
+  BEGIN
+    IF TG_OP = 'DELETE' THEN
+      job := OLD;
+    ELSE
+      job := NEW;
+    END IF;
+    PERFORM pg_notify(
+      'kalender_realtime',
+      json_build_object(
+        'topic', 'job',
+        'action', lower(TG_OP),
+        'entityType', TG_TABLE_NAME,
+        'entityId', job.id,
+        'userId', job.user_id,
+        'kind', job.kind,
+        'status', job.status,
+        'progress', job.progress
+      )::text
+    );
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+    RETURN NEW;
+  END;
+  $$;
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1361,6 +1581,8 @@ export const DATABASE_MIGRATIONS = [
   { version: 21, name: "calendar-event-availability", sql: CALENDAR_AVAILABILITY_SCHEMA_SQL },
   { version: 22, name: "mail-message-body-cache", sql: MAIL_MESSAGE_BODY_CACHE_SCHEMA_SQL },
   { version: 23, name: "compact-mail-message-metadata", sql: MAIL_MESSAGE_METADATA_COMPACTION_SQL },
+  { version: 24, name: "workspace-realtime-events", sql: REALTIME_EVENTS_SCHEMA_SQL },
+  { version: 25, name: "workspace-realtime-entity-events", sql: REALTIME_ENTITY_EVENTS_SCHEMA_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

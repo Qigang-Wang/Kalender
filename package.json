@@ -10,7 +10,8 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace @workspace/web",
+    "dev": "node scripts/realtime-gateway.mjs --dev",
+    "dev:next": "npm run dev --workspace @workspace/web",
     "build": "npm run check:ui-dialogs && npm run build:core && npm run build:web",
     "build:core": "tsc -p tsconfig.json",
     "build:web": "npm run build --workspace @workspace/web",
@@ -67,6 +68,7 @@
     "nodemailer": "^9.0.3",
     "pg": "^8.22.0",
     "postal-mime": "^2.7.5",
-    "sanitize-html": "2.17.0"
+    "sanitize-html": "2.17.0",
+    "ws": "^8.21.1"
   }
 }

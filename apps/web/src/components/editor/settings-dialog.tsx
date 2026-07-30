@@ -339,9 +339,9 @@ export function SettingsDialog() {
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="text-xl">Settings</DialogTitle>
+          <DialogTitle className="text-xl">编辑器 AI</DialogTitle>
           <DialogDescription>
-            Configure your API keys and preferences.
+            配置当前会话使用的模型。
           </DialogDescription>
         </DialogHeader>
 
@@ -363,7 +363,7 @@ export function SettingsDialog() {
                   className="-translate-y-1/2 absolute start-1 top-0 z-10 block bg-background px-2 font-medium text-foreground text-xs group-has-disabled:opacity-50"
                   htmlFor="select-model"
                 >
-                  Model
+                  模型
                 </label>
                 <Popover open={openModel} onOpenChange={setOpenModel}>
                   <PopoverTrigger id="select-model" asChild>
@@ -380,8 +380,8 @@ export function SettingsDialog() {
                   </PopoverTrigger>
                   <PopoverContent className="w-full p-0">
                     <Command>
-                      <CommandInput placeholder="Search model..." />
-                      <CommandEmpty>No model found.</CommandEmpty>
+                      <CommandInput placeholder="搜索模型" />
+                      <CommandEmpty>未找到模型</CommandEmpty>
                       <CommandList>
                         <CommandGroup>
                           {models.map((m) => (
@@ -428,12 +428,12 @@ export function SettingsDialog() {
           </div> */}
 
           <Button size="lg" className="w-full" type="submit">
-            Save changes
+            保存
           </Button>
         </form>
 
         <p className="text-muted-foreground text-sm">
-          Not stored anywhere. Used only for current session requests.
+          仅用于当前会话，不会保存。
         </p>
       </DialogContent>
     </Dialog>

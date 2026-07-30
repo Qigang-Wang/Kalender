@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { AuthError, getCurrentAppUser } from "@/server/auth";
-import { cancelJob, getJob, JobError, retryJob } from "@/server/job-service";
+import { cancelJob, deleteJob, getJob, JobError, retryJob } from "@/server/job-service";
 
 export const runtime = "nodejs";
 
@@ -27,6 +27,17 @@ export async function PATCH(request: Request, context: JobRouteContext) {
     if (body?.action === "cancel") return NextResponse.json({ ok: true, job: await cancelJob(actor, jobId) });
     if (body?.action === "retry") return NextResponse.json({ ok: true, job: await retryJob(actor, jobId) });
     throw new JobError("不支持的任务操作");
+  } catch (error) {
+    return jobErrorResponse(error);
+  }
+}
+
+export async function DELETE(_request: Request, context: JobRouteContext) {
+  try {
+    const actor = await requireActor();
+    const { jobId } = await context.params;
+    await deleteJob(actor, jobId);
+    return NextResponse.json({ ok: true });
   } catch (error) {
     return jobErrorResponse(error);
   }

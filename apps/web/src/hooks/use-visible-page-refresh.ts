@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 
 import { useSyncSettings } from "@/components/sync-settings-context";
+import { useRealtimeStatus } from "@/components/realtime-context";
 
 export const LIVE_DATA_REFRESH_INTERVAL_MS = 15_000;
 
@@ -11,6 +12,7 @@ export function useVisiblePageRefresh(
   intervalMs = LIVE_DATA_REFRESH_INTERVAL_MS,
 ) {
   const { settings } = useSyncSettings();
+  const realtimeStatus = useRealtimeStatus();
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
   const followsWorkspaceSettings = intervalMs === LIVE_DATA_REFRESH_INTERVAL_MS;
@@ -35,14 +37,16 @@ export function useVisiblePageRefresh(
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") run();
     };
-    const timer = window.setInterval(run, effectiveIntervalMs);
+    const timer = realtimeStatus === "connected"
+      ? undefined
+      : window.setInterval(run, effectiveIntervalMs);
     window.addEventListener("focus", run);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       active = false;
-      window.clearInterval(timer);
+      if (timer !== undefined) window.clearInterval(timer);
       window.removeEventListener("focus", run);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [effectiveIntervalMs, enabled]);
+  }, [effectiveIntervalMs, enabled, realtimeStatus]);
 }

@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronUp, Clock3, Link2, ListChecks, LoaderCircle, Mail, MapPin, Paperclip, Star, Users } from "lucide-react";
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import { appConfirm } from "@/components/app-dialog-provider";
+import { useRealtimeRefresh } from "@/components/realtime-context";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { ContextMenu } from "../context-menu";
 import { resolveContextCommands, type CalendarEventCommandId, type MailMessageCommandId, type TaskCommandId } from "../context-commands";
@@ -95,29 +96,33 @@ export function TodayPage() {
   const [feedback, setFeedback] = useState<string>();
   const [contextMenu, setContextMenu] = useState<TodayContextMenuState>();
 
-  useEffect(() => {
-    const controller = new AbortController();
+  const loadToday = useCallback(async ({ background = false }: { readonly background?: boolean } = {}) => {
     const from = new Date();
     from.setHours(0, 0, 0, 0);
     const to = new Date(from);
     to.setDate(to.getDate() + 1);
     const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
-    setFeedback(undefined);
-    setState("loading");
-    void fetchWithTimeout(`/api/today?${params}`, { cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
-        const payload = await response.json() as { readonly ok?: boolean; readonly snapshot?: TodaySnapshot; readonly message?: string };
-        if (!response.ok || !payload.ok || !payload.snapshot) throw new Error(payload.message ?? "无法读取 Today 数据");
-        setSnapshot(payload.snapshot);
-        setState("ready");
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        setFeedback(error instanceof Error ? error.message : "无法读取 Today 数据");
-        setState("error");
-      });
-    return () => controller.abort();
-  }, [retry]);
+    if (!background) {
+      setFeedback(undefined);
+      setState("loading");
+    }
+    try {
+      const response = await fetchWithTimeout(`/api/today?${params}`, { cache: "no-store" });
+      const payload = await response.json() as { readonly ok?: boolean; readonly snapshot?: TodaySnapshot; readonly message?: string };
+      if (!response.ok || !payload.ok || !payload.snapshot) throw new Error(payload.message ?? "无法读取 Today 数据");
+      setSnapshot(payload.snapshot);
+      setState("ready");
+    } catch (error) {
+      if (background) return;
+      setFeedback(error instanceof Error ? error.message : "无法读取 Today 数据");
+      setState("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadToday();
+  }, [loadToday, retry]);
+  useRealtimeRefresh(["mail", "calendar", "task", "relation"], () => loadToday({ background: true }));
 
   const completeTask = async (task: TodayTaskItem) => {
     if (busyTaskId) return;
