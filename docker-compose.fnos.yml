@@ -1,5 +1,12 @@
 name: kalender
 
+# 部署前只需修改这里。此文件包含明文密码，填写后不要提交到公开仓库。
+x-dayline-settings:
+  database-password: &database-password "CHANGE_ME_DATABASE_PASSWORD"
+  master-key: &master-key "CHANGE_ME_BASE64_MASTER_KEY"
+  backup-password: &backup-password "CHANGE_ME_BACKUP_PASSWORD"
+  timezone: &timezone "Europe/Berlin"
+
 services:
   kalender:
     build:
@@ -11,22 +18,23 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "${KALENDER_HTTP_PORT:-3000}:3000"
+      - "3000:3000"
     environment:
       NODE_ENV: production
-      TZ: ${TZ:-Europe/Berlin}
-      DATABASE_URL: postgresql://kalender:${KALENDER_POSTGRES_PASSWORD:?请在.env中设置数据库密码}@postgres:5432/kalender
+      TZ: *timezone
+      DATABASE_URL: postgresql://kalender@postgres:5432/kalender
+      PGPASSWORD: *database-password
       KALENDER_DATA_DIR: /app/.data
       KALENDER_BACKUP_DIR: /app/.backups
-      KALENDER_MASTER_KEY: ${KALENDER_MASTER_KEY:?请在.env中设置固定的Base64主密钥}
-      KALENDER_BACKUP_PASSWORD: ${KALENDER_BACKUP_PASSWORD:-}
-      KALENDER_BACKUP_MAX_BYTES: "${KALENDER_BACKUP_MAX_BYTES:-536870912}"
-      KALENDER_SYNC_INTERVAL_MS: "${KALENDER_SYNC_INTERVAL_MS:-180000}"
-      KALENDER_CALENDAR_SYNC_INTERVAL_MS: "${KALENDER_CALENDAR_SYNC_INTERVAL_MS:-180000}"
-      KALENDER_JOB_POLL_INTERVAL_MS: "${KALENDER_JOB_POLL_INTERVAL_MS:-5000}"
-      KALENDER_AI_AUTO_EXECUTION: "${KALENDER_AI_AUTO_EXECUTION:-false}"
-      KALENDER_MAIL_BODY_CACHE_MAX_AGE_DAYS: "${KALENDER_MAIL_BODY_CACHE_MAX_AGE_DAYS:-30}"
-      KALENDER_MAIL_BODY_CACHE_MAX_MB: "${KALENDER_MAIL_BODY_CACHE_MAX_MB:-128}"
+      KALENDER_MASTER_KEY: *master-key
+      KALENDER_BACKUP_PASSWORD: *backup-password
+      KALENDER_BACKUP_MAX_BYTES: "536870912"
+      KALENDER_SYNC_INTERVAL_MS: "180000"
+      KALENDER_CALENDAR_SYNC_INTERVAL_MS: "180000"
+      KALENDER_JOB_POLL_INTERVAL_MS: "5000"
+      KALENDER_AI_AUTO_EXECUTION: "false"
+      KALENDER_MAIL_BODY_CACHE_MAX_AGE_DAYS: "30"
+      KALENDER_MAIL_BODY_CACHE_MAX_MB: "128"
     volumes:
       - kalender-data:/app/.data
       - kalender-backups:/app/.backups
@@ -41,10 +49,10 @@ services:
     image: postgres:18
     restart: unless-stopped
     environment:
-      TZ: ${TZ:-Europe/Berlin}
+      TZ: *timezone
       POSTGRES_DB: kalender
       POSTGRES_USER: kalender
-      POSTGRES_PASSWORD: ${KALENDER_POSTGRES_PASSWORD:?请在.env中设置数据库密码}
+      POSTGRES_PASSWORD: *database-password
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kalender -d kalender"]
       interval: 5s

@@ -1,24 +1,24 @@
-# 飞牛 fnOS Docker 部署
+# Dayline 飞牛 fnOS Docker 部署
 
 本项目可以直接通过一个 Compose YAML 部署。应用从公开的 GitHub `main` 分支构建，
 数据库和应用数据由 Docker 命名卷保存。
 
-**不需要手动 `git clone`，不需要创建数据文件夹，也不需要设置目录权限。**
+**不需要手动 `git clone`，不需要 `.env`，不需要创建数据文件夹，也不需要设置目录权限。**
 
 > 当前配置适合家庭网络或可信局域网。不要在没有 HTTPS 和访问控制的情况下直接
 > 暴露到公网。
 
 ## 最简单的部署方法
 
-### 1. 准备三个值
+### 1. 生成三个密码
 
 需要：
 
-| 名称 | 是否必填 | 用途 |
+| YAML 字段 | 是否必填 | 用途 |
 |---|---|---|
-| `KALENDER_POSTGRES_PASSWORD` | 必填 | PostgreSQL 数据库密码 |
-| `KALENDER_MASTER_KEY` | 必填 | 加密邮箱、日历和 AI 凭据 |
-| `KALENDER_BACKUP_PASSWORD` | 可选 | 自动加密备份 |
+| `database-password` | 必填 | PostgreSQL 数据库密码 |
+| `master-key` | 必填 | 加密邮箱、日历和 AI 凭据 |
+| `backup-password` | 必填 | 手动和自动加密备份 |
 
 可以在任意装有 OpenSSL 的电脑上生成：
 
@@ -30,25 +30,32 @@ openssl rand -hex 24
 
 三行结果依次对应上面的三个变量。
 
-`KALENDER_MASTER_KEY` 必须长期保存。更换或丢失后，应用无法解密已经保存的账户
+`master-key` 必须长期保存。更换或丢失后，应用无法解密已经保存的账户
 凭据。建议将它保存在密码管理器中。
 
-### 2. 在飞牛创建 Compose 项目
+### 2. 修改 YAML 顶部
+
+打开 `docker-compose.fnos.yml`，只替换文件顶部的三个 `CHANGE_ME` 值：
+
+```yaml
+x-dayline-settings:
+  database-password: &database-password "第一行生成的数据库密码"
+  master-key: &master-key "第二行生成的Base64主密钥"
+  backup-password: &backup-password "第三行生成的备份密码"
+  timezone: &timezone "Europe/Berlin"
+```
+
+数据库密码通过 YAML 锚点同时提供给 Dayline 和 PostgreSQL，只需填写一次。填写后
+该 YAML 包含明文密码，不要上传到公开 GitHub。
+
+### 3. 在飞牛创建 Compose 项目
 
 1. 打开飞牛 Docker 管理界面。
 2. 新建 Compose 项目，项目名填写 `kalender`。
-3. 将仓库根目录的 `docker-compose.fnos.yml` 完整粘贴进去。
-4. 在 Compose 项目的环境变量区域填写：
-
-```env
-KALENDER_POSTGRES_PASSWORD=第一行生成的数据库密码
-KALENDER_MASTER_KEY=第二行生成的Base64主密钥
-KALENDER_BACKUP_PASSWORD=第三行生成的备份密码
-```
-
-5. 点击“构建并启动”。
-6. 等待 `postgres` 变为健康，`kalender` 变为运行中。
-7. 打开 `http://飞牛局域网IP:3000`。
+3. 将已经填写三个密码的 `docker-compose.fnos.yml` 完整粘贴进去。
+4. 点击“构建并启动”。
+5. 等待 `postgres` 变为健康，`kalender` 变为运行中。
+6. 打开 `http://飞牛局域网IP:3000`。
 
 Docker 会自动创建三个持久化卷：
 
@@ -58,40 +65,9 @@ Docker 会自动创建三个持久化卷：
 
 删除或重新构建容器不会删除这些卷中的数据。
 
-## 飞牛界面无法设置环境变量
-
-优先寻找 Compose 项目中的“环境变量”“项目变量”或 `.env` 编辑区域。不同 fnOS
-版本的名称可能不同。
-
-也可以直接修改 YAML，但修改后的 YAML 不要上传到公开 GitHub。
-
-将下面两处：
-
-```yaml
-${KALENDER_POSTGRES_PASSWORD:?请在.env中设置数据库密码}
-```
-
-替换为同一个数据库密码。
-
-将：
-
-```yaml
-${KALENDER_MASTER_KEY:?请在.env中设置固定的Base64主密钥}
-```
-
-替换为主密钥。
-
-备份密码可以直接写成：
-
-```yaml
-KALENDER_BACKUP_PASSWORD: "你的备份密码"
-```
-
-Base64 主密钥和备份密码建议使用引号包裹。
-
 ## 使用 SSH 部署
 
-SSH 部署只需要一个放置 YAML 和 `.env` 的工作目录，不需要创建数据子目录：
+SSH 部署只需要一个放置 YAML 的工作目录，不需要创建数据子目录：
 
 ```bash
 mkdir -p /vol1/docker/kalender
@@ -104,17 +80,13 @@ cd /vol1/docker/kalender
 curl -fsSL \
   https://raw.githubusercontent.com/Qigang-Wang/Kalender/main/docker-compose.fnos.yml \
   -o docker-compose.fnos.yml
-
-curl -fsSL \
-  https://raw.githubusercontent.com/Qigang-Wang/Kalender/main/.env.fnos.example \
-  -o .env
 ```
 
-编辑 `.env`，填写密码和主密钥：
+编辑 YAML 顶部的三个密码：
 
 ```bash
-nano .env
-chmod 600 .env
+nano docker-compose.fnos.yml
+chmod 600 docker-compose.fnos.yml
 ```
 
 检查 YAML：
@@ -145,10 +117,11 @@ curl -fsS http://127.0.0.1:3000/api/health
 
 ## 端口
 
-默认访问端口是 `3000`。如果端口被占用，在项目环境变量或 `.env` 中设置：
+默认访问端口是 `3000`。如果端口被占用，将 YAML 中的端口映射改为：
 
-```env
-KALENDER_HTTP_PORT=3080
+```yaml
+ports:
+  - "3080:3000"
 ```
 
 然后访问：

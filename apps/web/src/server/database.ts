@@ -1557,6 +1557,17 @@ const REALTIME_ENTITY_EVENTS_SCHEMA_SQL = String.raw`
   $$;
 `;
 
+const AUTOMATIC_BACKUP_RETENTION_THREE_SQL = String.raw`
+  ALTER TABLE backup_settings
+    ALTER COLUMN retention_count SET DEFAULT 3;
+
+  UPDATE backup_settings
+     SET retention_count = 3,
+         updated_at = now()
+   WHERE id = 'workspace'
+     AND retention_count = 14;
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1583,6 +1594,7 @@ export const DATABASE_MIGRATIONS = [
   { version: 23, name: "compact-mail-message-metadata", sql: MAIL_MESSAGE_METADATA_COMPACTION_SQL },
   { version: 24, name: "workspace-realtime-events", sql: REALTIME_EVENTS_SCHEMA_SQL },
   { version: 25, name: "workspace-realtime-entity-events", sql: REALTIME_ENTITY_EVENTS_SCHEMA_SQL },
+  { version: 26, name: "automatic-backup-retention-three", sql: AUTOMATIC_BACKUP_RETENTION_THREE_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

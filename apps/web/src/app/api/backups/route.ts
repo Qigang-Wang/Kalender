@@ -46,7 +46,7 @@ export async function PUT(request: Request) {
     const settings = await saveAutomaticBackupSettings(actor, {
       enabled: body?.enabled === true,
       intervalHours: Number(body?.intervalHours ?? 24),
-      retentionCount: Number(body?.retentionCount ?? 14),
+      retentionCount: Number(body?.retentionCount ?? 3),
       encryptAutomatic: body?.encryptAutomatic !== false,
     });
     return NextResponse.json({ ok: true, settings });

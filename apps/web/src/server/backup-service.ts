@@ -217,7 +217,7 @@ export async function getAutomaticBackupSettings(databaseInput?: DatabaseExecuto
     return {
       enabled: false,
       intervalHours: 24,
-      retentionCount: 14,
+      retentionCount: 3,
       encryptAutomatic: true,
       encryptionPasswordConfigured: Boolean(process.env.KALENDER_BACKUP_PASSWORD),
     };
