@@ -89,10 +89,19 @@ async function main() {
     assert(invitation.inviteUrl.includes(`/invite/${encodeURIComponent(invitation.token)}`), "admin can create invite links");
     assert((await auth.getAppInvitationByToken(invitation.token))?.email === "invited@example.test", "invite token can be resolved");
     const { buildInvitationMailContent } = await import("./invitation-mail-service");
+    const { renderMailHtml } = await import("./mail-rich-text");
     const { noteContentToPlainText } = await import("../lib/note-content");
-    const invitationMailText = noteContentToPlainText(buildInvitationMailContent(invitation, admin));
+    const invitationMailContent = buildInvitationMailContent(invitation, admin);
+    const invitationMailText = noteContentToPlainText(invitationMailContent);
     assert(invitationMailText.includes(invitation.inviteUrl), "invitation email includes the complete acceptance URL");
     assert(invitationMailText.includes(admin.displayName), "invitation email identifies the inviter");
+    assert(invitationMailText.includes("你受邀加入 Dayline"), "invitation email has a clear plain-text heading");
+    const invitationMailHtml = await renderMailHtml(invitationMailContent);
+    assert(invitationMailHtml.includes("<table"), "invitation email uses a structured transactional-email layout");
+    assert(invitationMailHtml.includes(">接受邀请</a>"), "invitation email includes the primary acceptance action");
+    assert(invitationMailHtml.includes(`href="${invitation.inviteUrl}"`), "invitation action uses the complete acceptance URL");
+    assert(invitationMailHtml.includes("Quiet Intelligence"), "invitation email includes Dayline branding");
+    assert(!invitationMailHtml.includes("qgwInvitation"), "invitation template metadata is never sent to recipients");
     const invited = await auth.acceptAppInvitation(invitation.token, {
       displayName: "Invited User",
       password: "invited-password",
@@ -106,6 +115,38 @@ async function main() {
       selfDisableRejected = error instanceof auth.AuthError && error.status === 400;
     }
     assert(selfDisableRejected, "admin cannot disable the current account");
+
+    const disposable = await auth.createManagedAppUser(admin, {
+      displayName: "Disposable User",
+      email: "disposable@example.test",
+      password: "disposable-password",
+      role: "user",
+    });
+    await database.query(
+      `INSERT INTO projects (id, name, color, status, user_id)
+       VALUES ('disposable-project', 'Disposable Project', '#86bdf5', 'active', $1)`,
+      [disposable.id],
+    );
+    const deleted = await auth.deleteManagedAppUser(admin, disposable.id);
+    assert(deleted.id === disposable.id, "admin can permanently delete another user");
+    assert(!(await auth.listManagedAppUsers(admin)).some((item) => item.id === disposable.id), "deleted user is removed from user management");
+    const deletedProjects = await database.query<{ count: number | string }>("SELECT count(*) AS count FROM projects WHERE id = 'disposable-project'");
+    assert(Number(deletedProjects.rows[0]?.count ?? 0) === 0, "deleting a user cascades to owned workspace data");
+    let deletedCannotLogin = false;
+    try {
+      await auth.authenticateAppUser("disposable@example.test", "disposable-password");
+    } catch (error) {
+      deletedCannotLogin = error instanceof auth.AuthError && error.status === 401;
+    }
+    assert(deletedCannotLogin, "deleted users cannot authenticate");
+
+    let selfDeleteRejected = false;
+    try {
+      await auth.deleteManagedAppUser(admin, admin.id);
+    } catch (error) {
+      selfDeleteRejected = error instanceof auth.AuthError && error.status === 400;
+    }
+    assert(selfDeleteRejected, "admin cannot delete the current account");
 
     const updatedProfile = await auth.updateOwnProfile(admin, {
       displayName: "Renamed Admin",

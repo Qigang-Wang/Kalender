@@ -3241,6 +3241,34 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
     }
   }
 
+  async function deleteUser(user: ManagedUser) {
+    if (user.id === currentUser.id || busyId) return;
+    if (!await appConfirm({
+      title: `永久删除用户“${user.displayName}”？`,
+      description: "该用户的邮箱连接、已同步邮件、日历、项目、笔记、任务和 AI 配置将一并删除。此操作无法撤销。",
+      confirmLabel: "永久删除",
+      tone: "danger",
+    })) return;
+    setBusyId(user.id);
+    setFeedback(undefined);
+    try {
+      const response = await fetch(`/api/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
+      if (!response.ok) throw new Error(payload?.message || "无法删除用户");
+      setEditing((current) => {
+        const next = { ...current };
+        delete next[user.id];
+        return next;
+      });
+      await loadUsers();
+      setFeedback({ kind: "success", message: `用户“${user.displayName}”已永久删除` });
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法删除用户" });
+    } finally {
+      setBusyId(undefined);
+    }
+  }
+
   async function createInvitation() {
     setBusyId("invite");
     setFeedback(undefined);
@@ -3397,6 +3425,14 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
                     <button className="ghost-button" disabled={busy} onClick={() => setEditing({ ...editing, [user.id]: { displayName: user.displayName, email: user.email, role: user.role, password: "", mustChangePassword: user.mustChangePassword } })}><Pencil size={14} />编辑</button>
                     <button className={`ghost-button ${disabled ? "" : "danger-button"}`} disabled={busy || user.id === currentUser.id} onClick={() => void patchUser(user, { disabled: !disabled })}>
                       {busy ? <LoaderCircle className="spin" size={14} /> : disabled ? <Play size={14} /> : <Pause size={14} />}{disabled ? "启用" : "禁用"}
+                    </button>
+                    <button
+                      className="ghost-button danger-button"
+                      disabled={busy || user.id === currentUser.id}
+                      title={user.id === currentUser.id ? "不能删除当前登录账号" : "永久删除用户"}
+                      onClick={() => void deleteUser(user)}
+                    >
+                      {busy ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />}删除
                     </button>
                   </>}
                 </div>

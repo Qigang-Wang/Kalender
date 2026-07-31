@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { AuthError, appUserRoles, getCurrentAppUser, updateManagedAppUser, type AppUserRole } from "@/server/auth";
+import { AuthError, appUserRoles, deleteManagedAppUser, getCurrentAppUser, updateManagedAppUser, type AppUserRole } from "@/server/auth";
 
 export const runtime = "nodejs";
 
@@ -30,6 +30,17 @@ export async function PATCH(request: Request, { params }: UserRouteProps) {
       disabled: typeof body?.disabled === "boolean" ? body.disabled : undefined,
       mustChangePassword: typeof body?.mustChangePassword === "boolean" ? body.mustChangePassword : undefined,
     });
+    return NextResponse.json({ ok: true, user });
+  } catch (error) {
+    return userErrorResponse(error);
+  }
+}
+
+export async function DELETE(_request: Request, { params }: UserRouteProps) {
+  try {
+    const actor = await requireActor();
+    const { userId } = await params;
+    const user = await deleteManagedAppUser(actor, userId);
     return NextResponse.json({ ok: true, user });
   } catch (error) {
     return userErrorResponse(error);

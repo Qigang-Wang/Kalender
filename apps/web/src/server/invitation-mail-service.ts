@@ -1,4 +1,5 @@
 import { encodeNoteContent, noteContentToPlainText, type PlateNoteValue } from "../lib/note-content";
+import { invitationBlock, type DaylineInvitationTemplateData } from "../lib/mail-invitation-content";
 
 import type { AppUser, CreatedAppInvitation } from "./auth";
 import { createMailDraft } from "./mail-draft-repository";
@@ -53,19 +54,30 @@ export async function sendAppInvitationMail(input: {
 export function buildInvitationMailContent(invitation: CreatedAppInvitation, inviter: AppUser): string {
   const recipient = invitation.displayName?.trim() || invitation.email;
   const role = invitation.role === "admin" ? "管理员" : invitation.role === "viewer" ? "只读用户" : "普通用户";
+  const template: DaylineInvitationTemplateData = {
+    recipient,
+    inviterName: inviter.displayName,
+    inviterEmail: inviter.email,
+    roleLabel: role,
+    expiresAtLabel: formatInviteExpiry(invitation.expiresAt),
+    inviteUrl: invitation.inviteUrl,
+  };
   const document: PlateNoteValue = [
-    { type: "p", children: [{ text: `${recipient}，` }] },
-    { type: "p", children: [{ text: `${inviter.displayName} 邀请你加入 Dayline 工作台。` }] },
-    { type: "p", children: [{ text: `账户角色：${role}` }] },
+    invitationBlock("你受邀加入 Dayline", template),
+    invitationBlock(`你好，${recipient}：`),
+    invitationBlock(`${inviter.displayName} 邀请你加入 Dayline 工作台，一起管理邮件、日历、任务、项目和笔记。`),
+    invitationBlock(`邀请人：${inviter.displayName} <${inviter.email}>`),
+    invitationBlock(`账号角色：${role}`),
+    invitationBlock(`有效期至：${template.expiresAtLabel}`),
     {
       type: "p",
+      qgwBlockKind: "dayline-invitation",
       children: [
         { text: "接受邀请：" },
         { type: "a", url: invitation.inviteUrl, children: [{ text: invitation.inviteUrl }] },
       ],
     },
-    { type: "p", children: [{ text: `邀请将在 ${formatInviteExpiry(invitation.expiresAt)} 失效。` }] },
-    { type: "p", children: [{ text: "如果你不认识邀请人，可以忽略这封邮件。" }] },
+    invitationBlock("如果你不认识邀请人，可以安全地忽略这封邮件。"),
   ];
   return encodeNoteContent(document);
 }
@@ -75,8 +87,8 @@ function formatInviteExpiry(value: string): string {
   if (Number.isNaN(date.getTime())) return "7 天后";
   return new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
+    month: "long",
+    day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,

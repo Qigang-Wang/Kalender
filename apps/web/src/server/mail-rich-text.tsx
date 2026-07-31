@@ -9,6 +9,11 @@ import { BaseParagraphPlugin, createSlateEditor, KEYS, type RenderStaticNodeWrap
 import { PlateStatic, SlateElement, serializeHtml, type PlateStaticProps, type SlateElementProps, type SlateRenderElementProps } from "platejs/static";
 import sanitizeHtml from "sanitize-html";
 
+import {
+  isDaylineInvitationBlock,
+  readDaylineInvitationTemplate,
+  type DaylineInvitationTemplateData,
+} from "../lib/mail-invitation-content";
 import { decodeNoteContent, type PlateElementNode, type PlateNode, type PlateNoteValue } from "../lib/note-content";
 
 const MailList: RenderStaticNodeWrapper = (props) => {
@@ -66,16 +71,23 @@ export async function renderMailHtml(
 ): Promise<string> {
   const inlineByAttachmentId = new Map(inlineImages.map((image) => [image.attachmentId, image]));
   const placeholders: Array<{ readonly marker: string; readonly sourceUrl: string }> = [];
-  const value = replaceInlineImagesWithPlaceholders(decodeNoteContent(bodyContent), inlineByAttachmentId, placeholders);
-  const editor = createSlateEditor({ plugins: MailBaseEditorKit, value });
-  let editorHtml = await serializeHtml(editor, {
-    editorComponent: MailStatic,
-    stripClassNames: true,
-    stripDataAttributes: true,
-  });
+  const decoded = decodeNoteContent(bodyContent);
+  const invitation = readDaylineInvitationTemplate(decoded);
+  const contentValue = invitation ? decoded.filter((node) => !isDaylineInvitationBlock(node)) : decoded;
+  const value = replaceInlineImagesWithPlaceholders(contentValue, inlineByAttachmentId, placeholders);
+  let editorHtml = "";
+  if (value.length > 0) {
+    const editor = createSlateEditor({ plugins: MailBaseEditorKit, value });
+    editorHtml = await serializeHtml(editor, {
+      editorComponent: MailStatic,
+      stripClassNames: true,
+      stripDataAttributes: true,
+    });
+  }
   for (const placeholder of placeholders) {
     editorHtml = editorHtml.replaceAll(placeholder.marker, `<img src="${placeholder.sourceUrl}" alt=""/>`);
   }
+  if (invitation) editorHtml = renderDaylineInvitationHtml(invitation, editorHtml);
   const inlined = juice(`<style>
     .kalender-mail-body { color: #202124; font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.6; }
     .kalender-mail-body p { margin: 0 0 9px; }
@@ -83,6 +95,31 @@ export async function renderMailHtml(
     .kalender-mail-body a { color: #1769aa; text-decoration: underline; }
     .kalender-mail-body ul, .kalender-mail-body ol { margin: 6px 0 9px; padding-left: 24px; }
     .kalender-mail-body img { display: block; max-width: 100%; height: auto; margin: 9px 0; }
+    .dayline-invitation-email { width: 100%; background-color: #f4f7fa; color: #20262e; font-family: Arial, Helvetica, sans-serif; }
+    .dayline-invitation-frame { width: 100%; max-width: 640px; background-color: #ffffff; border: 1px solid #dce4ec; border-collapse: separate; border-spacing: 0; }
+    .dayline-invitation-header { padding: 24px 32px; border-bottom: 1px solid #e3e9ef; }
+    .dayline-invitation-logo { width: 42px; height: 42px; background-color: #5f91d3; border-radius: 7px; color: #ffffff; font-size: 26px; font-weight: bold; line-height: 42px; text-align: center; }
+    .dayline-invitation-brand { padding-left: 12px; }
+    .dayline-invitation-brand-name { color: #20262e; font-size: 20px; font-weight: 700; line-height: 24px; }
+    .dayline-invitation-brand-tagline { color: #697684; font-size: 12px; line-height: 18px; }
+    .dayline-invitation-content { padding: 34px 32px 30px; }
+    .dayline-invitation-title { margin: 0 0 24px; color: #20262e; font-size: 26px; font-weight: 700; line-height: 34px; }
+    .dayline-invitation-greeting { margin: 0 0 12px; color: #20262e; font-size: 16px; font-weight: 600; line-height: 24px; }
+    .dayline-invitation-copy { margin: 0 0 22px; color: #3e4955; font-size: 14px; line-height: 23px; }
+    .dayline-invitation-details { width: 100%; background-color: #f7faff; border: 1px solid #cfdeef; border-collapse: separate; border-spacing: 0; }
+    .dayline-invitation-detail { width: 33%; padding: 15px 14px; vertical-align: top; }
+    .dayline-invitation-detail-border { border-left: 1px solid #dce6f1; }
+    .dayline-invitation-label { color: #697684; font-size: 12px; line-height: 18px; }
+    .dayline-invitation-value { color: #20262e; font-size: 14px; font-weight: 700; line-height: 21px; overflow-wrap: anywhere; }
+    .dayline-invitation-action { padding: 26px 0 22px; }
+    .dayline-invitation-button-cell { background-color: #5f91d3; border-radius: 6px; text-align: center; }
+    .dayline-invitation-button { display: block; padding: 12px 26px; color: #ffffff; font-size: 15px; font-weight: 700; line-height: 20px; text-decoration: none; }
+    .dayline-invitation-help { margin: 0 0 5px; color: #697684; font-size: 12px; line-height: 19px; }
+    .dayline-invitation-url { color: #356fae; font-size: 12px; line-height: 19px; text-decoration: underline; overflow-wrap: anywhere; word-break: break-all; }
+    .dayline-invitation-security { margin: 22px 0 0; color: #697684; font-size: 12px; line-height: 19px; }
+    .dayline-invitation-signature { padding-top: 20px; border-top: 1px solid #e3e9ef; }
+    .dayline-invitation-signature .kalender-mail-body { color: #3e4955; font-size: 13px; line-height: 1.5; }
+    .dayline-invitation-footer { padding: 16px 32px; border-top: 1px solid #e3e9ef; color: #697684; font-size: 12px; line-height: 18px; text-align: center; }
   </style>${editorHtml}`, {
     applyStyleTags: true,
     removeStyleTags: true,
@@ -97,12 +134,14 @@ export function sanitizeRenderedMailHtml(
 ): string {
   const inlineContentIds = new Map(inlineImages.map((image) => [image.sourceUrl, image.contentId]));
   return sanitizeHtml(html, {
-    allowedTags: ["div", "p", "br", "strong", "b", "em", "i", "u", "s", "del", "span", "a", "img", "ul", "ol", "li", "blockquote", "code", "sub", "sup"],
+    allowedTags: ["div", "p", "br", "strong", "b", "em", "i", "u", "s", "del", "span", "a", "img", "ul", "ol", "li", "blockquote", "code", "sub", "sup", "table", "tbody", "tr", "td"],
     allowedAttributes: {
       "*": ["style"],
       a: ["href", "target", "rel", "style"],
       img: ["src", "alt", "style"],
       ol: ["start", "style"],
+      table: ["role", "width", "cellpadding", "cellspacing", "border", "align", "style"],
+      td: ["width", "align", "valign", "style"],
     },
     allowedSchemes: ["http", "https", "mailto"],
     allowedSchemesByTag: { img: ["cid"] },
@@ -110,17 +149,28 @@ export function sanitizeRenderedMailHtml(
       "*": {
         color: [/^#[0-9a-f]{3,8}$/i, /^rgba?\(/i, /^[a-z]+$/i],
         "background-color": [/^#[0-9a-f]{3,8}$/i, /^rgba?\(/i, /^[a-z]+$/i],
+        border: [/^(?:0|\d+(?:\.\d+)?px (?:solid|dashed) #[0-9a-f]{3,8})$/i],
+        "border-bottom": [/^(?:0|\d+(?:\.\d+)?px (?:solid|dashed) #[0-9a-f]{3,8})$/i],
+        "border-left": [/^(?:0|\d+(?:\.\d+)?px (?:solid|dashed) #[0-9a-f]{3,8})$/i],
+        "border-radius": [/^\d+(?:\.\d+)?(?:px|%)$/],
+        "border-collapse": [/^(?:collapse|separate)$/],
+        "border-spacing": [/^\d+(?:\.\d+)?(?:px|pt|em|rem|%)?$/],
         "font-family": [/^[\w\s,'"-]+$/],
         "font-size": [/^\d+(?:\.\d+)?(?:px|pt|em|rem|%)$/],
         "font-style": [/^(?:normal|italic)$/],
         "font-weight": [/^(?:normal|bold|[1-9]00)$/],
         "line-height": [/^\d+(?:\.\d+)?(?:px|em|rem|%)?$/],
         "list-style-type": [/^[a-z-]+$/],
-        margin: [/^[\d.\s%-]+(?:px|em|rem|%)?$/],
+        margin: [/^(?:0|\d+(?:\.\d+)?(?:px|pt|em|rem|%))(?:\s+(?:0|\d+(?:\.\d+)?(?:px|pt|em|rem|%))){0,3}$/],
         "margin-left": [/^\d+(?:\.\d+)?(?:px|em|rem|%)$/],
-        padding: [/^[\d.\s%-]+(?:px|em|rem|%)?$/],
+        "overflow-wrap": [/^(?:anywhere|break-word|normal)$/],
+        padding: [/^(?:0|\d+(?:\.\d+)?(?:px|pt|em|rem|%))(?:\s+(?:0|\d+(?:\.\d+)?(?:px|pt|em|rem|%))){0,3}$/],
         "padding-left": [/^\d+(?:\.\d+)?(?:px|em|rem|%)$/],
+        "padding-top": [/^\d+(?:\.\d+)?(?:px|pt|em|rem|%)$/],
+        "text-align": [/^(?:left|right|center)$/],
         "text-decoration": [/^[a-z\s-]+$/],
+        "vertical-align": [/^(?:top|middle|bottom|baseline)$/],
+        "word-break": [/^(?:normal|break-all|break-word)$/],
         display: [/^(?:block|inline|inline-block)$/],
         width: [/^\d+(?:\.\d+)?(?:px|%)$/],
         "max-width": [/^\d+(?:\.\d+)?(?:px|%)$/],
@@ -140,6 +190,77 @@ export function sanitizeRenderedMailHtml(
       },
     },
   });
+}
+
+function renderDaylineInvitationHtml(data: DaylineInvitationTemplateData, signatureHtml: string): string {
+  const recipient = escapeMailHtml(data.recipient);
+  const inviterName = escapeMailHtml(data.inviterName);
+  const inviterEmail = escapeMailHtml(data.inviterEmail);
+  const roleLabel = escapeMailHtml(data.roleLabel);
+  const expiresAtLabel = escapeMailHtml(data.expiresAtLabel);
+  const inviteUrl = escapeMailHtml(data.inviteUrl);
+  const signature = signatureHtml.trim()
+    ? `<div class="dayline-invitation-signature">${signatureHtml}</div>`
+    : "";
+  return `
+    <table class="dayline-invitation-email" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tbody><tr><td align="center" style="padding:24px 12px">
+        <table class="dayline-invitation-frame" role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" align="center">
+          <tbody>
+            <tr><td class="dayline-invitation-header">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tbody><tr>
+                <td class="dayline-invitation-logo" width="42" align="center" valign="middle">&#10022;</td>
+                <td class="dayline-invitation-brand" valign="middle">
+                  <div class="dayline-invitation-brand-name">Dayline</div>
+                  <div class="dayline-invitation-brand-tagline">Quiet Intelligence</div>
+                </td>
+              </tr></tbody></table>
+            </td></tr>
+            <tr><td class="dayline-invitation-content">
+              <p class="dayline-invitation-title">你受邀加入 Dayline</p>
+              <p class="dayline-invitation-greeting">你好，${recipient}</p>
+              <p class="dayline-invitation-copy">${inviterName} 邀请你加入 Dayline 工作台，一起管理邮件、日历、任务、项目和笔记。</p>
+              <table class="dayline-invitation-details" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tbody><tr>
+                  <td class="dayline-invitation-detail" width="33%">
+                    <div class="dayline-invitation-label">邀请人</div>
+                    <div class="dayline-invitation-value">${inviterName}</div>
+                    <div class="dayline-invitation-label">${inviterEmail}</div>
+                  </td>
+                  <td class="dayline-invitation-detail dayline-invitation-detail-border" width="33%">
+                    <div class="dayline-invitation-label">账号角色</div>
+                    <div class="dayline-invitation-value">${roleLabel}</div>
+                  </td>
+                  <td class="dayline-invitation-detail dayline-invitation-detail-border" width="34%">
+                    <div class="dayline-invitation-label">有效期至</div>
+                    <div class="dayline-invitation-value">${expiresAtLabel}</div>
+                  </td>
+                </tr></tbody>
+              </table>
+              <table class="dayline-invitation-action" role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tbody><tr><td class="dayline-invitation-button-cell">
+                  <a class="dayline-invitation-button" href="${inviteUrl}">接受邀请</a>
+                </td></tr></tbody>
+              </table>
+              <p class="dayline-invitation-help">如果按钮无法打开，请复制以下链接到浏览器：</p>
+              <a class="dayline-invitation-url" href="${inviteUrl}">${inviteUrl}</a>
+              <p class="dayline-invitation-security">如果你不认识邀请人，可以安全地忽略这封邮件。</p>
+              ${signature}
+            </td></tr>
+            <tr><td class="dayline-invitation-footer">Dayline · Quiet Intelligence</td></tr>
+          </tbody>
+        </table>
+      </td></tr></tbody>
+    </table>`;
+}
+
+function escapeMailHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function replaceInlineImagesWithPlaceholders(

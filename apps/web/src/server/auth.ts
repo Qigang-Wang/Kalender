@@ -495,6 +495,52 @@ export async function updateManagedAppUser(actor: AppUser, userId: string, input
   }
 }
 
+export async function deleteManagedAppUser(actor: AppUser, userId: string): Promise<ManagedAppUser> {
+  requireAdmin(actor);
+  if (!userId.trim()) throw new AuthError("用户不存在", 404);
+  if (actor.id === userId) throw new AuthError("不能删除当前登录的管理员账号", 400);
+
+  const database = await getDatabase();
+  return database.transaction(async (transaction) => {
+    // User management changes are serialized so two concurrent requests cannot remove every active admin.
+    await transaction.exec("LOCK TABLE app_users IN SHARE ROW EXCLUSIVE MODE");
+    const existing = await transaction.query<ManagedAppUserRow>(
+      `SELECT id, display_name, email, role, session_version, must_change_password, disabled_at, last_login_at, created_at, updated_at
+         FROM app_users
+        WHERE id = $1
+        LIMIT 1`,
+      [userId],
+    );
+    const current = existing.rows[0];
+    if (!current) throw new AuthError("用户不存在", 404);
+    if (current.role === "admin" && !current.disabled_at) {
+      const activeAdmins = await transaction.query<{ count: number | string }>(
+        `SELECT count(*) AS count
+           FROM app_users
+          WHERE id <> $1 AND role = 'admin' AND disabled_at IS NULL`,
+        [userId],
+      );
+      if (Number(activeAdmins.rows[0]?.count ?? 0) < 1) {
+        throw new AuthError("至少需要保留一个可用管理员", 400);
+      }
+    }
+
+    await recordAuditEvent({
+      actorUserId: actor.id,
+      targetUserId: current.id,
+      action: "user.delete",
+      metadata: {
+        displayName: current.display_name,
+        email: current.email,
+        role: current.role,
+        disabled: Boolean(current.disabled_at),
+      },
+    }, transaction);
+    await transaction.query("DELETE FROM app_users WHERE id = $1", [userId]);
+    return rowToManagedUser(current);
+  });
+}
+
 export async function updateOwnProfile(actor: AppUser, input: {
   readonly displayName?: string;
   readonly currentPassword?: string;
