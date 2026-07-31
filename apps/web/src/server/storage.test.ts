@@ -10,6 +10,21 @@ function assert(condition: unknown, message: string): asserts condition {
 async function main() {
   const testRoot = path.join(tmpdir(), `kalender-storage-test-${randomUUID()}`);
   process.env.KALENDER_DATA_DIR = testRoot;
+  const credentialCrypto = await import("./credential-crypto");
+  process.env.KALENDER_MASTER_KEY = Buffer.alloc(32, 1).toString("base64");
+  credentialCrypto.resetCredentialKeyCache();
+  const encryptedWithOriginalKey = await credentialCrypto.encryptCredential("restored-account", { password: "secret" });
+  process.env.KALENDER_MASTER_KEY = Buffer.alloc(32, 2).toString("base64");
+  credentialCrypto.resetCredentialKeyCache();
+  let keyMismatchDetected = false;
+  try {
+    await credentialCrypto.decryptCredential("restored-account", encryptedWithOriginalKey);
+  } catch (error) {
+    keyMismatchDetected = error instanceof credentialCrypto.CredentialDecryptionError;
+  }
+  assert(keyMismatchDetected, "restored credentials report a master-key mismatch");
+  delete process.env.KALENDER_MASTER_KEY;
+  credentialCrypto.resetCredentialKeyCache();
   const repository = await import("./mail-repository");
   const { getDatabase } = await import("./database");
   try {

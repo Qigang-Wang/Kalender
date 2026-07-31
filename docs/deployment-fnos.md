@@ -67,7 +67,10 @@ chown -R 1001:1001 /vol1/docker/dayline/backups
 3. 将已经填写三个密码的 `docker-compose.fnos.yml` 完整粘贴进去。
 4. 点击“构建并启动”。
 5. 等待 `postgres` 变为健康，`dayline` 变为运行中。
-6. 打开 `http://飞牛局域网IP:3000`。
+6. 打开 `http://飞牛局域网IP:8812`。
+
+Dayline 使用 GitHub 源码在飞牛本地构建，不会从 Docker Hub 拉取 `dayline` 镜像；
+PostgreSQL 镜像仍会正常从 Docker Hub 下载。
 
 Docker 会自动创建两个持久化卷：
 
@@ -119,7 +122,7 @@ docker compose -f docker-compose.fnos.yml up -d --build
 ```bash
 docker compose -f docker-compose.fnos.yml ps
 docker compose -f docker-compose.fnos.yml logs --tail=100 dayline
-curl -fsS http://127.0.0.1:3000/api/health
+curl -fsS http://127.0.0.1:8812/api/health
 ```
 
 健康接口应返回：
@@ -130,11 +133,11 @@ curl -fsS http://127.0.0.1:3000/api/health
 
 ## 端口
 
-默认访问端口是 `3000`。如果端口被占用，将 YAML 中的端口映射改为：
+默认访问端口是 `8812`。如果端口被占用，将 YAML 中的端口映射改为：
 
 ```yaml
 ports:
-  - "3080:3000"
+  - "8813:3000"
 ```
 
 然后访问：
@@ -156,7 +159,7 @@ SSH 更新命令：
 cd /vol1/docker/dayline
 docker compose -f docker-compose.fnos.yml build --pull dayline
 docker compose -f docker-compose.fnos.yml up -d dayline
-curl -fsS http://127.0.0.1:3000/api/health
+curl -fsS http://127.0.0.1:8812/api/health
 ```
 
 远程 Git 构建不会自动替换正在运行的容器。代码更新后需要重新构建应用镜像。
@@ -269,7 +272,7 @@ docker compose -f docker-compose.fnos.yml ps
 docker compose -f docker-compose.fnos.yml logs --tail=200 dayline
 ```
 
-同时确认飞牛防火墙允许局域网访问端口 `3000`。
+同时确认飞牛防火墙允许局域网访问端口 `8812`。
 
 ### PostgreSQL 不健康
 

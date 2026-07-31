@@ -12,14 +12,13 @@ services:
   dayline:
     build:
       context: https://github.com/Qigang-Wang/Kalender.git#main
-    image: dayline:local
     restart: unless-stopped
     init: true
     depends_on:
       postgres:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "8812:3000"
     environment:
       NODE_ENV: production
       TZ: *timezone

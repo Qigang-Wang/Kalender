@@ -11,6 +11,13 @@ interface EncryptedEnvelope {
   readonly ciphertext: string;
 }
 
+export class CredentialDecryptionError extends Error {
+  constructor() {
+    super("保存的连接凭据无法解密。请恢复原 KALENDER_MASTER_KEY，或在设置中重新输入连接密码");
+    this.name = "CredentialDecryptionError";
+  }
+}
+
 let cachedKey: Promise<Buffer> | undefined;
 
 export function resetCredentialKeyCache(): void {
@@ -36,22 +43,31 @@ export async function encryptCredential(accountId: string, value: unknown): Prom
 }
 
 export async function decryptCredential<T>(accountId: string, payload: string): Promise<T> {
-  const envelope = JSON.parse(payload) as EncryptedEnvelope;
-  if (envelope.version !== 1) throw new Error("Unsupported credential encryption version");
+  let envelope: EncryptedEnvelope;
+  try {
+    envelope = JSON.parse(payload) as EncryptedEnvelope;
+  } catch {
+    throw new CredentialDecryptionError();
+  }
+  if (envelope.version !== 1) throw new CredentialDecryptionError();
   const key = await getMasterKey();
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    key,
-    Buffer.from(envelope.iv, "base64"),
-  );
-  decipher.setAAD(Buffer.from(`kalender:${accountId}`, "utf8"));
-  decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
-  return JSON.parse(
-    Buffer.concat([
-      decipher.update(Buffer.from(envelope.ciphertext, "base64")),
-      decipher.final(),
-    ]).toString("utf8"),
-  ) as T;
+  try {
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      key,
+      Buffer.from(envelope.iv, "base64"),
+    );
+    decipher.setAAD(Buffer.from(`kalender:${accountId}`, "utf8"));
+    decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
+    return JSON.parse(
+      Buffer.concat([
+        decipher.update(Buffer.from(envelope.ciphertext, "base64")),
+        decipher.final(),
+      ]).toString("utf8"),
+    ) as T;
+  } catch {
+    throw new CredentialDecryptionError();
+  }
 }
 
 async function getMasterKey(): Promise<Buffer> {

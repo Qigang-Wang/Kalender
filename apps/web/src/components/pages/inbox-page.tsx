@@ -16,7 +16,7 @@ import {
   type PointerEvent as ReactPointerEvent, type ReactNode,
 } from "react";
 
-import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { fetchWithTimeout, readApiJson } from "@/lib/fetch-with-timeout";
 import { replaceMailSignatureContent, type MailSignatureVariant } from "@/lib/mail-signature-content";
 import { decodeNoteContent, EMPTY_PLATE_NOTE_CONTENT, encodeNoteContent, noteContentToPlainText } from "@/lib/note-content";
 import { groupMailByDate, type MailDateGroupId } from "@/lib/mail-date-groups";
@@ -1139,10 +1139,10 @@ export function InboxPage({
       setBodies((current) => ({ ...current, [messageId]: { status: "loading" } }));
       void fetch(`/api/messages/${encodeURIComponent(messageId)}/body`, { cache: "no-store" })
         .then(async (response) => {
-          const result = await response.json() as {
+          const result = await readApiJson<{
             readonly message?: string;
             readonly body?: { readonly text?: string; readonly html?: string; readonly snippet: string; readonly cached: boolean; readonly hasBlockedRemoteImages: boolean };
-          };
+          }>(response, "无法读取邮件正文");
           if (!response.ok || !result.body) throw new Error(result.message || "无法读取邮件正文");
           return result.body;
         })
@@ -1162,7 +1162,7 @@ export function InboxPage({
     setMailNotice(null);
     try {
       const response = await fetch(`/api/messages/${encodeURIComponent(messageId)}/body?refresh=1`, { cache: "no-store" });
-      const result = await response.json() as {
+      const result = await readApiJson<{
         readonly message?: string;
         readonly body?: {
           readonly text?: string;
@@ -1171,7 +1171,7 @@ export function InboxPage({
           readonly cached: boolean;
           readonly hasBlockedRemoteImages: boolean;
         };
-      };
+      }>(response, "无法重新读取邮件正文");
       if (!response.ok || !result.body) throw new Error(result.message || "无法重新读取邮件正文");
       const body = result.body;
       setBodies((current) => ({
