@@ -568,7 +568,7 @@ export function NotesPage({
         <section className="calendar-dialog note-project-dialog panel" role="dialog" aria-modal="true" aria-labelledby="note-project-dialog-title">
           <header><div><h2 id="note-project-dialog-title">新建项目</h2></div><button aria-label="关闭" onClick={() => setProjectDraft(undefined)} disabled={busy}><X size={18} /></button></header>
           <div className="note-project-form">
-            <label><span>项目名称</span><input autoFocus value={projectDraft.name} maxLength={100} onChange={(event) => setProjectDraft({ ...projectDraft, name: event.target.value })} placeholder="例如 Kalender 开发" /></label>
+            <label><span>项目名称</span><input autoFocus value={projectDraft.name} maxLength={100} onChange={(event) => setProjectDraft({ ...projectDraft, name: event.target.value })} placeholder="例如 Dayline 开发" /></label>
             <label><span>领域</span><input value={projectDraft.areaName} maxLength={100} onChange={(event) => setProjectDraft({ ...projectDraft, areaName: event.target.value })} placeholder="例如 工作 / 个人" /></label>
             <label className="note-project-color"><span>颜色</span><input type="color" value={projectDraft.color} onChange={(event) => setProjectDraft({ ...projectDraft, color: event.target.value })} /></label>
             <label className="note-project-description"><span>项目说明</span><textarea value={projectDraft.description} maxLength={2_000} onChange={(event) => setProjectDraft({ ...projectDraft, description: event.target.value })} placeholder="这个项目要达成什么？" /></label>

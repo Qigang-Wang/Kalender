@@ -81,7 +81,7 @@ export async function testAiModelCapabilities(
   await assertAiEndpointAllowed(provider.baseUrl, provider.allowPrivateNetwork);
   const startedAt = performance.now();
   if (model.modelKind === "embedding" || model.endpointKind === "embeddings") {
-    await postJson(provider, credential, "embeddings", { model: model.apiModelId, input: "Kalender capability test" });
+    await postJson(provider, credential, "embeddings", { model: model.apiModelId, input: "Dayline capability test" });
     return {
       latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
       capabilities: { embeddings: true },

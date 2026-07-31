@@ -200,7 +200,7 @@ function buildModelMessages(
 ): readonly AiChatInputMessage[] {
   const system: AiChatInputMessage = {
     role: "system",
-    content: "你是 Kalender 的 AI 助手。当前阶段只提供对话，不读取用户的邮件、日历、任务或笔记，也不能执行或声称已经执行任何操作。请使用用户所用的语言，给出清晰、诚实且简洁的回答。",
+    content: "你是 Dayline 的 AI 助手。当前阶段只提供对话，不读取用户的邮件、日历、任务或笔记，也不能执行或声称已经执行任何操作。请使用用户所用的语言，给出清晰、诚实且简洁的回答。",
   };
   const maxCharacters = Math.min(160_000, Math.max(4_000, contextBudgetTokens * 4));
   const selected: AiChatInputMessage[] = [];

@@ -973,7 +973,7 @@ function WorkspaceAppContent({
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
         <div className="brand-row">
           <BrandLogo className="brand-mark" />
-          <div><strong>个人工作台</strong><span>Quiet Intelligence</span></div>
+          <div><strong>Dayline</strong><span>Quiet Intelligence</span></div>
           <button className="mobile-close" aria-label="关闭导航" onClick={() => setSidebarOpen(false)}><X /></button>
         </div>
 

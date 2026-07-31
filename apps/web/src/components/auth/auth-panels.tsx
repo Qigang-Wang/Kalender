@@ -50,7 +50,7 @@ export function ChangePasswordPanel({ displayName }: { readonly displayName: str
     <main className="auth-screen">
       <section className="auth-brand">
         <BrandLogo className="auth-brand-mark" />
-        <div><strong>个人工作台</strong><span>Quiet Intelligence</span></div>
+        <div><strong>Dayline</strong><span>Quiet Intelligence</span></div>
       </section>
       <section className="auth-panel" aria-labelledby="change-password-title">
         <header>
@@ -112,7 +112,7 @@ export function InviteAcceptPanel({
     <main className="auth-screen">
       <section className="auth-brand">
         <BrandLogo className="auth-brand-mark" />
-        <div><strong>个人工作台</strong><span>Quiet Intelligence</span></div>
+        <div><strong>Dayline</strong><span>Quiet Intelligence</span></div>
       </section>
       <section className="auth-panel" aria-labelledby="invite-title">
         <header>
@@ -172,7 +172,7 @@ export function AuthPanel({ mode }: AuthPanelProps) {
       <section className="auth-brand">
         <BrandLogo className="auth-brand-mark" />
         <div>
-          <strong>个人工作台</strong>
+          <strong>Dayline</strong>
           <span>Quiet Intelligence</span>
         </div>
       </section>

@@ -466,7 +466,7 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
       format: "qgwbackup",
       schemaVersion: 1,
       createdAt: startedAt,
-      app: "Kalender",
+      app: "Dayline",
       automatic,
       databaseBytes: databaseBytes.size,
       attachmentBytes: attachmentSize.size,
@@ -489,7 +489,7 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
     await writeFile(sumsPath, `${hashes}\n`, { mode: 0o600 });
     await updateJobProgress(job.id, 72);
 
-    const baseName = `kalender-${new Date().toISOString().replace(/[:.]/g, "-")}.backup`;
+    const baseName = `dayline-${new Date().toISOString().replace(/[:.]/g, "-")}.backup`;
     const plainPackage = path.join(backupDirectory(), baseName);
     await runCommand("tar", ["-C", workDir, "-czf", plainPackage, "database.dump", "mail-draft-attachments.tgz", "manifest.json", "SHA256SUMS"]);
     const finalPath = encrypted ? `${plainPackage}.enc` : plainPackage;

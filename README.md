@@ -1,10 +1,10 @@
-# Kalender
+# Dayline
 
 > 一个以 AI 为统一入口，连接邮件、日历、任务和笔记的个人工作台。
 
-Kalender 将个人信息流组织成一条连续工作流：从邮件识别行动项，创建任务并安排时间，关联会议与笔记，最后生成跟进邮件草稿。项目采用本地优先、单用户优先的设计，所有高风险外部操作都应由用户确认。
+Dayline 将个人信息流组织成一条连续工作流：从邮件识别行动项，创建任务并安排时间，关联会议与笔记，最后生成跟进邮件草稿。项目采用本地优先、单用户优先的设计，所有高风险外部操作都应由用户确认。
 
-![Kalender Today 工作台](docs/design/implementation/today-app.png)
+![Dayline Today 工作台](docs/design/implementation/today-app.png)
 
 ## 当前状态
 

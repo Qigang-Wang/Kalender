@@ -1599,7 +1599,7 @@ async function initializeDatabase(): Promise<KalenderDatabase> {
   loadLocalEnvFile();
   await configureTestDatabase();
   const connectionString = process.env.DATABASE_URL?.trim();
-  if (!connectionString) throw new Error("DATABASE_URL is required. Kalender now uses PostgreSQL only.");
+  if (!connectionString) throw new Error("DATABASE_URL is required. Dayline uses PostgreSQL only.");
   return initializePostgresDatabase(connectionString);
 }
 

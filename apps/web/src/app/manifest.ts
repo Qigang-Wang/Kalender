@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "个人 AI 工作台",
-    short_name: "工作台",
-    description: "统一邮箱、日历、任务和笔记的个人 AI 工作台",
+    name: "Dayline",
+    short_name: "Dayline",
+    description: "Dayline 统一管理邮箱、日历、任务和笔记",
     start_url: "/today",
     display: "standalone",
     background_color: "#f5f7f8",

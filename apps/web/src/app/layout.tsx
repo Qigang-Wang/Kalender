@@ -11,9 +11,9 @@ import { AppDialogProvider } from "@/components/app-dialog-provider";
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata: Metadata = {
-  applicationName: "个人 AI 工作台",
-  title: "个人 AI 工作台",
-  description: "统一邮箱、日历、任务和笔记的个人 AI 工作台",
+  applicationName: "Dayline",
+  title: "Dayline",
+  description: "Dayline 统一管理邮箱、日历、任务和笔记",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],

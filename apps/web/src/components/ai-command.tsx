@@ -218,7 +218,7 @@ export function AiCommand() {
             const text = message.parts.filter((part): part is Extract<typeof part, { type: "text" }> => part.type === "text").map((part) => part.text).join("");
             return <article className={`ai-chat-message ${message.role}`} key={message.id}>
               <div className="ai-chat-avatar">{message.role === "user" ? <User size={15} /> : <Bot size={15} />}</div>
-              <div><header><strong>{message.role === "user" ? "你" : "Kalender AI"}</strong>{message.role === "assistant" && activeModel && message === messages[messages.length - 1] && <span>{activeModel.modelName}{activeModel.usedFallback ? " · 备用" : ""}</span>}</header><p>{text}{message.role === "assistant" && busy && message === messages[messages.length - 1] && <i className="ai-stream-caret" />}</p></div>
+              <div><header><strong>{message.role === "user" ? "你" : "Dayline AI"}</strong>{message.role === "assistant" && activeModel && message === messages[messages.length - 1] && <span>{activeModel.modelName}{activeModel.usedFallback ? " · 备用" : ""}</span>}</header><p>{text}{message.role === "assistant" && busy && message === messages[messages.length - 1] && <i className="ai-stream-caret" />}</p></div>
             </article>;
           })}
           {status === "submitted" && <div className="ai-command-thinking"><LoaderCircle className="spin" size={15} />正在连接模型…</div>}
