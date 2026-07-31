@@ -10,7 +10,11 @@ import {
   MailOpen, Paperclip, Pencil, RefreshCw, Reply, ReplyAll, Search, Send, ShieldCheck,
   Sparkles, Star, Trash2, Upload, WandSparkles, X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import {
+  useCallback, useEffect, useMemo, useRef, useState,
+  type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent, type ReactNode,
+} from "react";
 
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { replaceMailSignatureContent, type MailSignatureVariant } from "@/lib/mail-signature-content";
@@ -31,6 +35,11 @@ import { MailProjectChip, ProjectAssociationControl, RelatedContentPanel } from 
 const MAIL_MESSAGE_DRAG_TYPE = "application/x-kalender-mail-message";
 const MAIL_MESSAGE_MOVED_EVENT = "kalender:mail-message-moved";
 const MAIL_SYNCED_EVENT = "kalender:mail-synced";
+const MAIL_LIST_WIDTH_STORAGE_KEY = "kalender:mail-list-width";
+const MIN_MAIL_LIST_WIDTH = 240;
+const MAX_MAIL_LIST_WIDTH = 760;
+const MIN_MAIL_DETAIL_WIDTH = 320;
+const MAIL_PANE_RESIZE_HANDLE_WIDTH = 9;
 
 interface MailMessageDragPayload {
   readonly messageId: string;
@@ -367,6 +376,116 @@ function mergeRefreshedInboxPage(
   return [...refreshed, ...olderLoadedItems];
 }
 
+function clampMailListWidth(width: number, layoutWidth = Number.POSITIVE_INFINITY): number {
+  const availableMaximum = Number.isFinite(layoutWidth)
+    ? layoutWidth - MIN_MAIL_DETAIL_WIDTH - MAIL_PANE_RESIZE_HANDLE_WIDTH
+    : MAX_MAIL_LIST_WIDTH;
+  const maximum = Math.max(MIN_MAIL_LIST_WIDTH, Math.min(MAX_MAIL_LIST_WIDTH, availableMaximum));
+  return Math.min(maximum, Math.max(MIN_MAIL_LIST_WIDTH, Math.round(width)));
+}
+
+function MailPaneResizeHandle({
+  width,
+  onChange,
+}: {
+  readonly width?: number;
+  readonly onChange: (width?: number) => void;
+}) {
+  const dragState = useRef<{
+    readonly pointerId: number;
+    readonly startX: number;
+    readonly startWidth: number;
+    previewWidth: number;
+  } | undefined>(undefined);
+
+  const finishResize = useCallback((element?: HTMLDivElement, pointerId?: number) => {
+    if (element && pointerId !== undefined && element.hasPointerCapture(pointerId)) {
+      element.releasePointerCapture(pointerId);
+    }
+    dragState.current = undefined;
+    document.body.classList.remove("mail-pane-is-resizing");
+  }, []);
+
+  useEffect(() => () => document.body.classList.remove("mail-pane-is-resizing"), []);
+
+  const layoutFor = (element: HTMLDivElement) => element.closest<HTMLElement>(".mail-layout");
+  const measuredListWidth = (element: HTMLDivElement) =>
+    layoutFor(element)?.querySelector<HTMLElement>(".message-list")?.getBoundingClientRect().width
+    ?? MIN_MAIL_LIST_WIDTH;
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const startWidth = measuredListWidth(event.currentTarget);
+    dragState.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth,
+      previewWidth: startWidth,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.classList.add("mail-pane-is-resizing");
+    event.preventDefault();
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragState.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const layout = layoutFor(event.currentTarget);
+    drag.previewWidth = clampMailListWidth(
+      drag.startWidth + event.clientX - drag.startX,
+      layout?.getBoundingClientRect().width,
+    );
+    layout?.style.setProperty("--mail-list-width", `${drag.previewWidth}px`);
+  };
+
+  const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragState.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    finishResize(event.currentTarget, event.pointerId);
+    onChange(drag.previewWidth);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const layoutWidth = layoutFor(event.currentTarget)?.getBoundingClientRect().width;
+    const currentWidth = width ?? measuredListWidth(event.currentTarget);
+    const step = event.shiftKey ? 24 : 8;
+    let nextWidth: number | undefined;
+    if (event.key === "ArrowLeft") nextWidth = currentWidth - step;
+    if (event.key === "ArrowRight") nextWidth = currentWidth + step;
+    if (event.key === "Home") nextWidth = MIN_MAIL_LIST_WIDTH;
+    if (event.key === "End") nextWidth = MAX_MAIL_LIST_WIDTH;
+    if (nextWidth === undefined) return;
+    event.preventDefault();
+    onChange(clampMailListWidth(nextWidth, layoutWidth));
+  };
+
+  const resetWidth = (event: ReactMouseEvent<HTMLDivElement>) => {
+    layoutFor(event.currentTarget)?.style.removeProperty("--mail-list-width");
+    onChange(undefined);
+  };
+
+  return (
+    <div
+      className="mail-pane-resize-handle"
+      role="separator"
+      aria-label="调整邮件列表与邮件详情的宽度"
+      aria-orientation="vertical"
+      aria-valuemin={MIN_MAIL_LIST_WIDTH}
+      aria-valuemax={MAX_MAIL_LIST_WIDTH}
+      aria-valuenow={width}
+      aria-valuetext={width ? `${width} 像素` : "自动比例"}
+      tabIndex={0}
+      title="拖动调整宽度；双击恢复默认"
+      onDoubleClick={resetWidth}
+      onKeyDown={handleKeyDown}
+      onPointerCancel={handlePointerEnd}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+    />
+  );
+}
+
 export function InboxPage({
   initialMessageId,
   initialFolderId,
@@ -417,6 +536,8 @@ export function InboxPage({
   const [mailAccountFilter, setMailAccountFilter] = useState("all");
   const [mailQuery, setMailQuery] = useState("");
   const [mobileMailDetail, setMobileMailDetail] = useState(Boolean(initialMessageId));
+  const [mailListWidth, setMailListWidth] = useState<number>();
+  const [mailListWidthLoaded, setMailListWidthLoaded] = useState(false);
   const [draggedMessageId, setDraggedMessageId] = useState<string>();
   const [collapsedDateGroups, setCollapsedDateGroups] = useState<ReadonlySet<MailDateGroupId>>(() => new Set());
   const [selectedMessageIds, setSelectedMessageIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -436,6 +557,35 @@ export function InboxPage({
   useEffect(() => () => {
     if (senderCardCloseTimerRef.current) window.clearTimeout(senderCardCloseTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    try {
+      const storedWidth = Number(window.localStorage.getItem(MAIL_LIST_WIDTH_STORAGE_KEY));
+      if (Number.isFinite(storedWidth) && storedWidth > 0) {
+        setMailListWidth(clampMailListWidth(storedWidth));
+      }
+    } catch {
+      // The default proportional layout remains available without browser storage.
+    } finally {
+      setMailListWidthLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!mailListWidthLoaded) return;
+    const timer = window.setTimeout(() => {
+      try {
+        if (mailListWidth === undefined) {
+          window.localStorage.removeItem(MAIL_LIST_WIDTH_STORAGE_KEY);
+        } else {
+          window.localStorage.setItem(MAIL_LIST_WIDTH_STORAGE_KEY, String(mailListWidth));
+        }
+      } catch {
+        // The current session still keeps the resized layout.
+      }
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [mailListWidth, mailListWidthLoaded]);
 
   const refreshMailDrafts = useCallback(async () => {
     const response = await fetch("/api/mail-drafts", { cache: "no-store" });
@@ -1584,7 +1734,12 @@ export function InboxPage({
 
   return (
     <>
-    <div className={`mail-layout panel ${mobileMailDetail ? "mobile-detail-open" : ""}`}>
+    <div
+      className={`mail-layout panel ${mobileMailDetail ? "mobile-detail-open" : ""}`}
+      style={mailListWidth === undefined
+        ? undefined
+        : { "--mail-list-width": `${mailListWidth}px` } as CSSProperties}
+    >
       <section className="message-list" aria-keyshortcuts="ArrowUp ArrowDown Shift+ArrowUp Shift+ArrowDown Control+A Meta+A Enter Delete Escape">
         {correspondenceSummary && (
           <div className="correspondence-header">
@@ -1771,6 +1926,7 @@ export function InboxPage({
           </button>}
         </div>
       </section>
+      <MailPaneResizeHandle width={mailListWidth} onChange={setMailListWidth} />
       {selected ? <article className="message-detail" ref={messageDetailRef}>
         <header>
           <button className="mobile-detail-back" aria-label="返回邮件列表" onClick={() => setMobileMailDetail(false)}><ChevronLeft size={20} /></button>

@@ -884,8 +884,12 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .editor-loading { display: flex; min-height: 180px; flex: 1; align-items: center; justify-content: center; gap: 9px; color: var(--muted); }
 .wide-button { width: 100%; min-height: 32px; background: #303331; border: 1px solid #535754; }
 
-.mail-layout { display: grid; height: calc(100dvh - 106px); min-height: 430px; grid-template-columns: minmax(210px, .8fr) minmax(320px, 1.4fr); overflow: hidden; }
-.message-list { display: flex; min-height: 0; flex-direction: column; overflow: hidden; border-right: 1px solid var(--line); }
+.mail-layout { display: grid; height: calc(100dvh - 106px); min-height: 430px; grid-template-columns: clamp(240px, var(--mail-list-width, 36.3636%), calc(100% - 329px)) 9px minmax(320px, 1fr); overflow: hidden; }
+.message-list { display: flex; min-height: 0; flex-direction: column; overflow: hidden; }
+.mail-pane-resize-handle { position: relative; z-index: 7; min-height: 0; align-self: stretch; padding: 0; cursor: col-resize; touch-action: none; outline: none; }
+.mail-pane-resize-handle::after { position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; content: ""; background: var(--line); transition: width .12s ease, background .12s ease, box-shadow .12s ease; }
+.mail-pane-resize-handle:hover::after, .mail-pane-resize-handle:focus-visible::after, .mail-pane-is-resizing .mail-pane-resize-handle::after { width: 2px; background: var(--blue); box-shadow: 0 0 0 2px rgb(134 189 245 / 10%); }
+.mail-pane-is-resizing, .mail-pane-is-resizing * { cursor: col-resize !important; user-select: none !important; }
 .message-list-scroll { min-height: 0; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .correspondence-header { display: grid; min-height: 72px; grid-template-columns: 30px 38px minmax(0, 1fr) 30px; align-items: center; gap: 9px; padding: 9px 10px; background: #1c201d; border-bottom: 1px solid var(--line); }
 .correspondence-header > button { display: grid; width: 30px; height: 30px; place-items: center; padding: 0; color: var(--muted); background: transparent; border: 0; border-radius: 7px; }
@@ -2861,6 +2865,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .sync-settings-actions > span { margin-right: 0; }
   .sync-settings-actions button { width: 100%; min-height: 42px; }
   .mail-layout { display: block; height: calc(100dvh - 160px - env(safe-area-inset-bottom)); min-height: 460px; }
+  .mail-pane-resize-handle { display: none; }
   .mail-layout .message-list { height: 100%; overflow: hidden; border-right: 0; border-bottom: 0; }
   .mail-layout .message-detail { display: none; }
   .mail-layout.mobile-detail-open .message-list { display: none; }
