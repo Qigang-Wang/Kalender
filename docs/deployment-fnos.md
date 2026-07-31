@@ -1,9 +1,9 @@
 # Dayline 飞牛 fnOS Docker 部署
 
 本项目可以直接通过一个 Compose YAML 部署。应用从公开的 GitHub `main` 分支构建，
-数据库和应用数据由 Docker 命名卷保存。
+数据库和应用数据由 Docker 命名卷保存，备份文件直接写入飞牛目录。
 
-**不需要手动 `git clone`，不需要 `.env`，不需要创建数据文件夹，也不需要设置目录权限。**
+**不需要手动 `git clone`，不需要 `.env`；只需创建一个可写的备份目录。**
 
 > 当前配置适合家庭网络或可信局域网。不要在没有 HTTPS 和访问控制的情况下直接
 > 暴露到公网。
@@ -19,6 +19,7 @@
 | `database-password` | 必填 | PostgreSQL 数据库密码 |
 | `master-key` | 必填 | 加密邮箱、日历和 AI 凭据 |
 | `backup-password` | 必填 | 手动和自动加密备份 |
+| `backup-directory` | 必填 | 飞牛上保存 `.backup` 文件的绝对路径 |
 
 可以在任意装有 OpenSSL 的电脑上生成：
 
@@ -42,36 +43,48 @@ x-dayline-settings:
   database-password: &database-password "第一行生成的数据库密码"
   master-key: &master-key "第二行生成的Base64主密钥"
   backup-password: &backup-password "第三行生成的备份密码"
+  backup-directory: &backup-directory "/vol1/docker/dayline/backups"
   timezone: &timezone "Europe/Berlin"
 ```
 
-数据库密码通过 YAML 锚点同时提供给 Dayline 和 PostgreSQL，只需填写一次。填写后
-该 YAML 包含明文密码，不要上传到公开 GitHub。
+数据库密码通过 YAML 锚点同时提供给 Dayline 和 PostgreSQL，只需填写一次。备份
+目录可以改为其他磁盘或已挂载共享目录的绝对路径。填写后该 YAML 包含明文密码，
+不要上传到公开 GitHub。
+
+创建备份目录并授予 Dayline 容器用户写权限：
+
+```bash
+mkdir -p /vol1/docker/dayline/backups
+chown -R 1001:1001 /vol1/docker/dayline/backups
+```
+
+也可以在飞牛文件管理器中创建目录，但仍需确保容器用户 `UID 1001` 可以写入。
 
 ### 3. 在飞牛创建 Compose 项目
 
 1. 打开飞牛 Docker 管理界面。
-2. 新建 Compose 项目，项目名填写 `kalender`。
+2. 新建 Compose 项目，项目名填写 `dayline`。
 3. 将已经填写三个密码的 `docker-compose.fnos.yml` 完整粘贴进去。
 4. 点击“构建并启动”。
-5. 等待 `postgres` 变为健康，`kalender` 变为运行中。
+5. 等待 `postgres` 变为健康，`dayline` 变为运行中。
 6. 打开 `http://飞牛局域网IP:3000`。
 
-Docker 会自动创建三个持久化卷：
+Docker 会自动创建两个持久化卷：
 
 - `kalender-postgres-data`
 - `kalender-data`
-- `kalender-backups`
 
-删除或重新构建容器不会删除这些卷中的数据。
+备份文件保存在 `backup-directory` 指定的飞牛目录。删除或重新构建容器不会删除这些
+数据。
 
 ## 使用 SSH 部署
 
-SSH 部署只需要一个放置 YAML 的工作目录，不需要创建数据子目录：
+SSH 部署需要一个放置 YAML 的工作目录和一个备份目录：
 
 ```bash
-mkdir -p /vol1/docker/kalender
-cd /vol1/docker/kalender
+mkdir -p /vol1/docker/dayline/backups
+chown -R 1001:1001 /vol1/docker/dayline/backups
+cd /vol1/docker/dayline
 ```
 
 下载文件：
@@ -105,7 +118,7 @@ docker compose -f docker-compose.fnos.yml up -d --build
 
 ```bash
 docker compose -f docker-compose.fnos.yml ps
-docker compose -f docker-compose.fnos.yml logs --tail=100 kalender
+docker compose -f docker-compose.fnos.yml logs --tail=100 dayline
 curl -fsS http://127.0.0.1:3000/api/health
 ```
 
@@ -140,9 +153,9 @@ PostgreSQL 不会映射到飞牛的外部端口，只允许 Compose 内部的应
 SSH 更新命令：
 
 ```bash
-cd /vol1/docker/kalender
-docker compose -f docker-compose.fnos.yml build --pull kalender
-docker compose -f docker-compose.fnos.yml up -d kalender
+cd /vol1/docker/dayline
+docker compose -f docker-compose.fnos.yml build --pull dayline
+docker compose -f docker-compose.fnos.yml up -d dayline
 curl -fsS http://127.0.0.1:3000/api/health
 ```
 
@@ -151,8 +164,8 @@ curl -fsS http://127.0.0.1:3000/api/health
 如果怀疑使用了旧缓存：
 
 ```bash
-docker compose -f docker-compose.fnos.yml build --no-cache --pull kalender
-docker compose -f docker-compose.fnos.yml up -d kalender
+docker compose -f docker-compose.fnos.yml build --no-cache --pull dayline
+docker compose -f docker-compose.fnos.yml up -d dayline
 ```
 
 ## 停止服务
@@ -175,15 +188,15 @@ docker compose -f docker-compose.fnos.yml up -d
 docker compose -f docker-compose.fnos.yml down -v
 ```
 
-`-v` 会删除数据库、附件和服务器备份所使用的 Docker 卷。
+`-v` 会删除数据库和附件所使用的 Docker 卷，但不会删除宿主机备份目录。
 
 ## 数据保存在哪里
 
-| Docker 卷 | 容器路径 | 内容 |
+| 存储位置 | 容器路径 | 内容 |
 |---|---|---|
 | `kalender-postgres-data` | `/var/lib/postgresql` | 数据库、账户、邮件索引、日历、任务和设置 |
 | `kalender-data` | `/app/.data` | 草稿附件等应用本地文件 |
-| `kalender-backups` | `/app/.backups` | 应用生成的 `.backup` 文件 |
+| `backup-directory` 指定的飞牛目录 | `/app/.backups` | 应用生成的 `.backup` 文件 |
 
 查看卷：
 
@@ -192,6 +205,9 @@ docker volume ls | grep kalender
 ```
 
 正常更新和重建不会影响这些数据。
+
+数据库名、数据库用户和两个命名卷继续使用 `kalender`，这是为了兼容已有部署数据；
+应用的 Compose 项目名、服务名和镜像名已经统一为 `dayline`。
 
 ## 备份
 
@@ -203,8 +219,8 @@ docker volume ls | grep kalender
 4. 下载备份文件到另一台设备。
 5. 单独保存 `KALENDER_MASTER_KEY` 和备份密码。
 
-服务器上的 `kalender-backups` 卷不能作为唯一备份，因为它通常与数据库位于同一台
-设备上。
+飞牛上的备份目录不能作为唯一备份，因为它通常仍与数据库位于同一台设备上。建议
+再同步到另一块磁盘、另一台 NAS 或其他可信存储。
 
 ## 固定版本
 
@@ -250,7 +266,7 @@ curl -I https://github.com/Qigang-Wang/Kalender
 
 ```bash
 docker compose -f docker-compose.fnos.yml ps
-docker compose -f docker-compose.fnos.yml logs --tail=200 kalender
+docker compose -f docker-compose.fnos.yml logs --tail=200 dayline
 ```
 
 同时确认飞牛防火墙允许局域网访问端口 `3000`。
@@ -278,9 +294,9 @@ docker volume ls | grep kalender
 
 - `kalender-postgres-data`
 - `kalender-data`
-- `kalender-backups`
+- YAML 中 `backup-directory` 指定的备份目录
 
 ### 完全卸载
 
 先下载最终备份，然后停止服务。只有明确不再需要数据时，才在飞牛 Docker 界面手动
-删除上述三个卷。
+删除上述两个卷，并另外删除 `backup-directory` 指定的目录。

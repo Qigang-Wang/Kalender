@@ -1,17 +1,18 @@
-name: kalender
+name: dayline
 
 # 部署前只需修改这里。此文件包含明文密码，填写后不要提交到公开仓库。
 x-dayline-settings:
   database-password: &database-password "CHANGE_ME_DATABASE_PASSWORD"
   master-key: &master-key "CHANGE_ME_BASE64_MASTER_KEY"
   backup-password: &backup-password "CHANGE_ME_BACKUP_PASSWORD"
+  backup-directory: &backup-directory "/vol1/docker/dayline/backups"
   timezone: &timezone "Europe/Berlin"
 
 services:
-  kalender:
+  dayline:
     build:
       context: https://github.com/Qigang-Wang/Kalender.git#main
-    image: kalender:local
+    image: dayline:local
     restart: unless-stopped
     init: true
     depends_on:
@@ -37,7 +38,9 @@ services:
       KALENDER_MAIL_BODY_CACHE_MAX_MB: "128"
     volumes:
       - kalender-data:/app/.data
-      - kalender-backups:/app/.backups
+      - type: bind
+        source: *backup-directory
+        target: /app/.backups
     logging:
       driver: json-file
       options:
@@ -71,7 +74,5 @@ services:
 volumes:
   kalender-data:
     name: kalender-data
-  kalender-backups:
-    name: kalender-backups
   postgres-data:
     name: kalender-postgres-data
