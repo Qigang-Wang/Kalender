@@ -88,6 +88,11 @@ async function main() {
     });
     assert(invitation.inviteUrl.includes(`/invite/${encodeURIComponent(invitation.token)}`), "admin can create invite links");
     assert((await auth.getAppInvitationByToken(invitation.token))?.email === "invited@example.test", "invite token can be resolved");
+    const { buildInvitationMailContent } = await import("./invitation-mail-service");
+    const { noteContentToPlainText } = await import("../lib/note-content");
+    const invitationMailText = noteContentToPlainText(buildInvitationMailContent(invitation, admin));
+    assert(invitationMailText.includes(invitation.inviteUrl), "invitation email includes the complete acceptance URL");
+    assert(invitationMailText.includes(admin.displayName), "invitation email identifies the inviter");
     const invited = await auth.acceptAppInvitation(invitation.token, {
       displayName: "Invited User",
       password: "invited-password",

@@ -2,7 +2,17 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { buildDatabaseDumpArgs, estimateLightweightBackupBytes, normalizeBackupFilename, sha256File } from "./backup-service";
+import {
+  buildDatabaseDumpArgs,
+  estimateLightweightBackupBytes,
+  exportPortableCredentialBundle,
+  normalizeBackupFilename,
+  parsePortableCredentialBundle,
+  restorePortableCredentialBundle,
+  sha256File,
+} from "./backup-service";
+import { decryptCredential, encryptCredential, resetCredentialKeyCache } from "./credential-crypto";
+import type { DatabaseExecutor, DatabaseQueryResult } from "./database";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`Assertion failed: ${message}`);
@@ -49,7 +59,52 @@ async function testFileHash(): Promise<void> {
   }
 }
 
-testFileHash()
+async function testPortableCredentials(): Promise<void> {
+  const originalKey = process.env.KALENDER_MASTER_KEY;
+  const sourceKey = Buffer.alloc(32, 5).toString("base64");
+  const targetKey = Buffer.alloc(32, 6).toString("base64");
+  const accountId = "portable-mail-account";
+  const sourceCredential = { password: "source-secret" };
+  let restoredPayload = "";
+
+  const database: DatabaseExecutor = {
+    async query<T>(query: string, params?: readonly unknown[]): Promise<DatabaseQueryResult<T>> {
+      if (query.includes("FROM encrypted_credentials")) {
+        return { rows: [{ key: accountId, encrypted_payload: await encryptCredential(accountId, sourceCredential) }] as T[] };
+      }
+      if (query.trimStart().startsWith("SELECT")) return { rows: [] };
+      if (query.includes("UPDATE encrypted_credentials")) {
+        restoredPayload = String(params?.[1] ?? "");
+        return { rows: [], affectedRows: 1 };
+      }
+      return { rows: [], affectedRows: 0 };
+    },
+    async exec() {
+      return undefined;
+    },
+  };
+
+  try {
+    process.env.KALENDER_MASTER_KEY = sourceKey;
+    resetCredentialKeyCache();
+    const bundle = await exportPortableCredentialBundle(database);
+    assert(bundle.entries.length === 1, "encrypted backups export portable credentials");
+    assert(bundle.entries[0]?.value && typeof bundle.entries[0].value === "object", "portable credential values are decrypted");
+    assert(parsePortableCredentialBundle(JSON.parse(JSON.stringify(bundle))).entries.length === 1, "portable credential bundle validates");
+
+    process.env.KALENDER_MASTER_KEY = targetKey;
+    resetCredentialKeyCache();
+    assert(await restorePortableCredentialBundle(database, bundle) === 1, "portable credentials are restored");
+    const restored = await decryptCredential<{ readonly password: string }>(accountId, restoredPayload);
+    assert(restored.password === sourceCredential.password, "restored credentials use the target master key");
+  } finally {
+    if (originalKey === undefined) delete process.env.KALENDER_MASTER_KEY;
+    else process.env.KALENDER_MASTER_KEY = originalKey;
+    resetCredentialKeyCache();
+  }
+}
+
+Promise.all([testFileHash(), testPortableCredentials()])
   .then(() => console.log("Backup service tests passed"))
   .catch((error) => {
     console.error(error);

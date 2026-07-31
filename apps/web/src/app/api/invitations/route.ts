@@ -6,15 +6,20 @@ import {
   createAppInvitation,
   getCurrentAppUser,
   listAppInvitations,
+  recordAuditEvent,
   type AppUserRole,
 } from "@/server/auth";
+import { InvitationMailDeliveryError, sendAppInvitationMail } from "@/server/invitation-mail-service";
+import { getAccount } from "@/server/mail-repository";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 interface CreateInvitationBody {
   readonly email?: unknown;
   readonly displayName?: unknown;
   readonly role?: unknown;
+  readonly senderAccountId?: unknown;
 }
 
 export async function GET() {
@@ -30,16 +35,60 @@ export async function POST(request: Request) {
   try {
     const actor = await requireActor();
     const body = await request.json().catch(() => null) as CreateInvitationBody | null;
+    const senderAccountId = optionalString(body?.senderAccountId)?.trim();
+    const sender = senderAccountId ? await getAccount(senderAccountId) : undefined;
+    if (senderAccountId && !sender) throw new AuthError("所选发件账户不存在或当前用户无权使用", 404);
+    if (sender?.syncStatus === "paused") throw new AuthError("所选发件账户已暂停，请先启用该账户", 409);
+    if (sender && sender.providerId !== "imap-smtp" && sender.providerId !== "exchange-ews") {
+      throw new AuthError("所选账户不支持发送邮件", 400);
+    }
     const invitation = await createAppInvitation(actor, {
       email: stringValue(body?.email),
       displayName: optionalString(body?.displayName),
       role: roleValue(body?.role),
-      origin: new URL(request.url).origin,
+      origin: requestOrigin(request),
     });
-    return NextResponse.json({ ok: true, invitation }, { status: 201 });
+    if (!sender) return NextResponse.json({ ok: true, invitation, delivery: { status: "not-requested" } }, { status: 201 });
+    try {
+      const delivery = await sendAppInvitationMail({ invitation, inviter: actor, sender });
+      await recordInvitationDelivery(actor, invitation.id, sender.id, "sent");
+      return NextResponse.json({ ok: true, invitation, delivery: { status: "sent", ...delivery } }, { status: 201 });
+    } catch (error) {
+      console.error("Invitation email delivery failed", error);
+      await recordInvitationDelivery(actor, invitation.id, sender.id, "failed");
+      const message = error instanceof InvitationMailDeliveryError ? error.message : "邀请邮件发送失败";
+      const draftId = error instanceof InvitationMailDeliveryError ? error.draftId : undefined;
+      return NextResponse.json({
+        ok: true,
+        invitation,
+        delivery: { status: "failed", senderAccountId: sender.id, senderAddress: sender.emailAddress, draftId, message },
+      }, { status: 201 });
+    }
   } catch (error) {
     return invitationErrorResponse(error);
   }
+}
+
+async function recordInvitationDelivery(
+  actor: Awaited<ReturnType<typeof requireActor>>,
+  invitationId: string,
+  senderAccountId: string,
+  status: "sent" | "failed",
+) {
+  await recordAuditEvent({
+    actorUserId: actor.id,
+    action: `invitation.email.${status}`,
+    metadata: { invitationId, senderAccountId },
+  }).catch(() => undefined);
+}
+
+function requestOrigin(request: Request): string {
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const forwardedProtocol = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  if (forwardedHost && (forwardedProtocol === "http" || forwardedProtocol === "https")) {
+    return `${forwardedProtocol}://${forwardedHost}`;
+  }
+  return new URL(request.url).origin;
 }
 
 async function requireActor() {

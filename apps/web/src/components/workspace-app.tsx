@@ -3152,25 +3152,38 @@ function ProfileSettings({ currentUser }: { readonly currentUser: WorkspaceUser 
 function UserManagementSettings({ currentUser }: { readonly currentUser: WorkspaceUser }) {
   const [users, setUsers] = useState<readonly ManagedUser[]>([]);
   const [invitations, setInvitations] = useState<readonly ManagedInvitation[]>([]);
+  const [inviteSenderAccounts, setInviteSenderAccounts] = useState<readonly SavedMailAccount[]>([]);
+  const [inviteSenderAccountId, setInviteSenderAccountId] = useState("");
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string>();
   const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error"; readonly message: string }>();
   const [draft, setDraft] = useState({ displayName: "", email: "", password: "", role: "user" as AppRole, mustChangePassword: true });
   const [inviteDraft, setInviteDraft] = useState({ displayName: "", email: "", role: "user" as AppRole });
   const [editing, setEditing] = useState<Record<string, { displayName: string; email: string; role: AppRole; password: string; mustChangePassword: boolean }>>({});
+  const inviteSenderInitialized = useRef(false);
 
   const loadUsers = useCallback(async () => {
     try {
-      const [usersResponse, invitationsResponse] = await Promise.all([
+      const [usersResponse, invitationsResponse, accountsResponse] = await Promise.all([
         fetch("/api/users", { cache: "no-store" }),
         fetch("/api/invitations", { cache: "no-store" }),
+        fetch("/api/mail-accounts", { cache: "no-store" }),
       ]);
       const usersPayload = await usersResponse.json().catch(() => null) as { readonly users?: readonly ManagedUser[]; readonly message?: string } | null;
       const invitationsPayload = await invitationsResponse.json().catch(() => null) as { readonly invitations?: readonly ManagedInvitation[]; readonly message?: string } | null;
+      const accountsPayload = await accountsResponse.json().catch(() => null) as { readonly accounts?: readonly SavedMailAccount[]; readonly message?: string } | null;
       if (!usersResponse.ok) throw new Error(usersPayload?.message || "无法读取用户");
       if (!invitationsResponse.ok) throw new Error(invitationsPayload?.message || "无法读取邀请");
+      if (!accountsResponse.ok) throw new Error(accountsPayload?.message || "无法读取发件账户");
       setUsers(usersPayload?.users ?? []);
       setInvitations(invitationsPayload?.invitations ?? []);
+      const senders = (accountsPayload?.accounts ?? []).filter((account) => account.syncStatus !== "paused");
+      setInviteSenderAccounts(senders);
+      setInviteSenderAccountId((current) => {
+        if (inviteSenderInitialized.current && (current === "" || senders.some((account) => account.id === current))) return current;
+        inviteSenderInitialized.current = true;
+        return senders[0]?.id ?? "";
+      });
     } catch (error) {
       setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法读取用户" });
     } finally {
@@ -3235,14 +3248,31 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
       const response = await fetch("/api/invitations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(inviteDraft),
+        body: JSON.stringify({ ...inviteDraft, senderAccountId: inviteSenderAccountId || undefined }),
       });
-      const payload = await response.json().catch(() => null) as { readonly invitation?: ManagedInvitation; readonly message?: string } | null;
+      const payload = await response.json().catch(() => null) as {
+        readonly invitation?: ManagedInvitation;
+        readonly delivery?: {
+          readonly status?: "not-requested" | "sent" | "failed";
+          readonly senderAddress?: string;
+          readonly message?: string;
+        };
+        readonly message?: string;
+      } | null;
       if (!response.ok || !payload?.invitation) throw new Error(payload?.message || "无法创建邀请");
       setInviteDraft({ displayName: "", email: "", role: "user" });
-      await navigator.clipboard?.writeText(payload.invitation.inviteUrl ?? "").catch(() => undefined);
+      const deliveryStatus = payload.delivery?.status ?? "not-requested";
+      if (deliveryStatus !== "sent" && payload.invitation.inviteUrl) {
+        await navigator.clipboard?.writeText(payload.invitation.inviteUrl).catch(() => undefined);
+      }
       await loadUsers();
-      setFeedback({ kind: "success", message: payload.invitation.inviteUrl ? "邀请已创建，链接已复制" : "邀请已创建" });
+      if (deliveryStatus === "sent") {
+        setFeedback({ kind: "success", message: `邀请邮件已通过 ${payload.delivery?.senderAddress ?? "所选邮箱"} 发送` });
+      } else if (deliveryStatus === "failed") {
+        setFeedback({ kind: "error", message: `邀请已创建，但邮件发送失败：${payload.delivery?.message ?? "请检查发件账户"}。邀请链接已复制` });
+      } else {
+        setFeedback({ kind: "success", message: payload.invitation.inviteUrl ? "邀请链接已创建并复制" : "邀请已创建" });
+      }
     } catch (error) {
       setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法创建邀请" });
     } finally {
@@ -3290,7 +3320,24 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
         <label><span>邀请昵称</span><input value={inviteDraft.displayName} onChange={(event) => setInviteDraft({ ...inviteDraft, displayName: event.target.value })} /></label>
         <label><span>邀请邮箱</span><input type="email" value={inviteDraft.email} onChange={(event) => setInviteDraft({ ...inviteDraft, email: event.target.value })} /></label>
         <label><span>邀请角色</span><AppSelect ariaLabel="邀请角色" value={inviteDraft.role} onValueChange={(role) => setInviteDraft({ ...inviteDraft, role: role as AppRole })} options={roleOptions()} /></label>
-        <div className="settings-actions inline"><button className="secondary-button" disabled={busyId === "invite" || !inviteDraft.email.includes("@")} onClick={() => void createInvitation()}>{busyId === "invite" ? <LoaderCircle className="spin" size={15} /> : <Mail size={15} />}{busyId === "invite" ? "正在创建…" : "创建邀请链接"}</button></div>
+        <label>
+          <span>发送方式</span>
+          <AppSelect
+            ariaLabel="邀请发送方式"
+            value={inviteSenderAccountId}
+            onValueChange={setInviteSenderAccountId}
+            options={[
+              { value: "", label: "仅创建并复制链接" },
+              ...inviteSenderAccounts.map((account) => ({ value: account.id, label: `${account.displayName} <${account.emailAddress}>` })),
+            ]}
+          />
+        </label>
+        <div className="settings-actions inline">
+          <button className="secondary-button" disabled={busyId === "invite" || !inviteDraft.email.includes("@")} onClick={() => void createInvitation()}>
+            {busyId === "invite" ? <LoaderCircle className="spin" size={15} /> : inviteSenderAccountId ? <Send size={15} /> : <Link2 size={15} />}
+            {busyId === "invite" ? inviteSenderAccountId ? "正在发送…" : "正在创建…" : inviteSenderAccountId ? "发送邀请" : "创建邀请链接"}
+          </button>
+        </div>
       </div>
 
       {invitations.some((invitation) => !invitation.acceptedAt && !invitation.revokedAt) && <div className="user-list invitation-list">
@@ -3882,11 +3929,14 @@ function BackupSettings() {
             <div><h3>创建{selectedBackupOption ? backupPolicyLabel(selectedBackupOption.policy) : "备份"}</h3><p>保存工作区数据和草稿附件，邮件正文恢复后按需重新获取。</p></div>
           </header>
           <div className="backup-scope-summary" aria-label="备份范围">
-            {compactCoverage.map((item) => (
-              <span key={item.id} className={item.included ? "included" : "excluded"}>
-                {item.included ? <Check size={12} /> : <Circle size={12} />}{item.label}
-              </span>
-            ))}
+            {compactCoverage.map((item) => {
+              const included = item.id === "master-key" ? encryptBackup : item.included;
+              return (
+                <span key={item.id} className={included ? "included" : "excluded"}>
+                  {included ? <Check size={12} /> : <Circle size={12} />}{item.label}
+                </span>
+              );
+            })}
           </div>
           <div className="backup-create-controls">
             <label className="secure-toggle"><input type="checkbox" checked={encryptBackup} onChange={(event) => setEncryptBackup(event.target.checked)} /><span>加密备份</span></label>
@@ -3895,7 +3945,9 @@ function BackupSettings() {
           </div>
           {!selectedPolicyAvailable && selectedBackupOption?.disabledReason && <small className="backup-risk">{selectedBackupOption.disabledReason}</small>}
           {!toolsReady && <small className="backup-risk">服务器缺少备份工具，请先完成运行环境配置。</small>}
-          {!encryptBackup && <small className="backup-risk">未加密备份包含敏感配置，请只保存在可信设备。</small>}
+          {encryptBackup
+            ? <small>恢复时只需此备份密码，账户连接会自动改用目标服务器的主密钥。</small>
+            : <small className="backup-risk">未加密备份不携带可迁移连接凭据；跨服务器恢复后需要重新输入账户密码。</small>}
         </article>
       </div>
 
@@ -3973,12 +4025,6 @@ function BackupSettings() {
         />
       )}
 
-      {status?.keySource !== "environment" && (
-        <div className="backup-notes">
-          <ShieldCheck size={16} />
-          <div><strong>缺少 KALENDER_MASTER_KEY</strong><p>恢复账户凭据需要使用创建备份时的原始主密钥。</p></div>
-        </div>
-      )}
     </section>
   );
 }

@@ -11,11 +11,33 @@ import type { AppUser } from "./auth";
 import { appendJobLog, consumeJobSecret, enqueueJob, setJobSecret, updateJobProgress, type AppJob } from "./job-service";
 import { stopMailSyncScheduler } from "./mail-sync-scheduler";
 import { stopCalendarSyncScheduler } from "./calendar-sync-scheduler";
+import { decryptCredential, encryptCredential } from "./credential-crypto";
 
 const pipeline = promisify(pipelineCallback);
 const scrypt = promisify(scryptCallback);
 const BACKUP_ESTIMATE_CACHE_TTL_MS = 5 * 60 * 1000;
 const BACKUP_PACKAGE_OVERHEAD_BYTES = 64 * 1024;
+const PORTABLE_CREDENTIALS_FILENAME = "portable-credentials.json";
+
+const PORTABLE_CREDENTIAL_STORES = [
+  { id: "mail", table: "encrypted_credentials", keyColumn: "account_id" },
+  { id: "calendar", table: "calendar_encrypted_credentials", keyColumn: "account_id" },
+  { id: "exchange", table: "exchange_connection_credentials", keyColumn: "connection_id" },
+  { id: "ai", table: "ai_provider_credentials", keyColumn: "provider_id" },
+] as const;
+
+type PortableCredentialStoreId = typeof PORTABLE_CREDENTIAL_STORES[number]["id"];
+
+export interface PortableCredentialEntry {
+  readonly store: PortableCredentialStoreId;
+  readonly key: string;
+  readonly value: unknown;
+}
+
+export interface PortableCredentialBundle {
+  readonly version: 1;
+  readonly entries: readonly PortableCredentialEntry[];
+}
 
 let lightweightEstimateCache: {
   readonly fingerprint: string;
@@ -446,6 +468,7 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
   const databaseDump = path.join(workDir, "database.dump");
   const attachments = path.join(workDir, "mail-draft-attachments.tgz");
   const manifestPath = path.join(workDir, "manifest.json");
+  const portableCredentialsPath = path.join(workDir, PORTABLE_CREDENTIALS_FILENAME);
   const sumsPath = path.join(workDir, "SHA256SUMS");
   try {
     await appendJobLog(job.id, "正在导出 PostgreSQL 数据库");
@@ -461,10 +484,18 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
     }
     await updateJobProgress(job.id, 55);
 
+    let portableCredentialCount = 0;
+    if (encrypted) {
+      await appendJobLog(job.id, "正在生成可迁移连接凭据");
+      const portableCredentials = await exportPortableCredentialBundle(database);
+      portableCredentialCount = portableCredentials.entries.length;
+      await writeFile(portableCredentialsPath, JSON.stringify(portableCredentials), { mode: 0o600 });
+    }
+
     const [databaseBytes, attachmentSize] = await Promise.all([stat(databaseDump), stat(attachments)]);
     const manifest = {
       format: "qgwbackup",
-      schemaVersion: 1,
+      schemaVersion: 2,
       createdAt: startedAt,
       app: "Dayline",
       automatic,
@@ -477,7 +508,9 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
         included: mailPolicy === "full-archive",
       },
       encrypted,
-      requiresMasterKey: true,
+      portableCredentials: encrypted,
+      portableCredentialCount,
+      requiresOriginalMasterKey: !encrypted,
       counts,
     };
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
@@ -485,18 +518,20 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
       `${await sha256File(databaseDump)}  database.dump`,
       `${await sha256File(attachments)}  mail-draft-attachments.tgz`,
       `${await sha256File(manifestPath)}  manifest.json`,
+      ...(encrypted ? [`${await sha256File(portableCredentialsPath)}  ${PORTABLE_CREDENTIALS_FILENAME}`] : []),
     ].join("\n");
     await writeFile(sumsPath, `${hashes}\n`, { mode: 0o600 });
     await updateJobProgress(job.id, 72);
 
     const baseName = `dayline-${new Date().toISOString().replace(/[:.]/g, "-")}.backup`;
-    const plainPackage = path.join(backupDirectory(), baseName);
-    await runCommand("tar", ["-C", workDir, "-czf", plainPackage, "database.dump", "mail-draft-attachments.tgz", "manifest.json", "SHA256SUMS"]);
-    const finalPath = encrypted ? `${plainPackage}.enc` : plainPackage;
+    const plainPackage = encrypted ? path.join(workDir, baseName) : path.join(backupDirectory(), baseName);
+    const packageFiles = ["database.dump", "mail-draft-attachments.tgz", "manifest.json", "SHA256SUMS"];
+    if (encrypted) packageFiles.push(PORTABLE_CREDENTIALS_FILENAME);
+    await runCommand("tar", ["-C", workDir, "-czf", plainPackage, ...packageFiles]);
+    const finalPath = encrypted ? path.join(backupDirectory(), `${baseName}.enc`) : plainPackage;
     const finalName = encrypted ? `${baseName}.enc` : baseName;
     if (encrypted) {
       await encryptFile(plainPackage, finalPath, password!);
-      await rm(plainPackage, { force: true });
     }
     const finalStat = await stat(finalPath);
     const checksumSha256 = await sha256File(finalPath);
@@ -597,12 +632,77 @@ export async function runBackupRestoreJob(job: AppJob): Promise<Readonly<Record<
     await appendJobLog(job.id, "正在恢复草稿附件");
     await runCommand("tar", ["-C", dataRoot(), "-xzf", path.join(workDir, "mail-draft-attachments.tgz")]);
     const database = await getDatabase();
+    const portableCredentialsFile = path.join(workDir, PORTABLE_CREDENTIALS_FILENAME);
+    if (await pathExists(portableCredentialsFile)) {
+      if (!artifact.encrypted) throw new BackupError("可迁移凭据只允许存在于加密备份中", 400);
+      await appendJobLog(job.id, "正在使用当前服务器主密钥重新加密连接凭据");
+      const portableCredentials = parsePortableCredentialBundle(
+        JSON.parse(await readFile(portableCredentialsFile, "utf8")) as unknown,
+      );
+      const restoredCredentialCount = await restorePortableCredentialBundle(database, portableCredentials);
+      await appendJobLog(job.id, `已迁移 ${restoredCredentialCount} 项连接凭据`);
+    } else {
+      await appendJobLog(job.id, "该备份不含可迁移凭据；账户连接可能仍需要原主密钥或重新输入密码");
+    }
     await database.query("UPDATE backup_artifacts SET restored_at = now() WHERE id = $1", [artifact.id]).catch(() => undefined);
     await appendJobLog(job.id, "恢复完成");
     return { artifactId: artifact.id, safetyBackup: safety.filename, restoredAt: new Date().toISOString() };
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }
+}
+
+export async function exportPortableCredentialBundle(database: DatabaseExecutor): Promise<PortableCredentialBundle> {
+  const entries: PortableCredentialEntry[] = [];
+  for (const store of PORTABLE_CREDENTIAL_STORES) {
+    const result = await database.query<{ readonly key: string; readonly encrypted_payload: string }>(
+      `SELECT ${store.keyColumn} AS key, encrypted_payload FROM ${store.table} ORDER BY ${store.keyColumn}`,
+    );
+    for (const row of result.rows) {
+      entries.push({
+        store: store.id,
+        key: row.key,
+        value: await decryptCredential<unknown>(row.key, row.encrypted_payload),
+      });
+    }
+  }
+  return { version: 1, entries };
+}
+
+export async function restorePortableCredentialBundle(
+  database: DatabaseExecutor,
+  bundle: PortableCredentialBundle,
+): Promise<number> {
+  let restored = 0;
+  for (const entry of bundle.entries) {
+    const store = PORTABLE_CREDENTIAL_STORES.find((candidate) => candidate.id === entry.store);
+    if (!store) throw new BackupError("可迁移凭据包含未知存储类型", 400);
+    const encryptedPayload = await encryptCredential(entry.key, entry.value);
+    const result = await database.query(
+      `UPDATE ${store.table}
+          SET encrypted_payload = $2, key_version = 1, updated_at = now()
+        WHERE ${store.keyColumn} = $1`,
+      [entry.key, encryptedPayload],
+    );
+    if (result.affectedRows !== 1) throw new BackupError(`无法恢复连接凭据：${entry.store}/${entry.key}`, 400);
+    restored += 1;
+  }
+  return restored;
+}
+
+export function parsePortableCredentialBundle(value: unknown): PortableCredentialBundle {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new BackupError("可迁移凭据格式无效", 400);
+  const input = value as { readonly version?: unknown; readonly entries?: unknown };
+  if (input.version !== 1 || !Array.isArray(input.entries)) throw new BackupError("可迁移凭据版本无效", 400);
+  const validStores = new Set<string>(PORTABLE_CREDENTIAL_STORES.map((store) => store.id));
+  const entries = input.entries.map((entry): PortableCredentialEntry => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new BackupError("可迁移凭据条目无效", 400);
+    const candidate = entry as { readonly store?: unknown; readonly key?: unknown; readonly value?: unknown };
+    if (typeof candidate.store !== "string" || !validStores.has(candidate.store)) throw new BackupError("可迁移凭据存储类型无效", 400);
+    if (typeof candidate.key !== "string" || !candidate.key.trim()) throw new BackupError("可迁移凭据标识无效", 400);
+    return { store: candidate.store as PortableCredentialStoreId, key: candidate.key, value: candidate.value };
+  });
+  return { version: 1, entries };
 }
 
 async function readTableCounts(database: DatabaseExecutor): Promise<Readonly<Record<string, number>>> {
@@ -754,9 +854,9 @@ function buildBackupStrategy(root: string, tools: BackupToolStatus, mailCache: B
     },
     {
       id: "master-key",
-      label: "加密主密钥",
-      description: "不写入备份包；恢复时必须提供原 KALENDER_MASTER_KEY 才能解开已保存凭据。",
-      included: false,
+      label: "可迁移连接凭据",
+      description: "加密备份会使用备份密码保护邮箱、日历和 AI 凭据；恢复时不需要原服务器主密钥。",
+      included: true,
     },
   ];
   const configurationCoverage: readonly BackupCoverageItem[] = [
@@ -780,8 +880,8 @@ function buildBackupStrategy(root: string, tools: BackupToolStatus, mailCache: B
     },
     {
       id: "master-key",
-      label: "加密主密钥",
-      description: "不写入备份包；凭据恢复仍依赖原 KALENDER_MASTER_KEY。",
+      label: "可迁移连接凭据",
+      description: "仅加密备份可以安全迁移连接凭据。",
       included: false,
     },
   ];
@@ -896,7 +996,8 @@ function buildBackupStrategy(root: string, tools: BackupToolStatus, mailCache: B
     ],
     warnings: [
       "不要把完整 DATABASE_URL 或数据库密码写进备份包。",
-      "必须单独保存 KALENDER_MASTER_KEY；丢失后已加密的邮箱、日历和 AI 凭据无法恢复。",
+      "加密备份可使用备份密码迁移邮箱、日历和 AI 凭据，不需要原服务器的 KALENDER_MASTER_KEY。",
+      "未加密备份不包含可迁移凭据；跨服务器恢复后需要原主密钥或重新配置连接。",
       "默认邮件策略不会主动抓取远端邮箱的所有历史附件，恢复后需要重新同步邮箱。",
       "恢复前应停止应用写入和邮件同步，避免恢复过程中产生新数据。",
     ],
