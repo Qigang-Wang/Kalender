@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as Reac
 import { ContextMenu } from "./context-menu";
 import type { ContextCommandId, ResolvedContextCommand } from "./context-commands";
 import { AppSelect } from "./app-select";
+import { DateTimeField } from "./ui/date-time-field";
 
 interface SearchResult {
   readonly id: string;
@@ -272,7 +273,7 @@ function QuickCaptureDialog({ onClose, onCreated }: { readonly onClose: () => vo
           })}
         </nav>
         <label><span>标题</span><input autoFocus value={title} maxLength={240} onChange={(event) => setTitle(event.target.value)} placeholder={kind === "task" ? "要完成什么？" : kind === "note" ? "记下一个想法" : "日程名称"} /></label>
-        {kind === "calendar" && <div className="quick-capture-row"><label><span>开始时间</span><input type="datetime-local" value={startLocal} onChange={(event) => setStartLocal(event.target.value)} /></label><label><span>日历</span><AppSelect ariaLabel="快速记录日历" value={calendarId} onValueChange={setCalendarId} options={calendars.map((calendar) => ({ value: calendar.id, label: calendar.name }))} /></label></div>}
+        {kind === "calendar" && <div className="quick-capture-row"><DateTimeField label="开始时间" value={startLocal} onChange={setStartLocal} /><label><span>日历</span><AppSelect ariaLabel="快速记录日历" value={calendarId} onValueChange={setCalendarId} options={calendars.map((calendar) => ({ value: calendar.id, label: calendar.name }))} /></label></div>}
         <label><span>{kind === "task" ? "备注" : kind === "note" ? "正文" : "说明"}</span><textarea value={details} maxLength={10_000} onChange={(event) => setDetails(event.target.value)} placeholder="可选" /></label>
         {error && <div className="quick-capture-error" role="alert">{error}</div>}
         <footer><div><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button><button className="primary-button" disabled={busy || !title.trim()}>{busy && <LoaderCircle className="spin" size={14} />}保存</button></div></footer>

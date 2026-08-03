@@ -3,7 +3,6 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { zhCN } from "date-fns/locale";
 import {
   AlertCircle, ArrowRight, CalendarDays, CalendarClock, Check, ChevronLeft,
   ChevronDown, ChevronRight, Circle, Clock3, Copy, Folder, Link2, ListChecks, LoaderCircle, Mail,
@@ -38,8 +37,7 @@ import {
   type ContextCommandId,
 } from "../context-commands";
 import { TransientToast } from "../workspace-shared";
-import { Calendar as DatePickerCalendar } from "../ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { DateTimeField } from "../ui/date-time-field";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card";
 import {
   createClientEntityLink,
@@ -223,7 +221,6 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   const [draft, setDraft] = useState<CalendarEventDraft>();
   const [draftMode, setDraftMode] = useState<CalendarDialogMode>("view");
   const [recurrenceOpen, setRecurrenceOpen] = useState(false);
-  const [recurrenceDateOpen, setRecurrenceDateOpen] = useState(false);
   const [attendeesExpanded, setAttendeesExpanded] = useState(false);
   const [recurrenceScopePrompt, setRecurrenceScopePrompt] = useState<RecurrenceScopePrompt>();
   const [menu, setMenu] = useState<CalendarMenuState>();
@@ -234,8 +231,6 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   const [calendarMoveBusy, setCalendarMoveBusy] = useState(false);
   const menuReturnFocusRef = useRef<HTMLElement | null>(null);
   const recurrenceScopeResolverRef = useRef<((scope: CalendarRecurrenceEditScope | undefined) => void) | undefined>(undefined);
-  const calendarStartInputRef = useRef<HTMLInputElement>(null);
-  const calendarEndInputRef = useRef<HTMLInputElement>(null);
   const openedInitialEvent = useRef(false);
   const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Berlin", []);
   const writableLocalCalendar = useMemo(() => (
@@ -396,16 +391,6 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
 
   const updateCalendarDraft = (changes: Partial<CalendarEventDraft>) => {
     setDraft((current) => current ? { ...current, ...changes, conflicts: [] } : current);
-  };
-
-  const openNativeDateTimePicker = (input: HTMLInputElement | null) => {
-    if (!input) return;
-    input.focus();
-    try {
-      input.showPicker?.();
-    } catch {
-      // Some browsers only allow native pickers from specific input gestures.
-    }
   };
 
   const openRecurrenceSettings = () => {
@@ -971,13 +956,22 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                 <div className="calendar-schedule-card">
                   <div className="calendar-schedule-row">
                     <span className="calendar-schedule-icon" aria-hidden="true"><CalendarDays size={18} /></span>
-                    <label className="calendar-schedule-field" onClick={() => openNativeDateTimePicker(calendarStartInputRef.current)}>
-                      <input ref={calendarStartInputRef} aria-label={draft.allDay ? "开始日期" : "开始时间"} type={draft.allDay ? "date" : "datetime-local"} step={draft.allDay ? undefined : 300} value={draft.startLocal} onChange={(event) => updateCalendarDraft({ startLocal: event.target.value })} />
-                    </label>
+                    <DateTimeField
+                      className="calendar-schedule-field"
+                      ariaLabel={draft.allDay ? "开始日期" : "开始时间"}
+                      mode={draft.allDay ? "date" : "datetime"}
+                      value={draft.startLocal}
+                      onChange={(startLocal) => updateCalendarDraft({ startLocal })}
+                    />
                     <ArrowRight className="calendar-schedule-arrow" size={16} strokeWidth={1.7} aria-hidden="true" />
-                    <label className="calendar-schedule-field" onClick={() => openNativeDateTimePicker(calendarEndInputRef.current)}>
-                      <input ref={calendarEndInputRef} aria-label={draft.allDay ? "结束日期（含）" : "结束时间"} type={draft.allDay ? "date" : "datetime-local"} step={draft.allDay ? undefined : 300} min={draft.allDay ? draft.startLocal : undefined} value={draft.endLocal} onChange={(event) => updateCalendarDraft({ endLocal: event.target.value })} />
-                    </label>
+                    <DateTimeField
+                      className="calendar-schedule-field"
+                      ariaLabel={draft.allDay ? "结束日期（含）" : "结束时间"}
+                      mode={draft.allDay ? "date" : "datetime"}
+                      min={draft.allDay ? draft.startLocal : undefined}
+                      value={draft.endLocal}
+                      onChange={(endLocal) => updateCalendarDraft({ endLocal })}
+                    />
                     <small className="calendar-schedule-duration"><Clock3 size={12} />{formatCalendarDetailDuration(draft)}</small>
                     <label className="calendar-all-day-switch">
                       <span>全天</span>
@@ -1100,33 +1094,15 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                         {draft.recurrence.end === "until" && (
                           <div className="calendar-recurrence-detail">
                             <span>结束日期</span>
-                            <Popover open={recurrenceDateOpen} onOpenChange={setRecurrenceDateOpen}>
-                              <PopoverTrigger asChild>
-                                <button type="button" className="calendar-recurrence-date-trigger">
-                                  <span>{formatRecurrenceEndDate(draft.recurrence.until)}</span>
-                                  <CalendarDays size={15} />
-                                </button>
-                              </PopoverTrigger>
-                              <PopoverContent
-                                className="calendar-recurrence-date-popover z-[140] w-auto gap-0 rounded-lg p-0"
-                                align="start"
-                                sideOffset={6}
-                                collisionPadding={12}
-                              >
-                                <DatePickerCalendar
-                                  mode="single"
-                                  locale={zhCN}
-                                  selected={recurrenceDateValue(draft.recurrence.until)}
-                                  defaultMonth={recurrenceDateValue(draft.recurrence.until)}
-                                  disabled={{ before: recurrenceMinimumDate(draft) }}
-                                  onSelect={(date) => {
-                                    if (!date) return;
-                                    updateRecurrence({ until: recurrenceUntilIso(toCalendarDateKey(date)) });
-                                    setRecurrenceDateOpen(false);
-                                  }}
-                                />
-                              </PopoverContent>
-                            </Popover>
+                            <DateTimeField
+                              className="calendar-recurrence-date-field"
+                              ariaLabel="重复结束日期"
+                              mode="date"
+                              min={toCalendarDateKey(recurrenceMinimumDate(draft))}
+                              value={recurrenceUntilDateKey(draft.recurrence.until)}
+                              onChange={(dateValue) => updateRecurrence({ until: recurrenceUntilIso(dateValue) })}
+                              placeholder={formatRecurrenceEndDate(draft.recurrence.until)}
+                            />
                           </div>
                         )}
                         {draft.recurrence.end === "count" && (
@@ -2380,6 +2356,12 @@ function recurrenceDateValue(value?: string): Date | undefined {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return undefined;
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function recurrenceUntilDateKey(value?: string): string {
+  const date = recurrenceDateValue(value);
+  if (!date) return "";
+  return toCalendarDateKey(date);
 }
 
 function recurrenceMinimumDate(draft: CalendarEventDraft): Date {

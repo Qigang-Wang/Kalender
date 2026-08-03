@@ -14,6 +14,7 @@ import { useRealtimeEvent, useRealtimeRefresh, type RealtimeEvent } from "@/comp
 import { AppSelect } from "../app-select";
 import { ContextMenu } from "../context-menu";
 import { resolveContextCommands, type TaskCommandId } from "../context-commands";
+import { DateTimeField } from "../ui/date-time-field";
 import { TransientToast } from "../workspace-shared";
 import { RelatedContentPanel } from "./related-content";
 
@@ -558,7 +559,7 @@ export function TasksPage({
               <label className="task-title-field"><span>任务标题</span><input autoFocus value={draft.title} maxLength={240} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="要完成什么？" /></label>
               <label><span>状态</span><AppSelect ariaLabel="任务状态" value={draft.status} onValueChange={(status) => setDraft({ ...draft, status: status as TaskStatus })} options={[{ value: "inbox", label: "Inbox · 待整理" }, { value: "next", label: "下一步" }, { value: "waiting", label: "等待中" }, { value: "someday", label: "以后也许" }, { value: "done", label: "已完成" }]} /></label>
               <label><span>紧急程度</span><AppSelect ariaLabel="紧急程度" value={draft.urgencyMode} onValueChange={(urgencyMode) => setDraft({ ...draft, urgencyMode: urgencyMode as TaskUrgencyMode })} options={[{ value: "auto", label: "自动（按截止时间）" }, { value: "urgent", label: "紧急" }, { value: "not_urgent", label: "不紧急" }]} /></label>
-              <label><span>截止时间</span><input type="datetime-local" value={draft.dueAt} onChange={(event) => setDraft({ ...draft, dueAt: event.target.value })} /></label>
+              <DateTimeField label="截止时间" value={draft.dueAt} onChange={(dueAt) => setDraft({ ...draft, dueAt })} />
               <label><span>预计时长（分钟）</span><input type="number" min="5" max="1440" step="5" value={draft.estimatedMinutes} onChange={(event) => setDraft({ ...draft, estimatedMinutes: event.target.value })} placeholder="例如 45" /></label>
               <label className="task-project-field"><span>项目</span><AppSelect ariaLabel="任务所属项目" value={draft.projectId || (draft.projectName ? "__legacy__" : "")} onValueChange={(projectId) => {
                 const project = taskProjects.find((entry) => entry.id === projectId);
@@ -592,8 +593,8 @@ export function TasksPage({
             <header><div><h2 id="task-schedule-title">{scheduleDraft.eventId ? "调整安排" : "安排到日历"}</h2></div><button aria-label="关闭" onClick={() => { if (scheduleDraft.returnTaskDraft) setDraft(scheduleDraft.returnTaskDraft); setScheduleDraft(undefined); }} disabled={scheduleBusy}><X size={18} /></button></header>
             <div className="task-schedule-summary"><ListChecks size={17} /><strong>{scheduleDraft.taskTitle}</strong></div>
             <div className="calendar-form task-schedule-form">
-              <label><span>开始</span><input type="datetime-local" value={scheduleDraft.startLocal} onChange={(event) => changeScheduleStart(event.target.value)} /></label>
-              <label><span>结束</span><input type="datetime-local" value={scheduleDraft.endLocal} onChange={(event) => { const value = event.target.value; setScheduleDraft((current) => current ? { ...current, endLocal: value, conflicts: [] } : current); }} /></label>
+              <DateTimeField label="开始" value={scheduleDraft.startLocal} onChange={changeScheduleStart} />
+              <DateTimeField label="结束" value={scheduleDraft.endLocal} onChange={(value) => { setScheduleDraft((current) => current ? { ...current, endLocal: value, conflicts: [] } : current); }} />
               <label className="calendar-title-field"><span>日历</span><AppSelect ariaLabel="安排到日历" value={scheduleDraft.calendarId} onValueChange={(calendarId) => setScheduleDraft((current) => current ? { ...current, calendarId, conflicts: [] } : current)} options={taskCalendars.map((calendar) => ({ value: calendar.id, label: calendar.name }))} /></label>
             </div>
             {scheduleDraft.conflicts.length > 0 && <div className="task-schedule-conflicts" role="alert"><header><AlertCircle size={16} /><strong>发现时间冲突</strong></header>{scheduleDraft.conflicts.map((conflict) => <div key={conflict.id}><span>{formatTaskBlockRange(conflict.start, conflict.end)}</span><strong>{conflict.title}</strong></div>)}<p>你可以修改时间，或者确认仍然安排。</p></div>}

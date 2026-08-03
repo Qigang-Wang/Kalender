@@ -115,7 +115,8 @@ src/mail/          MailProvider 核心接口和通用实现
 scripts/           开发、测试与实时网关脚本
 docs/architecture/ 架构与同步设计
 docs/design/       UI 规范、原型和实现截图
-docker-compose*.yml Docker 与飞牛 NAS 部署配置
+docker-compose.yml   本地 Docker 配置
+dayline-compose.fnos.yml 飞牛 NAS 部署配置
 docs/roadmap.md    分阶段开发路线图
 PROJECT.md         完整产品说明
 ```

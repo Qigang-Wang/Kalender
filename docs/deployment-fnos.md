@@ -36,7 +36,7 @@ openssl rand -hex 24
 
 ### 2. 修改 YAML 顶部
 
-打开 `docker-compose.fnos.yml`，只替换文件顶部的三个 `CHANGE_ME` 值：
+打开 `dayline-compose.fnos.yml`，只替换文件顶部的三个 `CHANGE_ME` 值：
 
 ```yaml
 x-dayline-settings:
@@ -64,7 +64,7 @@ chown -R 1001:1001 /vol1/docker/dayline/backups
 
 1. 打开飞牛 Docker 管理界面。
 2. 新建 Compose 项目，项目名填写 `dayline`。
-3. 将已经填写三个密码的 `docker-compose.fnos.yml` 完整粘贴进去。
+3. 将已经填写三个密码的 `dayline-compose.fnos.yml` 完整粘贴进去。
 4. 点击“构建并启动”。
 5. 等待 `postgres` 变为健康，`dayline` 变为运行中。
 6. 打开 `http://飞牛局域网IP:8812`。
@@ -94,34 +94,34 @@ cd /vol1/docker/dayline
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/Qigang-Wang/Kalender/main/docker-compose.fnos.yml \
-  -o docker-compose.fnos.yml
+  https://raw.githubusercontent.com/Qigang-Wang/Kalender/main/dayline-compose.fnos.yml \
+  -o dayline-compose.fnos.yml
 ```
 
 编辑 YAML 顶部的三个密码：
 
 ```bash
-nano docker-compose.fnos.yml
-chmod 600 docker-compose.fnos.yml
+nano dayline-compose.fnos.yml
+chmod 600 dayline-compose.fnos.yml
 ```
 
 检查 YAML：
 
 ```bash
-docker compose -f docker-compose.fnos.yml config
+docker compose -f dayline-compose.fnos.yml config
 ```
 
 构建并启动：
 
 ```bash
-docker compose -f docker-compose.fnos.yml up -d --build
+docker compose -f dayline-compose.fnos.yml up -d --build
 ```
 
 检查状态：
 
 ```bash
-docker compose -f docker-compose.fnos.yml ps
-docker compose -f docker-compose.fnos.yml logs --tail=100 dayline
+docker compose -f dayline-compose.fnos.yml ps
+docker compose -f dayline-compose.fnos.yml logs --tail=100 dayline
 curl -fsS http://127.0.0.1:8812/api/health
 ```
 
@@ -157,8 +157,8 @@ SSH 更新命令：
 
 ```bash
 cd /vol1/docker/dayline
-docker compose -f docker-compose.fnos.yml build --pull dayline
-docker compose -f docker-compose.fnos.yml up -d dayline
+docker compose -f dayline-compose.fnos.yml build --pull dayline
+docker compose -f dayline-compose.fnos.yml up -d dayline
 curl -fsS http://127.0.0.1:8812/api/health
 ```
 
@@ -167,8 +167,8 @@ curl -fsS http://127.0.0.1:8812/api/health
 如果怀疑使用了旧缓存：
 
 ```bash
-docker compose -f docker-compose.fnos.yml build --no-cache --pull dayline
-docker compose -f docker-compose.fnos.yml up -d dayline
+docker compose -f dayline-compose.fnos.yml build --no-cache --pull dayline
+docker compose -f dayline-compose.fnos.yml up -d dayline
 ```
 
 ## 停止服务
@@ -176,19 +176,19 @@ docker compose -f docker-compose.fnos.yml up -d dayline
 停止容器但保留数据：
 
 ```bash
-docker compose -f docker-compose.fnos.yml down
+docker compose -f dayline-compose.fnos.yml down
 ```
 
 重新启动：
 
 ```bash
-docker compose -f docker-compose.fnos.yml up -d
+docker compose -f dayline-compose.fnos.yml up -d
 ```
 
 **不要执行：**
 
 ```bash
-docker compose -f docker-compose.fnos.yml down -v
+docker compose -f dayline-compose.fnos.yml down -v
 ```
 
 `-v` 会删除数据库和附件所使用的 Docker 卷，但不会删除宿主机备份目录。
@@ -268,8 +268,8 @@ curl -I https://github.com/Qigang-Wang/Kalender
 检查：
 
 ```bash
-docker compose -f docker-compose.fnos.yml ps
-docker compose -f docker-compose.fnos.yml logs --tail=200 dayline
+docker compose -f dayline-compose.fnos.yml ps
+docker compose -f dayline-compose.fnos.yml logs --tail=200 dayline
 ```
 
 同时确认飞牛防火墙允许局域网访问端口 `8812`。
@@ -279,7 +279,7 @@ docker compose -f docker-compose.fnos.yml logs --tail=200 dayline
 查看：
 
 ```bash
-docker compose -f docker-compose.fnos.yml logs --tail=200 postgres
+docker compose -f dayline-compose.fnos.yml logs --tail=200 postgres
 ```
 
 常见原因是磁盘空间不足、数据库密码被修改，或者旧数据库卷与新密码不一致。
@@ -289,7 +289,7 @@ docker compose -f docker-compose.fnos.yml logs --tail=200 postgres
 不要重新创建账户。先停止服务并检查命名卷：
 
 ```bash
-docker compose -f docker-compose.fnos.yml down
+docker compose -f dayline-compose.fnos.yml down
 docker volume ls | grep kalender
 ```
 
