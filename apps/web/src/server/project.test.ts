@@ -7,6 +7,7 @@ import { closeDatabaseForRestore, getDatabase } from "./database";
 import {
   deleteStoredProjectPhase,
   getStoredProjectOverview,
+  reorderStoredProjectGanttItem,
   saveStoredProjectMilestone,
   saveStoredProjectPhase,
   saveStoredProjectTaskPlan,
@@ -45,12 +46,25 @@ async function main() {
       name: "Prototype",
       color: "#86bdf5",
     });
+    const validationPhase = await saveStoredProjectPhase({
+      projectId: "project-test",
+      name: "Validation",
+      color: "#9ad3bc",
+      sortOrder: 1,
+    });
     const milestone = await saveStoredProjectMilestone({
       projectId: "project-test",
       phaseId: phase.id,
       title: "Prototype approved",
       dueOn: "2026-07-31",
       status: "active",
+    });
+    const validationMilestone = await saveStoredProjectMilestone({
+      projectId: "project-test",
+      phaseId: validationPhase.id,
+      title: "Validation complete",
+      dueOn: "2026-08-04",
+      status: "planned",
     });
     await saveStoredProjectTaskPlan({
       projectId: "project-test",
@@ -85,6 +99,39 @@ async function main() {
     assert(successor?.plannedStart === "2026-07-26", "automatic scheduling starts on the calendar day after the predecessor");
     assert(successor.plannedEnd === "2026-07-28", "automatic scheduling preserves calendar-day duration");
 
+    overview = await reorderStoredProjectGanttItem({
+      projectId: "project-test",
+      kind: "task",
+      itemId: "task-b",
+      phaseId: phase.id,
+      beforeId: "task-a",
+    });
+    assert(
+      overview.ganttTasks.find((task) => task.id === "task-b")!.ganttSortOrder
+        < overview.ganttTasks.find((task) => task.id === "task-a")!.ganttSortOrder,
+      "tasks can be reordered inside a project phase",
+    );
+
+    overview = await reorderStoredProjectGanttItem({
+      projectId: "project-test",
+      kind: "milestone",
+      itemId: milestone.id,
+      phaseId: validationPhase.id,
+      beforeId: validationMilestone.id,
+    });
+    const movedMilestone = overview.milestones.find((entry) => entry.id === milestone.id)!;
+    assert(movedMilestone.phaseId === validationPhase.id, "milestones can move across project phases");
+    assert(
+      movedMilestone.sortOrder < overview.milestones.find((entry) => entry.id === validationMilestone.id)!.sortOrder,
+      "milestones preserve their dropped order in the destination phase",
+    );
+    await reorderStoredProjectGanttItem({
+      projectId: "project-test",
+      kind: "milestone",
+      itemId: milestone.id,
+      phaseId: phase.id,
+    });
+
     const movedPlan = await saveStoredProjectTaskPlan({
       projectId: "project-test",
       taskId: "task-a",
@@ -102,6 +149,7 @@ async function main() {
     assert(successor.plannedEnd === "2026-07-31", "cascaded scheduling preserves consecutive-day duration");
 
     assert(await deleteStoredProjectPhase("project-test", phase.id), "phase can be deleted");
+    assert(await deleteStoredProjectPhase("project-test", validationPhase.id), "second phase can be deleted");
     overview = await getStoredProjectOverview("project-test");
     assert(overview?.phases.length === 0, "deleted phase is removed from the project");
     assert(overview?.ganttTasks.every((task) => !task.phaseId), "deleting a phase preserves and ungroups its tasks");

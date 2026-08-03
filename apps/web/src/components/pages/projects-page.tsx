@@ -9,7 +9,7 @@ import {
   RefreshCw, Star, Trash2, X,
   Users,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
 import { appConfirm } from "@/components/app-dialog-provider";
@@ -65,6 +65,7 @@ interface ClientTask {
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
   readonly phaseId?: string;
+  readonly ganttSortOrder: number;
   readonly durationWorkdays?: number;
   readonly autoSchedule: boolean;
   readonly projectId?: string;
@@ -263,6 +264,13 @@ interface ProjectGanttTaskDraft {
   readonly phaseId: string;
   readonly plannedStart: string;
   readonly durationWorkdays: number;
+}
+
+interface ProjectGanttReorderInput {
+  readonly kind: "task" | "milestone";
+  readonly itemId: string;
+  readonly phaseId?: string;
+  readonly beforeId?: string;
 }
 
 interface NoteContextMenuState {
@@ -662,6 +670,82 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     }
   };
 
+  const saveGanttMilestoneDate = async (
+    milestone: ClientProjectMilestone,
+    dueOn: string,
+  ): Promise<boolean> => {
+    if (!overview || busy || overview.project.status === "archived") return false;
+    const snapshot = overview;
+    setBusy(true);
+    setOverview({
+      ...overview,
+      milestones: overview.milestones.map((entry) => entry.id === milestone.id ? { ...entry, dueOn } : entry),
+    });
+    try {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(overview.project.id)}/milestones/${encodeURIComponent(milestone.id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: milestone.title,
+            dueOn,
+            status: milestone.status,
+            sortOrder: milestone.sortOrder,
+            phaseId: milestone.phaseId ?? null,
+          }),
+        },
+      );
+      const payload = await readProjectApiResponse<{
+        readonly ok?: boolean;
+        readonly milestone?: ClientProjectMilestone;
+        readonly message?: string;
+      }>(response, "无法保存里程碑日期");
+      if (!response.ok || !payload.ok || !payload.milestone) throw new Error(payload.message ?? "无法保存里程碑日期");
+      setOverview((current) => current ? {
+        ...current,
+        milestones: current.milestones.map((entry) => entry.id === milestone.id ? payload.milestone! : entry),
+      } : current);
+      setFeedback(`已更新“${milestone.title}”的目标日期`);
+      return true;
+    } catch (error) {
+      setOverview(snapshot);
+      setFeedback(error instanceof Error ? error.message : "无法保存里程碑日期");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reorderGanttItem = async (input: ProjectGanttReorderInput): Promise<boolean> => {
+    if (!overview || busy || overview.project.status === "archived") return false;
+    setBusy(true);
+    try {
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(overview.project.id)}/gantt/reorder`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...input, phaseId: input.phaseId ?? null }),
+        },
+      );
+      const payload = await readProjectApiResponse<{
+        readonly ok?: boolean;
+        readonly overview?: ClientProjectOverview;
+        readonly message?: string;
+      }>(response, "无法保存甘特顺序");
+      if (!response.ok || !payload.ok || !payload.overview) throw new Error(payload.message ?? "无法保存甘特顺序");
+      setOverview(payload.overview);
+      setFeedback(input.kind === "milestone" ? "里程碑位置已更新" : "任务顺序已更新");
+      return true;
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "无法保存甘特顺序");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const savePhase = async () => {
     if (!overview || !phaseDraft?.name.trim() || busy) return;
     setBusy(true);
@@ -906,6 +990,8 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
             readOnly={overview.project.status === "archived"}
             busy={busy}
             onChangeDates={saveGanttDates}
+            onChangeMilestoneDate={saveGanttMilestoneDate}
+            onReorderItem={reorderGanttItem}
             onEdit={(task) => setGanttDraft(createProjectGanttDraft(task))}
             onEditMilestone={(milestone) => setMilestoneDraft({ id: milestone.id, title: milestone.title, dueOn: milestone.dueOn ?? "", status: milestone.status, phaseId: milestone.phaseId ?? "" })}
             onCreateMilestone={(dueOn, phaseId) => setMilestoneDraft({ title: "", dueOn: dueOn ?? "", status: "planned", phaseId: phaseId ?? "" })}
@@ -1025,6 +1111,27 @@ interface ProjectGanttDragPreview {
   readonly moved: boolean;
 }
 
+interface ProjectGanttMilestoneDragPreview {
+  readonly milestoneId: string;
+  readonly pointerId: number;
+  readonly originClientX: number;
+  readonly originalDate: string;
+  readonly originalIndex: number;
+  readonly date: string;
+  readonly moved: boolean;
+}
+
+interface ProjectGanttRowDrag {
+  readonly kind: "task" | "milestone";
+  readonly itemId: string;
+  readonly phaseId?: string;
+}
+
+interface ProjectGanttDropTarget {
+  readonly key: string;
+  readonly position: "before" | "after" | "inside";
+}
+
 interface ProjectGanttCreateSelection {
   readonly rowKey: string;
   readonly phaseId?: string;
@@ -1058,6 +1165,8 @@ function ProjectGanttChart({
   readOnly,
   busy,
   onChangeDates,
+  onChangeMilestoneDate,
+  onReorderItem,
   onEdit,
   onEditMilestone,
   onCreateMilestone,
@@ -1075,6 +1184,8 @@ function ProjectGanttChart({
   readonly readOnly: boolean;
   readonly busy: boolean;
   readonly onChangeDates: (task: ClientProjectGanttTask, plannedStart: string, plannedEnd: string) => Promise<boolean>;
+  readonly onChangeMilestoneDate: (milestone: ClientProjectMilestone, dueOn: string) => Promise<boolean>;
+  readonly onReorderItem: (input: ProjectGanttReorderInput) => Promise<boolean>;
   readonly onEdit: (task: ClientProjectGanttTask) => void;
   readonly onEditMilestone: (milestone: ClientProjectMilestone) => void;
   readonly onCreateMilestone: (dueOn?: string, phaseId?: string) => void;
@@ -1111,17 +1222,25 @@ function ProjectGanttChart({
   const scrollRef = useRef<HTMLDivElement>(null);
   const dayWidthRef = useRef(dayWidth);
   const dragPreviewRef = useRef<ProjectGanttDragPreview | undefined>(undefined);
+  const milestoneDragPreviewRef = useRef<ProjectGanttMilestoneDragPreview | undefined>(undefined);
   const createSelectionRef = useRef<ProjectGanttCreateSelection | undefined>(undefined);
   const suppressClickRef = useRef(false);
+  const suppressMilestoneClickRef = useRef(false);
+  const suppressRowClickRef = useRef(false);
   const [dragPreview, setDragPreview] = useState<ProjectGanttDragPreview>();
+  const [milestoneDragPreview, setMilestoneDragPreview] = useState<ProjectGanttMilestoneDragPreview>();
   const [createSelection, setCreateSelection] = useState<ProjectGanttCreateSelection>();
   const [savingTaskId, setSavingTaskId] = useState<string>();
+  const [savingMilestoneId, setSavingMilestoneId] = useState<string>();
+  const [rowDrag, setRowDrag] = useState<ProjectGanttRowDrag>();
+  const [dropTarget, setDropTarget] = useState<ProjectGanttDropTarget>();
   const [collapsedPhaseIds, setCollapsedPhaseIds] = useState<ReadonlySet<string>>(new Set());
   const [menu, setMenu] = useState<ProjectGanttMenuState>();
 
   useEffect(() => () => {
     document.body.classList.remove("project-gantt-is-dragging");
     document.body.classList.remove("project-gantt-is-selecting");
+    document.body.classList.remove("project-gantt-is-row-dragging");
   }, []);
   useEffect(() => {
     const stored = window.localStorage.getItem(`kalender.project-gantt-scale.${projectId}`);
@@ -1142,7 +1261,7 @@ function ProjectGanttChart({
     const scroll = scrollRef.current;
     const currentDayWidth = dayWidthRef.current;
     const next = Math.max(PROJECT_GANTT_MIN_DAY_WIDTH, Math.min(PROJECT_GANTT_MAX_DAY_WIDTH, Math.round(nextDayWidth * 10) / 10));
-    if (!scroll || next === currentDayWidth || dragPreviewRef.current || createSelectionRef.current) return;
+    if (!scroll || next === currentDayWidth || dragPreviewRef.current || milestoneDragPreviewRef.current || createSelectionRef.current) return;
     const bounds = scroll.getBoundingClientRect();
     const columnWidth = taskColumnWidth();
     const anchorX = clientX ?? bounds.left + columnWidth + Math.max(0, scroll.clientWidth - columnWidth) / 2;
@@ -1178,7 +1297,7 @@ function ProjectGanttChart({
     const scroll = scrollRef.current;
     if (!scroll) return;
     const handleWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey || dragPreviewRef.current || createSelectionRef.current) return;
+      if (!event.ctrlKey || dragPreviewRef.current || milestoneDragPreviewRef.current || createSelectionRef.current) return;
       event.preventDefault();
       if (event.deltaY === 0) return;
       const direction = event.deltaY > 0 ? -1 : 1;
@@ -1190,15 +1309,16 @@ function ProjectGanttChart({
   });
 
   const sortTasks = (entries: readonly ClientProjectGanttTask[]) => [...entries].sort((left, right) => {
-    if (!left.plannedStart && !right.plannedStart) return left.title.localeCompare(right.title);
-    if (!left.plannedStart) return 1;
-    if (!right.plannedStart) return -1;
-    return left.plannedStart.localeCompare(right.plannedStart);
+    if (left.ganttSortOrder !== right.ganttSortOrder) return left.ganttSortOrder - right.ganttSortOrder;
+    return left.createdAt.localeCompare(right.createdAt) || left.title.localeCompare(right.title);
   });
+  const sortMilestones = (entries: readonly ClientProjectMilestone[]) => [...entries].sort((left, right) => (
+    left.sortOrder - right.sortOrder || left.createdAt.localeCompare(right.createdAt) || left.title.localeCompare(right.title)
+  ));
   const orderedPhases = [...phases].sort((left, right) => left.sortOrder - right.sortOrder || left.createdAt.localeCompare(right.createdAt));
   const phaseIds = new Set(phases.map((phase) => phase.id));
   const ungroupedTasks = sortTasks(tasks.filter((task) => !task.phaseId || !phaseIds.has(task.phaseId)));
-  const ungroupedMilestones = milestones.filter((milestone) => !milestone.phaseId || !phaseIds.has(milestone.phaseId));
+  const ungroupedMilestones = sortMilestones(milestones.filter((milestone) => !milestone.phaseId || !phaseIds.has(milestone.phaseId)));
 
   const updateDragPreview = (clientX: number) => {
     const current = dragPreviewRef.current;
@@ -1270,6 +1390,153 @@ function ProjectGanttChart({
     if (!savingTaskId) onEdit(task);
   };
 
+  const updateMilestoneDragPreview = (clientX: number) => {
+    const current = milestoneDragPreviewRef.current;
+    if (!current) return;
+    const rawDelta = Math.round((clientX - current.originClientX) / dayWidth);
+    const delta = Math.max(-current.originalIndex, Math.min(totalDays - 1 - current.originalIndex, rawDelta));
+    const next = { ...current, date: addProjectDays(current.originalDate, delta), moved: delta !== 0 };
+    milestoneDragPreviewRef.current = next;
+    setMilestoneDragPreview(next);
+  };
+
+  const startMilestoneDrag = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    milestone: ClientProjectMilestone,
+  ) => {
+    if (event.pointerType !== "mouse" || readOnly || busy || savingMilestoneId || !milestone.dueOn) return;
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.currentTarget.focus();
+    suppressMilestoneClickRef.current = false;
+    const next: ProjectGanttMilestoneDragPreview = {
+      milestoneId: milestone.id,
+      pointerId: event.pointerId,
+      originClientX: event.clientX,
+      originalDate: milestone.dueOn,
+      originalIndex: projectDayDifference(rangeStart, milestone.dueOn),
+      date: milestone.dueOn,
+      moved: false,
+    };
+    milestoneDragPreviewRef.current = next;
+    setMilestoneDragPreview(next);
+    document.body.classList.add("project-gantt-is-dragging");
+  };
+
+  const finishMilestoneDrag = (event: ReactPointerEvent<HTMLButtonElement>, cancelled = false) => {
+    const current = milestoneDragPreviewRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    milestoneDragPreviewRef.current = undefined;
+    setMilestoneDragPreview(undefined);
+    document.body.classList.remove("project-gantt-is-dragging");
+    suppressMilestoneClickRef.current = current.moved;
+    if (cancelled || !current.moved) return;
+    const milestone = milestones.find((entry) => entry.id === current.milestoneId);
+    if (!milestone) return;
+    setSavingMilestoneId(milestone.id);
+    void onChangeMilestoneDate(milestone, current.date).finally(() => setSavingMilestoneId(undefined));
+  };
+
+  const openMilestoneAfterClick = (milestone: ClientProjectMilestone) => {
+    if (suppressMilestoneClickRef.current) {
+      suppressMilestoneClickRef.current = false;
+      return;
+    }
+    if (!savingMilestoneId) onEditMilestone(milestone);
+  };
+
+  const startRowDrag = (event: ReactDragEvent<HTMLElement>, drag: ProjectGanttRowDrag) => {
+    if (readOnly || busy) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", `${drag.kind}:${drag.itemId}`);
+    suppressRowClickRef.current = true;
+    setRowDrag(drag);
+    setDropTarget(undefined);
+    setMenu(undefined);
+    document.body.classList.add("project-gantt-is-row-dragging");
+  };
+
+  const finishRowDrag = () => {
+    setRowDrag(undefined);
+    setDropTarget(undefined);
+    document.body.classList.remove("project-gantt-is-row-dragging");
+    window.setTimeout(() => { suppressRowClickRef.current = false; }, 0);
+  };
+
+  const openRowAfterClick = (open: () => void) => {
+    if (suppressRowClickRef.current) return;
+    open();
+  };
+
+  const canDropRow = (
+    targetKind: "phase" | "task" | "milestone",
+    targetId: string | undefined,
+    targetPhaseId: string | undefined,
+  ) => {
+    if (!rowDrag || busy || readOnly) return false;
+    if (rowDrag.kind === "task") {
+      return targetKind === "task"
+        && targetId !== rowDrag.itemId
+        && (targetPhaseId ?? "") === (rowDrag.phaseId ?? "");
+    }
+    return targetKind !== "milestone" || targetId !== rowDrag.itemId;
+  };
+
+  const dragOverRow = (
+    event: ReactDragEvent<HTMLElement>,
+    key: string,
+    targetKind: "phase" | "task" | "milestone",
+    targetId: string | undefined,
+    targetPhaseId: string | undefined,
+  ) => {
+    if (!canDropRow(targetKind, targetId, targetPhaseId)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const orderedTarget = (rowDrag?.kind === "task" && targetKind === "task")
+      || (rowDrag?.kind === "milestone" && targetKind === "milestone");
+    const position = orderedTarget
+      ? (event.clientY < bounds.top + bounds.height / 2 ? "before" : "after")
+      : "inside";
+    if (dropTarget?.key !== key || dropTarget.position !== position) setDropTarget({ key, position });
+  };
+
+  const dropOnRow = (
+    event: ReactDragEvent<HTMLElement>,
+    targetKind: "phase" | "task" | "milestone",
+    targetId: string | undefined,
+    targetPhaseId: string | undefined,
+  ) => {
+    if (!rowDrag || !canDropRow(targetKind, targetId, targetPhaseId)) return;
+    event.preventDefault();
+    let beforeId: string | undefined;
+    const orderedTarget = (rowDrag.kind === "task" && targetKind === "task")
+      || (rowDrag.kind === "milestone" && targetKind === "milestone");
+    if (orderedTarget && targetId) {
+      const siblings = rowDrag.kind === "task"
+        ? sortTasks(tasks.filter((task) => (task.phaseId ?? "") === (targetPhaseId ?? "") && task.id !== rowDrag.itemId))
+        : sortMilestones(milestones.filter((milestone) => (milestone.phaseId ?? "") === (targetPhaseId ?? "") && milestone.id !== rowDrag.itemId));
+      const targetIndex = siblings.findIndex((entry) => entry.id === targetId);
+      beforeId = dropTarget?.position === "after" ? siblings[targetIndex + 1]?.id : targetId;
+    }
+    const input: ProjectGanttReorderInput = {
+      kind: rowDrag.kind,
+      itemId: rowDrag.itemId,
+      phaseId: targetPhaseId,
+      beforeId,
+    };
+    finishRowDrag();
+    void onReorderItem(input);
+  };
+
+  const rowDropClass = (key: string) => dropTarget?.key === key
+    ? ` project-gantt-drop-${dropTarget.position}`
+    : "";
+
   const dateIndexFromPointer = (event: ReactPointerEvent<HTMLElement>): number => {
     const bounds = event.currentTarget.getBoundingClientRect();
     return Math.max(0, Math.min(totalDays - 1, Math.floor((event.clientX - bounds.left) / dayWidthRef.current)));
@@ -1280,7 +1547,7 @@ function ProjectGanttChart({
     rowKey: string,
     phaseId?: string,
   ) => {
-    if (event.button !== 0 || event.pointerType !== "mouse" || readOnly || busy || savingTaskId || dragPreviewRef.current) return;
+    if (event.button !== 0 || event.pointerType !== "mouse" || readOnly || busy || savingTaskId || savingMilestoneId || dragPreviewRef.current || milestoneDragPreviewRef.current || rowDrag) return;
     if ((event.target as Element).closest(".project-gantt-bar, .project-gantt-unscheduled, .project-gantt-milestone")) return;
     const index = dateIndexFromPointer(event);
     const next: ProjectGanttCreateSelection = {
@@ -1392,8 +1659,14 @@ function ProjectGanttChart({
     const previewDurationDays = previewStart && previewEnd ? projectDayDifference(previewStart, previewEnd) + 1 : durationDays;
     const saving = savingTaskId === task.id;
     const durationLabel = `${task.durationWorkdays ?? (task.plannedStart && task.plannedEnd ? countProjectDays(task.plannedStart, task.plannedEnd) : 1)} 天`;
-    return <div className={`project-gantt-row ${task.status === "done" ? "done" : ""}`} key={task.id}>
-      <button className="project-gantt-task" disabled={readOnly} onClick={() => onEdit(task)} onContextMenu={(event) => openTaskMenu(event, task)}><span><strong>{task.title}</strong><small>{task.autoSchedule ? `自动 · ${durationLabel}` : dependencyTitles.length ? `依赖：${dependencyTitles.join("、")}` : durationLabel}</small></span><Pencil size={13} /></button>
+    const rowKey = `task:${task.id}`;
+    return <div
+      className={`project-gantt-row ${task.status === "done" ? "done" : ""}${rowDrag?.kind === "task" && rowDrag.itemId === task.id ? " project-gantt-row-dragging" : ""}${rowDropClass(rowKey)}`}
+      key={task.id}
+      onDragOver={(event) => dragOverRow(event, rowKey, "task", task.id, task.phaseId)}
+      onDrop={(event) => dropOnRow(event, "task", task.id, task.phaseId)}
+    >
+      <button className="project-gantt-task" title="拖动调整顺序，点击编辑" disabled={readOnly} draggable={!readOnly && !busy} onDragStart={(event) => startRowDrag(event, { kind: "task", itemId: task.id, phaseId: task.phaseId })} onDragEnd={finishRowDrag} onClick={() => openRowAfterClick(() => onEdit(task))} onContextMenu={(event) => openTaskMenu(event, task)}><span><strong>{task.title}</strong><small>{task.autoSchedule ? `自动 · ${durationLabel}` : dependencyTitles.length ? `依赖：${dependencyTitles.join("、")}` : durationLabel}</small></span><span className="project-gantt-row-actions"><GripVertical size={14} /><Pencil size={13} /></span></button>
       <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event, task.phaseId)} {...createTrackHandlers(`task:${task.id}`, task.phaseId)}>
         {weekendBands()}
         {todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}
@@ -1449,15 +1722,34 @@ function ProjectGanttChart({
   };
 
   const renderMilestoneRow = (milestone: ClientProjectMilestone) => {
-    const offset = milestone.dueOn ? projectDayDifference(rangeStart, milestone.dueOn) * dayWidth : undefined;
-    return <div className={`project-gantt-row project-gantt-milestone-row ${milestone.status === "done" ? "done" : ""}`} key={`milestone:${milestone.id}`}>
-      <button className="project-gantt-task" disabled={readOnly} onClick={() => onEditMilestone(milestone)} onContextMenu={(event) => openCanvasMenu(event, milestone.phaseId, false)}><span><strong>{milestone.title}</strong><small>里程碑 · {milestone.dueOn ? formatProjectMilestoneDate(milestone.dueOn) : "未设置日期"}</small></span><Award size={13} /></button>
+    const preview = milestoneDragPreview?.milestoneId === milestone.id ? milestoneDragPreview : undefined;
+    const displayDate = preview?.date ?? milestone.dueOn;
+    const offset = displayDate ? projectDayDifference(rangeStart, displayDate) * dayWidth : undefined;
+    const saving = savingMilestoneId === milestone.id;
+    const rowKey = `milestone:${milestone.id}`;
+    return <div
+      className={`project-gantt-row project-gantt-milestone-row ${milestone.status === "done" ? "done" : ""}${rowDrag?.kind === "milestone" && rowDrag.itemId === milestone.id ? " project-gantt-row-dragging" : ""}${rowDropClass(rowKey)}`}
+      key={rowKey}
+      onDragOver={(event) => dragOverRow(event, rowKey, "milestone", milestone.id, milestone.phaseId)}
+      onDrop={(event) => dropOnRow(event, "milestone", milestone.id, milestone.phaseId)}
+    >
+      <button className="project-gantt-task" title="拖动调整阶段和顺序，点击编辑" disabled={readOnly} draggable={!readOnly && !busy} onDragStart={(event) => startRowDrag(event, { kind: "milestone", itemId: milestone.id, phaseId: milestone.phaseId })} onDragEnd={finishRowDrag} onClick={() => openRowAfterClick(() => onEditMilestone(milestone))} onContextMenu={(event) => openCanvasMenu(event, milestone.phaseId, false)}><span><strong>{milestone.title}</strong><small>里程碑 · {displayDate ? formatProjectMilestoneDate(displayDate) : "未设置日期"}</small></span><span className="project-gantt-row-actions"><GripVertical size={14} /><Award size={13} /></span></button>
       <div className="project-gantt-track" onContextMenu={(event) => openCanvasMenu(event, milestone.phaseId)}>
         {weekendBands()}
         {todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}
         {offset === undefined
           ? <button className="project-gantt-unscheduled" disabled={readOnly} onClick={() => onEditMilestone(milestone)}>设置目标日期</button>
-          : <button className="project-gantt-milestone" disabled={readOnly} title={`${milestone.title}：${milestone.dueOn}`} style={{ left: offset, background: projectColor }} onClick={() => onEditMilestone(milestone)}><Award size={11} /></button>}
+          : <button
+            className={`project-gantt-milestone${preview ? " dragging" : ""}${saving ? " saving" : ""}`}
+            disabled={readOnly || saving}
+            title={`拖动调整日期：${milestone.title} · ${displayDate}`}
+            style={{ left: offset, background: projectColor }}
+            onClick={() => openMilestoneAfterClick(milestone)}
+            onPointerDown={(event) => startMilestoneDrag(event, milestone)}
+            onPointerMove={(event) => updateMilestoneDragPreview(event.clientX)}
+            onPointerUp={(event) => finishMilestoneDrag(event)}
+            onPointerCancel={(event) => finishMilestoneDrag(event, true)}
+          >{saving ? <LoaderCircle className="spin" size={11} /> : <Award size={11} />}</button>}
       </div>
     </div>;
   };
@@ -1509,7 +1801,7 @@ function ProjectGanttChart({
           </div>
           {orderedPhases.flatMap((phase) => {
             const phaseTasks = sortTasks(tasks.filter((task) => task.phaseId === phase.id));
-            const phaseMilestones = milestones.filter((milestone) => milestone.phaseId === phase.id);
+            const phaseMilestones = sortMilestones(milestones.filter((milestone) => milestone.phaseId === phase.id));
             const collapsed = collapsedPhaseIds.has(phase.id);
             const phasePlannedTasks = phaseTasks.filter((task) => task.plannedStart && task.plannedEnd);
             const phaseDates = [
@@ -1520,7 +1812,13 @@ function ProjectGanttChart({
             const phaseEnd = phaseDates.at(-1);
             const completed = phaseTasks.filter((task) => task.status === "done").length;
             const completionPercent = phaseTasks.length ? Math.round((completed / phaseTasks.length) * 100) : 0;
-            const phaseRow = <div className="project-gantt-row project-gantt-phase-row" key={`phase:${phase.id}`}>
+            const phaseRowKey = `phase:${phase.id}`;
+            const phaseRow = <div
+              className={`project-gantt-row project-gantt-phase-row${rowDropClass(phaseRowKey)}`}
+              key={phaseRowKey}
+              onDragOver={(event) => dragOverRow(event, phaseRowKey, "phase", phase.id, phase.id)}
+              onDrop={(event) => dropOnRow(event, "phase", phase.id, phase.id)}
+            >
               <button className="project-gantt-task project-gantt-phase" disabled={readOnly} onClick={() => setCollapsedPhaseIds((current) => {
                 const next = new Set(current);
                 if (next.has(phase.id)) next.delete(phase.id);
@@ -1536,8 +1834,12 @@ function ProjectGanttChart({
             </div>;
             return collapsed ? [phaseRow] : [phaseRow, ...phaseTasks.map(renderTaskRow), ...phaseMilestones.map(renderMilestoneRow)];
           })}
-          {(ungroupedTasks.length > 0 || ungroupedMilestones.length > 0 || (!tasks.length && !phases.length && !milestones.length)) && <>
-            {phases.length > 0 && <div className="project-gantt-row project-gantt-phase-row project-gantt-ungrouped-row">
+          {(ungroupedTasks.length > 0 || ungroupedMilestones.length > 0 || rowDrag?.kind === "milestone" || (!tasks.length && !phases.length && !milestones.length)) && <>
+            {phases.length > 0 && <div
+              className={`project-gantt-row project-gantt-phase-row project-gantt-ungrouped-row${rowDropClass("phase:project")}`}
+              onDragOver={(event) => dragOverRow(event, "phase:project", "phase", undefined, undefined)}
+              onDrop={(event) => dropOnRow(event, "phase", undefined, undefined)}
+            >
               <button className="project-gantt-task project-gantt-phase" disabled={readOnly} onContextMenu={(event) => openCanvasMenu(event, undefined, false)}><FolderPlus size={14} /><span><strong>项目级 / 未分组</strong><small>{ungroupedTasks.length} 项任务 · {ungroupedMilestones.length} 个里程碑</small></span></button>
               <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event)} {...createTrackHandlers("ungrouped")}>{weekendBands()}{todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}{renderCreateSelection("ungrouped")}</div>
             </div>}

@@ -1914,15 +1914,26 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .project-gantt-task-heading { position: sticky; left: 0; z-index: 6; display: flex; align-items: center; padding: 0 12px; background: #1d211e; border-right: 1px solid #3a3f3b; }
 .project-gantt-time-heading { position: relative; overflow: hidden; background-image: repeating-linear-gradient(90deg, transparent 0, transparent calc(var(--gantt-week-width) - 1px), #3d423e calc(var(--gantt-week-width) - 1px), #3d423e var(--gantt-week-width)); }
 .project-gantt-time-heading > span { position: absolute; top: 12px; z-index: 1; padding-left: 5px; white-space: nowrap; }
-.project-gantt-row { min-height: 48px; border-bottom: 1px solid #303531; }
+.project-gantt-row { position: relative; min-height: 48px; border-bottom: 1px solid #303531; }
 .project-gantt-row:last-child { border-bottom: 0; }
 .project-gantt-task { position: sticky; left: 0; z-index: 3; display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 11px; color: inherit; background: #202421; border: 0; border-right: 1px solid #383d39; text-align: left; }
 .project-gantt-task:hover { background: #282d29; }
+.project-gantt-task[draggable="true"] { cursor: grab; }
+.project-gantt-task[draggable="true"]:active { cursor: grabbing; }
 .project-gantt-task:disabled { cursor: default; }
 .project-gantt-task span, .project-gantt-task strong, .project-gantt-task small { display: block; min-width: 0; }
 .project-gantt-task strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .project-gantt-task small { margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .project-gantt-task > svg { color: var(--muted); }
+.project-gantt-task .project-gantt-row-actions { display: inline-flex; min-width: auto; align-items: center; gap: 5px; color: var(--muted); }
+.project-gantt-row-actions > svg:first-child { opacity: .42; }
+.project-gantt-task:hover .project-gantt-row-actions > svg:first-child { opacity: 1; }
+.project-gantt-row-dragging { opacity: .42; }
+.project-gantt-drop-before::before, .project-gantt-drop-after::after { position: absolute; right: 0; left: 0; z-index: 8; height: 2px; content: ""; pointer-events: none; background: var(--blue); box-shadow: 0 0 0 1px rgb(134 189 245 / 18%); }
+.project-gantt-drop-before::before { top: -1px; }
+.project-gantt-drop-after::after { bottom: -1px; }
+.project-gantt-drop-inside { outline: 2px solid var(--blue); outline-offset: -2px; }
+.project-gantt-is-row-dragging .project-gantt-phase-row { transition: outline-color .1s ease, background .1s ease; }
 .project-gantt-track { position: relative; overflow: hidden; background-color: #191c1a; background-image: repeating-linear-gradient(90deg, transparent 0, transparent calc(var(--gantt-day-width) - 1px), #292e2a calc(var(--gantt-day-width) - 1px), #292e2a var(--gantt-day-width)); }
 .project-gantt-track.can-create { cursor: crosshair; touch-action: pan-y; }
 .project-gantt-weekend { position: absolute; top: 0; bottom: 0; z-index: 0; display: block; background: rgb(120 143 166 / 9%); pointer-events: none; }
@@ -1962,8 +1973,10 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .project-gantt-ungrouped-row .project-gantt-task { color: var(--muted); background: #1f2320; }
 .project-gantt-empty-row { min-height: 64px; }
 .project-gantt-milestone-row .project-gantt-task { background: #25251f; }
-.project-gantt-milestone { position: absolute; top: 14px; z-index: 2; display: grid; width: 20px; height: 20px; margin-left: -10px; place-items: center; padding: 0; color: #16212a; border: 1px solid rgb(255 255 255 / 25%); border-radius: 3px; transform: rotate(45deg); box-shadow: 0 3px 9px rgb(0 0 0 / 25%); }
+.project-gantt-milestone { position: absolute; top: 14px; z-index: 2; display: grid; width: 20px; height: 20px; margin-left: -10px; place-items: center; padding: 0; color: #16212a; cursor: ew-resize; touch-action: pan-y; user-select: none; border: 1px solid rgb(255 255 255 / 25%); border-radius: 3px; transform: rotate(45deg); box-shadow: 0 3px 9px rgb(0 0 0 / 25%); }
 .project-gantt-milestone > svg { transform: rotate(-45deg); }
+.project-gantt-milestone.dragging { z-index: 4; filter: brightness(1.1); box-shadow: 0 6px 14px rgb(0 0 0 / 34%); }
+.project-gantt-milestone.saving { cursor: wait; filter: saturate(.7); }
 .project-gantt-milestone-row.done .project-gantt-milestone { opacity: .52; }
 .project-gantt > footer { display: flex; min-height: 42px; align-items: center; gap: 14px; padding: 8px 13px; color: var(--muted); border-top: 1px solid var(--line); font-size: 12px; }
 .project-gantt > footer span { display: inline-flex; align-items: center; gap: 5px; }

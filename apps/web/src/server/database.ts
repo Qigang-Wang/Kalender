@@ -1617,6 +1617,41 @@ const PROJECT_MILESTONE_PHASES_SCHEMA_SQL = String.raw`
     ON project_milestones (project_id, phase_id, status, due_on, sort_order);
 `;
 
+const PROJECT_GANTT_ITEM_ORDER_SCHEMA_SQL = String.raw`
+  ALTER TABLE tasks
+    ADD COLUMN IF NOT EXISTS gantt_sort_order integer NOT NULL DEFAULT 0;
+
+  WITH ordered AS (
+    SELECT id, row_number() OVER (
+      PARTITION BY project_id, phase_id
+      ORDER BY planned_start ASC NULLS LAST, created_at, id
+    ) AS position
+      FROM tasks
+     WHERE project_id IS NOT NULL
+  )
+  UPDATE tasks t
+     SET gantt_sort_order = ordered.position * 1000
+    FROM ordered
+   WHERE t.id = ordered.id
+     AND t.gantt_sort_order = 0;
+
+  WITH ordered AS (
+    SELECT id, row_number() OVER (
+      PARTITION BY project_id, phase_id
+      ORDER BY due_on ASC NULLS LAST, created_at, id
+    ) AS position
+      FROM project_milestones
+  )
+  UPDATE project_milestones milestone
+     SET sort_order = ordered.position * 1000
+    FROM ordered
+   WHERE milestone.id = ordered.id
+     AND milestone.sort_order = 0;
+
+  CREATE INDEX IF NOT EXISTS tasks_project_phase_gantt_order_idx
+    ON tasks (project_id, phase_id, gantt_sort_order, created_at);
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1647,6 +1682,7 @@ export const DATABASE_MIGRATIONS = [
   { version: 27, name: "user-ui-preferences", sql: USER_PREFERENCES_SCHEMA_SQL },
   { version: 28, name: "project-sort-order", sql: PROJECT_SORT_ORDER_SCHEMA_SQL },
   { version: 29, name: "project-milestone-phases", sql: PROJECT_MILESTONE_PHASES_SCHEMA_SQL },
+  { version: 30, name: "project-gantt-item-order", sql: PROJECT_GANTT_ITEM_ORDER_SCHEMA_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

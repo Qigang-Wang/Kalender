@@ -1,5 +1,6 @@
 import {
   projectMilestoneStatuses,
+  type ReorderProjectGanttItemInput,
   type SaveProjectPhaseInput,
   type SaveProjectMilestoneInput,
   type SaveProjectTaskPlanInput,
@@ -26,6 +27,38 @@ export interface ProjectPhaseRequestBody {
   readonly name?: unknown;
   readonly color?: unknown;
   readonly sortOrder?: unknown;
+}
+
+export interface ProjectGanttReorderRequestBody {
+  readonly kind?: unknown;
+  readonly itemId?: unknown;
+  readonly phaseId?: unknown;
+  readonly beforeId?: unknown;
+}
+
+export function parseProjectGanttReorderInput(
+  body: ProjectGanttReorderRequestBody | null,
+  projectId: string,
+): ReorderProjectGanttItemInput {
+  if (!body || (body.kind !== "task" && body.kind !== "milestone")) {
+    throw new ProjectValidationError("甘特拖放类型无效");
+  }
+  if (typeof body.itemId !== "string" || !body.itemId.trim() || body.itemId.length > 100) {
+    throw new ProjectValidationError("甘特拖放项目无效");
+  }
+  let phaseId: string | null;
+  if (body.phaseId === null || body.phaseId === "" || body.phaseId === undefined) phaseId = null;
+  else if (typeof body.phaseId === "string" && body.phaseId.trim() && body.phaseId.length <= 100) phaseId = body.phaseId.trim();
+  else throw new ProjectValidationError("项目阶段无效");
+  let beforeId: string | undefined;
+  if (body.beforeId !== undefined && body.beforeId !== null && body.beforeId !== "") {
+    if (typeof body.beforeId !== "string" || !body.beforeId.trim() || body.beforeId.length > 100) {
+      throw new ProjectValidationError("甘特拖放目标无效");
+    }
+    beforeId = body.beforeId.trim();
+  }
+  if (beforeId === body.itemId) throw new ProjectValidationError("不能将项目拖放到自身");
+  return { projectId, kind: body.kind, itemId: body.itemId.trim(), phaseId, beforeId };
 }
 
 export function parseProjectTaskPlanInput(

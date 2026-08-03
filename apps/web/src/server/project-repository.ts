@@ -72,6 +72,14 @@ export interface SaveProjectTaskPlanResult {
   readonly overview: StoredProjectOverview;
 }
 
+export interface ReorderProjectGanttItemInput {
+  readonly projectId: string;
+  readonly kind: "task" | "milestone";
+  readonly itemId: string;
+  readonly phaseId: string | null;
+  readonly beforeId?: string;
+}
+
 export interface StoredProjectOverview {
   readonly project: StoredProject;
   readonly tasks: readonly StoredTask[];
@@ -178,6 +186,7 @@ interface TaskDependencyRow {
 interface TaskPlanRow {
   readonly id: string;
   readonly phase_id: string | null;
+  readonly gantt_sort_order: number;
   readonly planned_start: string | Date | null;
   readonly planned_end: string | Date | null;
   readonly duration_workdays: number | null;
@@ -192,7 +201,7 @@ export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput)
     throw new ProjectRepositoryError("PROJECT_ARCHIVED", "已归档项目不能修改甘特计划", 409);
   }
   const task = await database.query<TaskPlanRow>(
-    `SELECT id, phase_id, planned_start, planned_end, duration_workdays, auto_schedule
+    `SELECT id, phase_id, gantt_sort_order, planned_start, planned_end, duration_workdays, auto_schedule
        FROM tasks
       WHERE id = $1 AND project_id = $2
       LIMIT 1`,
@@ -238,6 +247,18 @@ export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput)
   }
 
   const nextPhaseId = input.phaseId === undefined ? currentTask.phase_id : input.phaseId;
+  let nextGanttSortOrder = currentTask.gantt_sort_order;
+  if (currentTask.gantt_sort_order === 0 || (currentTask.phase_id ?? null) !== (nextPhaseId ?? null)) {
+    const lastSibling = await database.query<{ sort_order: number }>(
+      `SELECT COALESCE(max(gantt_sort_order), 0)::integer AS sort_order
+         FROM tasks
+        WHERE project_id = $1
+          AND phase_id IS NOT DISTINCT FROM $2::text
+          AND id <> $3`,
+      [input.projectId, nextPhaseId, input.taskId],
+    );
+    nextGanttSortOrder = (lastSibling.rows[0]?.sort_order ?? 0) + 1000;
+  }
   const suppliedStart = input.plannedStart;
   const suppliedEnd = input.plannedEnd;
   const durationDays = input.durationWorkdays
@@ -257,14 +278,16 @@ export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput)
               phase_id = $3,
               duration_workdays = $4,
               auto_schedule = $5,
+              gantt_sort_order = $6,
               updated_at = now()
-        WHERE id = $6 AND project_id = $7`,
+        WHERE id = $7 AND project_id = $8`,
       [
         plannedStart ?? null,
         plannedEnd ?? null,
         nextPhaseId,
         durationDays,
         autoSchedule,
+        nextGanttSortOrder,
         input.taskId,
         input.projectId,
       ],
@@ -283,7 +306,7 @@ export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput)
     }
 
     const planResult = await transaction.query<TaskPlanRow>(
-      `SELECT id, phase_id, planned_start, planned_end, duration_workdays, auto_schedule
+      `SELECT id, phase_id, gantt_sort_order, planned_start, planned_end, duration_workdays, auto_schedule
          FROM tasks
         WHERE project_id = $1`,
       [input.projectId],
@@ -357,6 +380,100 @@ export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput)
   const saved = overview?.ganttTasks.find((entry) => entry.id === input.taskId);
   if (!overview || !saved) throw new ProjectRepositoryError("TASK_PLAN_SAVE_FAILED", "无法保存任务计划", 500);
   return { task: saved, overview };
+}
+
+export async function reorderStoredProjectGanttItem(
+  input: ReorderProjectGanttItemInput,
+): Promise<StoredProjectOverview> {
+  const database = await getDatabase();
+  const project = await getStoredProject(input.projectId);
+  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
+  if (project.status === "archived") {
+    throw new ProjectRepositoryError("PROJECT_ARCHIVED", "已归档项目不能调整甘特顺序", 409);
+  }
+  if (input.phaseId) {
+    const phase = await database.query<{ id: string }>(
+      "SELECT id FROM project_phases WHERE id = $1 AND project_id = $2 LIMIT 1",
+      [input.phaseId, input.projectId],
+    );
+    if (!phase.rows[0]) throw new ProjectRepositoryError("PHASE_NOT_FOUND", "项目阶段不存在", 404);
+  }
+
+  await database.transaction(async (transaction) => {
+    if (input.kind === "task") {
+      const current = await transaction.query<{ id: string; phase_id: string | null }>(
+        "SELECT id, phase_id FROM tasks WHERE id = $1 AND project_id = $2 FOR UPDATE",
+        [input.itemId, input.projectId],
+      );
+      if (!current.rows[0]) throw new ProjectRepositoryError("TASK_NOT_FOUND", "项目任务不存在", 404);
+      if ((current.rows[0].phase_id ?? null) !== input.phaseId) {
+        throw new ProjectRepositoryError("TASK_REORDER_PHASE_INVALID", "任务只能在当前阶段内调整顺序", 400);
+      }
+      const siblings = await transaction.query<{ id: string }>(
+        `SELECT id
+           FROM tasks
+          WHERE project_id = $1
+            AND phase_id IS NOT DISTINCT FROM $2::text
+            AND id <> $3
+          ORDER BY gantt_sort_order, created_at, id
+          FOR UPDATE`,
+        [input.projectId, input.phaseId, input.itemId],
+      );
+      const orderedIds = insertProjectGanttItem(siblings.rows.map((entry) => entry.id), input.itemId, input.beforeId);
+      await transaction.query(
+        `UPDATE tasks task
+            SET gantt_sort_order = ordered.sort_order,
+                updated_at = now()
+           FROM (
+             SELECT id, (ordinality * 1000)::integer AS sort_order
+               FROM unnest($2::text[]) WITH ORDINALITY AS item(id, ordinality)
+           ) ordered
+          WHERE task.project_id = $1 AND task.id = ordered.id`,
+        [input.projectId, orderedIds],
+      );
+      return;
+    }
+
+    const current = await transaction.query<{ id: string }>(
+      "SELECT id FROM project_milestones WHERE id = $1 AND project_id = $2 FOR UPDATE",
+      [input.itemId, input.projectId],
+    );
+    if (!current.rows[0]) throw new ProjectRepositoryError("MILESTONE_NOT_FOUND", "里程碑不存在", 404);
+    const siblings = await transaction.query<{ id: string }>(
+      `SELECT id
+         FROM project_milestones
+        WHERE project_id = $1
+          AND phase_id IS NOT DISTINCT FROM $2::text
+          AND id <> $3
+        ORDER BY sort_order, due_on ASC NULLS LAST, created_at, id
+        FOR UPDATE`,
+      [input.projectId, input.phaseId, input.itemId],
+    );
+    const orderedIds = insertProjectGanttItem(siblings.rows.map((entry) => entry.id), input.itemId, input.beforeId);
+    await transaction.query(
+      `UPDATE project_milestones milestone
+          SET phase_id = $2,
+              sort_order = ordered.sort_order,
+              updated_at = now()
+         FROM (
+           SELECT id, (ordinality * 1000)::integer AS sort_order
+             FROM unnest($3::text[]) WITH ORDINALITY AS item(id, ordinality)
+         ) ordered
+        WHERE milestone.project_id = $1 AND milestone.id = ordered.id`,
+      [input.projectId, input.phaseId, orderedIds],
+    );
+  });
+
+  const overview = await getStoredProjectOverview(input.projectId);
+  if (!overview) throw new ProjectRepositoryError("GANTT_REORDER_FAILED", "无法保存甘特顺序", 500);
+  return overview;
+}
+
+function insertProjectGanttItem(siblingIds: string[], itemId: string, beforeId?: string): string[] {
+  if (!beforeId) return [...siblingIds, itemId];
+  const index = siblingIds.indexOf(beforeId);
+  if (index < 0) throw new ProjectRepositoryError("GANTT_REORDER_TARGET_INVALID", "拖放目标不在当前阶段", 400);
+  return [...siblingIds.slice(0, index), itemId, ...siblingIds.slice(index)];
 }
 
 async function listProjectDependencyRows(projectId: string): Promise<readonly TaskDependencyRow[]> {
@@ -471,7 +588,7 @@ export async function listStoredProjectMilestones(projectId: string): Promise<re
     `SELECT id, project_id, phase_id, title, due_on, status, sort_order, created_at, updated_at
        FROM project_milestones
       WHERE project_id = $1
-      ORDER BY (status = 'done'), due_on ASC NULLS LAST, sort_order, created_at`,
+      ORDER BY phase_id ASC NULLS LAST, sort_order, due_on ASC NULLS LAST, created_at`,
     [projectId],
   );
   return result.rows.map(mapProjectMilestone);
@@ -492,12 +609,31 @@ export async function saveStoredProjectMilestone(input: SaveProjectMilestoneInpu
     if (!phase.rows[0]) throw new ProjectRepositoryError("PHASE_NOT_FOUND", "项目阶段不存在", 404);
   }
   const id = input.id ?? randomUUID();
+  let existingMilestone: { readonly id: string; readonly phase_id: string | null; readonly sort_order: number } | undefined;
   if (input.id) {
-    const existing = await database.query<{ id: string }>(
-      "SELECT id FROM project_milestones WHERE id = $1 AND project_id = $2 LIMIT 1",
+    const existing = await database.query<{ id: string; phase_id: string | null; sort_order: number }>(
+      "SELECT id, phase_id, sort_order FROM project_milestones WHERE id = $1 AND project_id = $2 LIMIT 1",
       [input.id, input.projectId],
     );
-    if (!existing.rows[0]) throw new ProjectRepositoryError("MILESTONE_NOT_FOUND", "里程碑不存在", 404);
+    existingMilestone = existing.rows[0];
+    if (!existingMilestone) throw new ProjectRepositoryError("MILESTONE_NOT_FOUND", "里程碑不存在", 404);
+  }
+  const targetPhaseId = input.phaseId === undefined ? existingMilestone?.phase_id ?? null : input.phaseId;
+  let sortOrder = input.sortOrder;
+  if (sortOrder === undefined) {
+    if (existingMilestone && (existingMilestone.phase_id ?? null) === (targetPhaseId ?? null)) {
+      sortOrder = existingMilestone.sort_order;
+    } else {
+      const lastSibling = await database.query<{ sort_order: number }>(
+        `SELECT COALESCE(max(sort_order), 0)::integer AS sort_order
+           FROM project_milestones
+          WHERE project_id = $1
+            AND phase_id IS NOT DISTINCT FROM $2::text
+            AND id <> $3`,
+        [input.projectId, targetPhaseId, id],
+      );
+      sortOrder = (lastSibling.rows[0]?.sort_order ?? 0) + 1000;
+    }
   }
   await database.query(
     `INSERT INTO project_milestones (id, project_id, phase_id, title, due_on, status, sort_order, updated_at)
@@ -510,7 +646,7 @@ export async function saveStoredProjectMilestone(input: SaveProjectMilestoneInpu
        sort_order = EXCLUDED.sort_order,
        updated_at = now()
      WHERE project_milestones.project_id = EXCLUDED.project_id`,
-    [id, input.projectId, input.phaseId ?? null, input.title, input.dueOn ?? null, input.status, input.sortOrder ?? 0, input.phaseId !== undefined],
+    [id, input.projectId, input.phaseId ?? null, input.title, input.dueOn ?? null, input.status, sortOrder, input.phaseId !== undefined],
   );
   const saved = (await listStoredProjectMilestones(input.projectId)).find((milestone) => milestone.id === id);
   if (!saved) throw new ProjectRepositoryError("MILESTONE_SAVE_FAILED", "无法保存里程碑", 500);

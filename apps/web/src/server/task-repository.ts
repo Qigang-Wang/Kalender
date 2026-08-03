@@ -33,6 +33,7 @@ export interface StoredTask {
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
   readonly phaseId?: string;
+  readonly ganttSortOrder: number;
   readonly durationWorkdays?: number;
   readonly autoSchedule: boolean;
   readonly projectId?: string;
@@ -88,6 +89,7 @@ interface TaskRow {
   planned_start: string | Date | null;
   planned_end: string | Date | null;
   phase_id: string | null;
+  gantt_sort_order: number;
   duration_workdays: number | null;
   auto_schedule: boolean;
   project_id: string | null;
@@ -125,7 +127,7 @@ interface TimeBlockDetailsRow {
 const taskSelect = `
   SELECT t.id, t.title, t.notes, t.status, t.important, t.urgency_mode,
          t.due_at, t.estimated_minutes, t.planned_start, t.planned_end,
-         t.phase_id, t.duration_workdays, t.auto_schedule, t.project_id,
+         t.phase_id, t.gantt_sort_order, t.duration_workdays, t.auto_schedule, t.project_id,
          COALESCE(p.name, t.project_name) AS project_name,
          p.color AS project_color,
          COALESCE(p.area_name, t.area_name) AS area_name,
@@ -409,6 +411,7 @@ async function attachSources(rows: readonly TaskRow[]): Promise<readonly StoredT
     plannedStart: toDateOnly(row.planned_start),
     plannedEnd: toDateOnly(row.planned_end),
     phaseId: row.phase_id ?? undefined,
+    ganttSortOrder: row.gantt_sort_order,
     durationWorkdays: row.duration_workdays ?? undefined,
     autoSchedule: row.auto_schedule,
     projectId: row.project_id ?? undefined,
