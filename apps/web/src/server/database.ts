@@ -1568,6 +1568,47 @@ const AUTOMATIC_BACKUP_RETENTION_THREE_SQL = String.raw`
      AND retention_count = 14;
 `;
 
+const USER_PREFERENCES_SCHEMA_SQL = String.raw`
+  CREATE TABLE IF NOT EXISTS user_preferences (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+    preference_key text NOT NULL CHECK (length(preference_key) BETWEEN 1 AND 120),
+    preference_value jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (user_id, preference_key)
+  );
+
+  CREATE INDEX IF NOT EXISTS user_preferences_user_key_idx
+    ON user_preferences (user_id, preference_key);
+
+  DROP TRIGGER IF EXISTS kalender_realtime_user_preferences ON user_preferences;
+  CREATE TRIGGER kalender_realtime_user_preferences
+    AFTER INSERT OR UPDATE OR DELETE ON user_preferences
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('settings');
+`;
+
+const PROJECT_SORT_ORDER_SCHEMA_SQL = String.raw`
+  ALTER TABLE projects
+    ADD COLUMN IF NOT EXISTS sort_order integer NOT NULL DEFAULT 0;
+
+  WITH ordered AS (
+    SELECT id, row_number() OVER (
+      PARTITION BY user_id, status, coalesce(area_name, '')
+      ORDER BY (status = 'archived'), updated_at DESC, name, id
+    ) AS position
+      FROM projects
+  )
+  UPDATE projects p
+     SET sort_order = ordered.position * 1000
+    FROM ordered
+   WHERE p.id = ordered.id
+     AND p.sort_order = 0;
+
+  CREATE INDEX IF NOT EXISTS projects_sidebar_order_idx
+    ON projects (user_id, status, coalesce(area_name, ''), sort_order, name);
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1595,6 +1636,8 @@ export const DATABASE_MIGRATIONS = [
   { version: 24, name: "workspace-realtime-events", sql: REALTIME_EVENTS_SCHEMA_SQL },
   { version: 25, name: "workspace-realtime-entity-events", sql: REALTIME_ENTITY_EVENTS_SCHEMA_SQL },
   { version: 26, name: "automatic-backup-retention-three", sql: AUTOMATIC_BACKUP_RETENTION_THREE_SQL },
+  { version: 27, name: "user-ui-preferences", sql: USER_PREFERENCES_SCHEMA_SQL },
+  { version: 28, name: "project-sort-order", sql: PROJECT_SORT_ORDER_SCHEMA_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

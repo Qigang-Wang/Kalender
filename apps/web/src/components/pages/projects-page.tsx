@@ -122,6 +122,7 @@ interface ClientProject {
   readonly areaName?: string;
   readonly color: string;
   readonly status: "active" | "archived";
+  readonly sortOrder: number;
   readonly noteCount: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -861,6 +862,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
             onChangeDates={saveGanttDates}
             onEdit={(task) => setGanttDraft(createProjectGanttDraft(task))}
             onEditMilestone={(milestone) => setMilestoneDraft({ id: milestone.id, title: milestone.title, dueOn: milestone.dueOn ?? "", status: milestone.status })}
+            onCreateMilestone={(dueOn) => setMilestoneDraft({ title: "", dueOn: dueOn ?? "", status: "planned" })}
             onCreateTask={(phaseId, plannedStart, durationWorkdays = 1) => setGanttTaskDraft({ title: "", phaseId: phaseId ?? "", plannedStart: plannedStart ?? "", durationWorkdays })}
             onDeleteTask={(task) => void deleteGanttTask(task)}
             onCreatePhase={() => setPhaseDraft({ name: "", color: overview.project.color, sortOrder: overview.phases.length })}
@@ -1012,6 +1014,7 @@ function ProjectGanttChart({
   onChangeDates,
   onEdit,
   onEditMilestone,
+  onCreateMilestone,
   onCreateTask,
   onDeleteTask,
   onCreatePhase,
@@ -1028,6 +1031,7 @@ function ProjectGanttChart({
   readonly onChangeDates: (task: ClientProjectGanttTask, plannedStart: string, plannedEnd: string) => Promise<boolean>;
   readonly onEdit: (task: ClientProjectGanttTask) => void;
   readonly onEditMilestone: (milestone: ClientProjectMilestone) => void;
+  readonly onCreateMilestone: (dueOn?: string) => void;
   readonly onCreateTask: (phaseId?: string, plannedStart?: string, durationWorkdays?: number) => void;
   readonly onDeleteTask: (task: ClientProjectGanttTask) => void;
   readonly onCreatePhase: () => void;
@@ -1405,12 +1409,14 @@ function ProjectGanttChart({
     { id: "gantt.delete-phase", label: "删除阶段", group: "danger", risk: "destructive", icon: "trash", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
   ] : [
     { id: "gantt.add-task", label: menu?.date ? `在 ${formatProjectMilestoneDate(menu.date)} 添加任务` : "添加任务", group: "primary", risk: "local-write", icon: "task", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
+    { id: "gantt.add-milestone", label: menu?.date ? `在 ${formatProjectMilestoneDate(menu.date)} 添加里程碑` : "添加里程碑", group: "primary", risk: "local-write", icon: "calendar-plus", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
     { id: "gantt.add-phase", label: "添加阶段", group: "organize", risk: "local-write", icon: "folder", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
   ];
 
   const selectMenuCommand = (commandId: ContextCommandId) => {
     const ganttCommand = commandId as ProjectGanttCommandId;
     if (ganttCommand === "gantt.add-task") onCreateTask(menu?.phase?.id ?? menu?.phaseId, menu?.date);
+    else if (ganttCommand === "gantt.add-milestone") onCreateMilestone(menu?.date);
     else if (ganttCommand === "gantt.add-phase") onCreatePhase();
     else if (ganttCommand === "gantt.edit-task" && menu?.task) onEdit(menu.task);
     else if (ganttCommand === "gantt.delete-task" && menu?.task) onDeleteTask(menu.task);

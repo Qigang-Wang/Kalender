@@ -40,6 +40,8 @@ export type MailFolderCommandId =
 
 export type MailAccountCommandId = "mail-account.sync";
 export type CalendarAccountCommandId = "calendar-account.sync";
+export type SidebarCommandId =
+  | "sidebar.toggle-section";
 
 export type CalendarEventCommandId =
   | "calendar.open"
@@ -90,6 +92,7 @@ export type ProjectAreaCommandId =
 
 export type ProjectGanttCommandId =
   | "gantt.add-task"
+  | "gantt.add-milestone"
   | "gantt.add-phase"
   | "gantt.edit-task"
   | "gantt.delete-task"
@@ -116,7 +119,7 @@ export type SearchResultCommandId =
   | "search.copy-link"
   | "search.copy-title";
 
-export type ContextCommandId = MailMessageCommandId | MailFolderCommandId | MailAccountCommandId | CalendarAccountCommandId | CalendarEventCommandId | CalendarSlotCommandId | TaskCommandId | NoteCommandId | ProjectCommandId | ProjectAreaCommandId | ProjectGanttCommandId | JobCommandId | BackupArtifactCommandId | SearchResultCommandId;
+export type ContextCommandId = MailMessageCommandId | MailFolderCommandId | MailAccountCommandId | CalendarAccountCommandId | SidebarCommandId | CalendarEventCommandId | CalendarSlotCommandId | TaskCommandId | NoteCommandId | ProjectCommandId | ProjectAreaCommandId | ProjectGanttCommandId | JobCommandId | BackupArtifactCommandId | SearchResultCommandId;
 
 export interface MailMessageContextTarget {
   readonly kind: "mail-message";

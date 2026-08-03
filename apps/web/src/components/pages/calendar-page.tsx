@@ -234,6 +234,8 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   const [calendarMoveBusy, setCalendarMoveBusy] = useState(false);
   const menuReturnFocusRef = useRef<HTMLElement | null>(null);
   const recurrenceScopeResolverRef = useRef<((scope: CalendarRecurrenceEditScope | undefined) => void) | undefined>(undefined);
+  const calendarStartInputRef = useRef<HTMLInputElement>(null);
+  const calendarEndInputRef = useRef<HTMLInputElement>(null);
   const openedInitialEvent = useRef(false);
   const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Berlin", []);
   const writableLocalCalendar = useMemo(() => (
@@ -394,6 +396,16 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
 
   const updateCalendarDraft = (changes: Partial<CalendarEventDraft>) => {
     setDraft((current) => current ? { ...current, ...changes, conflicts: [] } : current);
+  };
+
+  const openNativeDateTimePicker = (input: HTMLInputElement | null) => {
+    if (!input) return;
+    input.focus();
+    try {
+      input.showPicker?.();
+    } catch {
+      // Some browsers only allow native pickers from specific input gestures.
+    }
   };
 
   const openRecurrenceSettings = () => {
@@ -959,12 +971,12 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                 <div className="calendar-schedule-card">
                   <div className="calendar-schedule-row">
                     <span className="calendar-schedule-icon" aria-hidden="true"><CalendarDays size={18} /></span>
-                    <label className="calendar-schedule-field">
-                      <input aria-label={draft.allDay ? "开始日期" : "开始时间"} type={draft.allDay ? "date" : "datetime-local"} step={draft.allDay ? undefined : 300} value={draft.startLocal} onChange={(event) => updateCalendarDraft({ startLocal: event.target.value })} />
+                    <label className="calendar-schedule-field" onClick={() => openNativeDateTimePicker(calendarStartInputRef.current)}>
+                      <input ref={calendarStartInputRef} aria-label={draft.allDay ? "开始日期" : "开始时间"} type={draft.allDay ? "date" : "datetime-local"} step={draft.allDay ? undefined : 300} value={draft.startLocal} onChange={(event) => updateCalendarDraft({ startLocal: event.target.value })} />
                     </label>
                     <ArrowRight className="calendar-schedule-arrow" size={16} strokeWidth={1.7} aria-hidden="true" />
-                    <label className="calendar-schedule-field">
-                      <input aria-label={draft.allDay ? "结束日期（含）" : "结束时间"} type={draft.allDay ? "date" : "datetime-local"} step={draft.allDay ? undefined : 300} min={draft.allDay ? draft.startLocal : undefined} value={draft.endLocal} onChange={(event) => updateCalendarDraft({ endLocal: event.target.value })} />
+                    <label className="calendar-schedule-field" onClick={() => openNativeDateTimePicker(calendarEndInputRef.current)}>
+                      <input ref={calendarEndInputRef} aria-label={draft.allDay ? "结束日期（含）" : "结束时间"} type={draft.allDay ? "date" : "datetime-local"} step={draft.allDay ? undefined : 300} min={draft.allDay ? draft.startLocal : undefined} value={draft.endLocal} onChange={(event) => updateCalendarDraft({ endLocal: event.target.value })} />
                     </label>
                     <small className="calendar-schedule-duration"><Clock3 size={12} />{formatCalendarDetailDuration(draft)}</small>
                     <label className="calendar-all-day-switch">

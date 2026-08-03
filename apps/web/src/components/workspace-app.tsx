@@ -112,6 +112,7 @@ import {
   type ProjectCommandId,
   type ProjectGanttCommandId,
   type ResolvedContextCommand,
+  type SidebarCommandId,
   type TaskCommandId,
 } from "./context-commands";
 
@@ -235,6 +236,7 @@ interface SidebarProjectSummary {
   readonly areaName?: string;
   readonly color: string;
   readonly status: "active" | "archived";
+  readonly sortOrder: number;
   readonly noteCount?: number;
 }
 
@@ -261,6 +263,23 @@ interface SidebarMailAccountMenuState {
 
 interface SidebarCalendarMenuState {
   readonly calendarId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly returnFocus?: HTMLElement | null;
+}
+
+type SidebarSectionId = "inbox-accounts" | "calendar-sources" | "tasks-groups" | "notes-projects";
+type SidebarProjectDropZone = "before" | "after";
+
+interface SidebarProjectDropTarget {
+  readonly areaName?: string;
+  readonly projectId?: string;
+  readonly zone?: SidebarProjectDropZone;
+}
+
+interface SidebarSectionMenuState {
+  readonly sectionId: SidebarSectionId;
+  readonly title: string;
   readonly x: number;
   readonly y: number;
   readonly returnFocus?: HTMLElement | null;
@@ -345,6 +364,12 @@ const DEFAULT_CONTEXT_ASSISTANT_WIDTH = 320;
 const MIN_CONTEXT_ASSISTANT_WIDTH = 280;
 const MAX_CONTEXT_ASSISTANT_WIDTH = 560;
 const CONTEXT_ASSISTANT_WIDTH_STORAGE_KEY = "kalender:context-assistant-width";
+const UI_PREF_COLLAPSED_PROJECT_AREAS_KEY = "sidebar.collapsedProjectAreas";
+const UI_PREF_EXPANDED_MAIL_ACCOUNTS_KEY = "sidebar.expandedMailAccounts";
+const UI_PREF_COLLAPSED_SECTIONS_KEY = "sidebar.collapsedSections";
+const UI_PREF_STORAGE_PREFIX = "kalender:ui-pref:";
+const sidebarSectionIds = new Set<SidebarSectionId>(["inbox-accounts", "calendar-sources", "tasks-groups", "notes-projects"]);
+const PROJECT_DRAG_TYPE = "application/x-kalender-project";
 const MAIL_MESSAGE_DRAG_TYPE = "application/x-kalender-mail-message";
 const MAIL_MESSAGE_MOVED_EVENT = "kalender:mail-message-moved";
 const MAIL_SYNCED_EVENT = "kalender:mail-synced";
@@ -385,6 +410,62 @@ function clampSidebarWidth(width: number) {
 
 function clampContextAssistantWidth(width: number) {
   return Math.min(MAX_CONTEXT_ASSISTANT_WIDTH, Math.max(MIN_CONTEXT_ASSISTANT_WIDTH, Math.round(width)));
+}
+
+function readStoredStringSet(key: string): { readonly found: boolean; readonly values: ReadonlySet<string> } {
+  try {
+    const raw = window.localStorage.getItem(`${UI_PREF_STORAGE_PREFIX}${key}`);
+    if (!raw) return { found: false, values: new Set() };
+    const parsed = JSON.parse(raw) as unknown;
+    return { found: true, values: new Set(stringArrayFromPreference(parsed)) };
+  } catch {
+    return { found: false, values: new Set() };
+  }
+}
+
+function writeStoredStringSet(key: string, values: ReadonlySet<string>) {
+  try {
+    window.localStorage.setItem(`${UI_PREF_STORAGE_PREFIX}${key}`, JSON.stringify([...values]));
+  } catch {
+    // UI state remains available for the current session.
+  }
+}
+
+function stringArrayFromPreference(value: unknown): readonly string[] {
+  if (Array.isArray(value)) return value.filter((entry): entry is string => typeof entry === "string");
+  if (value && typeof value === "object" && Array.isArray((value as { readonly ids?: unknown }).ids)) {
+    return (value as { readonly ids: readonly unknown[] }).ids.filter((entry): entry is string => typeof entry === "string");
+  }
+  return [];
+}
+
+function sameStringSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  if (left.size !== right.size) return false;
+  for (const value of left) if (!right.has(value)) return false;
+  return true;
+}
+
+function replaceStringSetIfChanged<T extends string = string>(values: ReadonlySet<T>) {
+  return (current: ReadonlySet<T>) => sameStringSet(current, values) ? current : new Set(values);
+}
+
+async function fetchUserPreferences(keys: readonly string[]): Promise<Readonly<Record<string, unknown>>> {
+  const query = keys.map((key) => `key=${encodeURIComponent(key)}`).join("&");
+  const response = await workspaceFetch(`/api/user-preferences?${query}`, {}, 0);
+  const payload = await response.json() as {
+    readonly ok?: boolean;
+    readonly preferences?: Readonly<Record<string, unknown>>;
+  };
+  if (!response.ok || !payload.ok) throw new Error("无法读取界面偏好");
+  return payload.preferences ?? {};
+}
+
+async function putUserPreference(key: string, ids: readonly string[]): Promise<void> {
+  await fetch("/api/user-preferences", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value: { ids } }),
+  });
 }
 
 async function logout() {
@@ -462,6 +543,8 @@ function WorkspaceAppContent({
   const [sidebarMailUnreadCount, setSidebarMailUnreadCount] = useState(0);
   const [expandedMailAccounts, setExpandedMailAccounts] = useState<ReadonlySet<string>>(() => new Set());
   const [sidebarMailAccountMenu, setSidebarMailAccountMenu] = useState<SidebarMailAccountMenuState>();
+  const [sidebarSectionMenu, setSidebarSectionMenu] = useState<SidebarSectionMenuState>();
+  const [collapsedSidebarSections, setCollapsedSidebarSections] = useState<ReadonlySet<SidebarSectionId>>(() => new Set());
   const [sidebarMailSyncBusyId, setSidebarMailSyncBusyId] = useState<string>();
   const [sidebarMailNotice, setSidebarMailNotice] = useState<string>();
   const [sidebarCalendars, setSidebarCalendars] = useState<readonly SidebarCalendarSource[]>();
@@ -476,6 +559,11 @@ function WorkspaceAppContent({
   const [sidebarProjectBusyId, setSidebarProjectBusyId] = useState<string>();
   const [sidebarProjectNotice, setSidebarProjectNotice] = useState<string>();
   const [collapsedProjectAreas, setCollapsedProjectAreas] = useState<ReadonlySet<string>>(() => new Set());
+  const [draggedSidebarProjectId, setDraggedSidebarProjectId] = useState<string>();
+  const [projectDropTarget, setProjectDropTarget] = useState<SidebarProjectDropTarget>();
+  const [uiPreferencesLoaded, setUiPreferencesLoaded] = useState(false);
+  const uiPreferenceSaveTimersRef = useRef(new Map<string, number>());
+  const mailAccountPreferenceFoundRef = useRef(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const activeSettingsTab = normalizeSettingsTab(searchParams.get("tab"), currentUser.role);
   const visibleSettingItems = visibleSettingsNavigation(currentUser.role);
@@ -483,6 +571,90 @@ function WorkspaceAppContent({
     ?? sidebarMailUnreadCount;
   const userInitial = userInitialFor(currentUser.displayName, currentUser.email);
   const assistantAvailable = section === "inbox" || section === "calendar" || section === "tasks";
+
+  const applyUiPreferences = useCallback((preferences: Readonly<Record<string, unknown>>) => {
+    const projectAreas = new Set(stringArrayFromPreference(preferences[UI_PREF_COLLAPSED_PROJECT_AREAS_KEY]));
+    const mailAccounts = new Set(stringArrayFromPreference(preferences[UI_PREF_EXPANDED_MAIL_ACCOUNTS_KEY]));
+    const collapsedSections = new Set(
+      stringArrayFromPreference(preferences[UI_PREF_COLLAPSED_SECTIONS_KEY])
+        .filter((id): id is SidebarSectionId => sidebarSectionIds.has(id as SidebarSectionId)),
+    );
+    if (UI_PREF_COLLAPSED_PROJECT_AREAS_KEY in preferences) {
+      setCollapsedProjectAreas(replaceStringSetIfChanged(projectAreas));
+    }
+    if (UI_PREF_EXPANDED_MAIL_ACCOUNTS_KEY in preferences) {
+      mailAccountPreferenceFoundRef.current = true;
+      setExpandedMailAccounts(replaceStringSetIfChanged(mailAccounts));
+    }
+    if (UI_PREF_COLLAPSED_SECTIONS_KEY in preferences) {
+      setCollapsedSidebarSections(replaceStringSetIfChanged(collapsedSections));
+    }
+  }, []);
+
+  const refreshUiPreferences = useCallback(async () => {
+    const preferences = await fetchUserPreferences([
+      UI_PREF_COLLAPSED_PROJECT_AREAS_KEY,
+      UI_PREF_EXPANDED_MAIL_ACCOUNTS_KEY,
+      UI_PREF_COLLAPSED_SECTIONS_KEY,
+    ]);
+    applyUiPreferences(preferences);
+  }, [applyUiPreferences]);
+
+  const saveUiPreferenceSet = useCallback((key: string, values: ReadonlySet<string>) => {
+    writeStoredStringSet(key, values);
+    if (!uiPreferencesLoaded) return;
+    const timers = uiPreferenceSaveTimersRef.current;
+    const existing = timers.get(key);
+    if (existing !== undefined) window.clearTimeout(existing);
+    const snapshot = [...values];
+    timers.set(key, window.setTimeout(() => {
+      timers.delete(key);
+      void putUserPreference(key, snapshot).catch(() => undefined);
+    }, 180));
+  }, [uiPreferencesLoaded]);
+
+  useEffect(() => {
+    const storedProjectAreas = readStoredStringSet(UI_PREF_COLLAPSED_PROJECT_AREAS_KEY);
+    const storedMailAccounts = readStoredStringSet(UI_PREF_EXPANDED_MAIL_ACCOUNTS_KEY);
+    const storedCollapsedSections = readStoredStringSet(UI_PREF_COLLAPSED_SECTIONS_KEY);
+    if (storedProjectAreas.found) setCollapsedProjectAreas(new Set(storedProjectAreas.values));
+    if (storedMailAccounts.found) {
+      mailAccountPreferenceFoundRef.current = true;
+      setExpandedMailAccounts(new Set(storedMailAccounts.values));
+    }
+    if (storedCollapsedSections.found) {
+      setCollapsedSidebarSections(new Set(
+        [...storedCollapsedSections.values].filter((id): id is SidebarSectionId => sidebarSectionIds.has(id as SidebarSectionId)),
+      ));
+    }
+    let cancelled = false;
+    void refreshUiPreferences()
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setUiPreferencesLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+      for (const timer of uiPreferenceSaveTimersRef.current.values()) window.clearTimeout(timer);
+      uiPreferenceSaveTimersRef.current.clear();
+    };
+  }, [refreshUiPreferences]);
+
+  useEffect(() => {
+    saveUiPreferenceSet(UI_PREF_COLLAPSED_PROJECT_AREAS_KEY, collapsedProjectAreas);
+  }, [collapsedProjectAreas, saveUiPreferenceSet]);
+
+  useEffect(() => {
+    saveUiPreferenceSet(UI_PREF_EXPANDED_MAIL_ACCOUNTS_KEY, expandedMailAccounts);
+  }, [expandedMailAccounts, saveUiPreferenceSet]);
+
+  useEffect(() => {
+    saveUiPreferenceSet(UI_PREF_COLLAPSED_SECTIONS_KEY, collapsedSidebarSections);
+  }, [collapsedSidebarSections, saveUiPreferenceSet]);
+
+  useRealtimeEvent(["settings"], (event) => {
+    if (event.entityType === "user_preferences") void refreshUiPreferences().catch(() => undefined);
+  });
 
   useEffect(() => {
     try {
@@ -579,7 +751,7 @@ function WorkspaceAppContent({
     setSidebarMailAccounts(accounts);
     setSidebarMailFolders(folders);
     setSidebarMailUnreadCount(accounts.reduce((total, account) => total + account.unreadCount, 0));
-    setExpandedMailAccounts((current) => current.size ? current : new Set(accounts.map((account) => account.id)));
+    setExpandedMailAccounts((current) => mailAccountPreferenceFoundRef.current || current.size ? current : new Set(accounts.map((account) => account.id)));
   }, []);
 
   const syncSidebarMailAccount = async (account: SidebarMailAccount) => {
@@ -823,6 +995,107 @@ function WorkspaceAppContent({
     }
   };
 
+  const toggleSidebarSection = (sectionId: SidebarSectionId) => {
+    setCollapsedSidebarSections((current) => {
+      const next = new Set(current);
+      if (next.has(sectionId)) next.delete(sectionId); else next.add(sectionId);
+      return next;
+    });
+  };
+
+  const toggleCollapsedProjectArea = (areaName: string) => {
+    setCollapsedProjectAreas((current) => {
+      const next = new Set(current);
+      if (next.has(areaName)) next.delete(areaName); else next.add(areaName);
+      return next;
+    });
+  };
+
+  const reorderSidebarProject = async (
+    projectId: string,
+    areaName: string,
+    targetProjectId?: string,
+    zone: SidebarProjectDropZone = "after",
+  ) => {
+    const project = sidebarProjects?.find((entry) => entry.id === projectId);
+    if (!project || sidebarProjectBusyId) return;
+    const currentArea = project.areaName?.trim() || "未分类";
+    const targetProject = targetProjectId ? sidebarProjects?.find((entry) => entry.id === targetProjectId) : undefined;
+    if (targetProject && targetProject.status !== project.status) {
+      setSidebarProjectNotice("只能在同一项目状态内排序");
+      return;
+    }
+
+    const currentAreaProjectIds = (sidebarProjects ?? [])
+      .filter((entry) => entry.status === project.status && (entry.areaName?.trim() || "未分类") === currentArea)
+      .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "zh-CN"))
+      .map((entry) => entry.id);
+    const destinationProjects = (sidebarProjects ?? [])
+      .filter((entry) => entry.status === project.status && (entry.areaName?.trim() || "未分类") === areaName && entry.id !== projectId)
+      .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "zh-CN"));
+    const insertIndex = targetProject
+      ? Math.max(0, destinationProjects.findIndex((entry) => entry.id === targetProject.id) + (zone === "after" ? 1 : 0))
+      : destinationProjects.length;
+    const nextAreaProjects = [
+      ...destinationProjects.slice(0, insertIndex),
+      { ...project, areaName: areaName === "未分类" ? undefined : areaName },
+      ...destinationProjects.slice(insertIndex),
+    ];
+    const nextProjectIds = nextAreaProjects.map((entry) => entry.id);
+    if (currentArea === areaName && nextProjectIds.length === currentAreaProjectIds.length && nextProjectIds.every((id, index) => id === currentAreaProjectIds[index])) return;
+
+    setSidebarProjectBusyId(project.id);
+    setSidebarProjects((current) => current?.map((entry) => {
+      const nextIndex = nextProjectIds.indexOf(entry.id);
+      if (entry.id === project.id || nextIndex >= 0) {
+        return {
+          ...entry,
+          areaName: entry.id === project.id ? (areaName === "未分类" ? undefined : areaName) : entry.areaName,
+          sortOrder: nextIndex >= 0 ? (nextIndex + 1) * 1000 : entry.sortOrder,
+        };
+      }
+      return entry;
+    }));
+    try {
+      if (currentArea !== areaName) {
+        const moveResponse = await fetch(`/api/projects/${encodeURIComponent(project.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: project.name,
+            description: project.description,
+            areaName: areaName === "未分类" ? "" : areaName,
+            color: project.color,
+            status: project.status,
+          }),
+        });
+        const movePayload = await moveResponse.json() as { readonly ok?: boolean; readonly message?: string };
+        if (!moveResponse.ok || !movePayload.ok) throw new Error(movePayload.message ?? "无法移动项目");
+      }
+      const reorderResponse = await fetch("/api/projects/reorder", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectIds: nextProjectIds }),
+      });
+      const reorderPayload = await reorderResponse.json() as { readonly ok?: boolean; readonly message?: string };
+      if (!reorderResponse.ok || !reorderPayload.ok) throw new Error(reorderPayload.message ?? "无法保存项目顺序");
+      await refreshSidebarProjects();
+      window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
+      setSidebarProjectNotice(currentArea === areaName ? "项目顺序已更新" : `已移动到“${areaName}”`);
+      setCollapsedProjectAreas((current) => {
+        if (!current.has(areaName)) return current;
+        const next = new Set(current);
+        next.delete(areaName);
+        return next;
+      });
+    } catch (error) {
+      await refreshSidebarProjects().catch(() => undefined);
+      setSidebarProjectNotice(error instanceof Error ? error.message : "无法保存项目顺序");
+    } finally {
+      setSidebarProjectBusyId(undefined);
+    }
+  };
+
   const createSidebarProjectNote = async (project: SidebarProjectSummary) => {
     if (sidebarProjectBusyId || project.status === "archived") return;
     setSidebarProjectBusyId(project.id);
@@ -957,11 +1230,7 @@ function WorkspaceAppContent({
       return;
     }
     if (commandId === "project-area.toggle") {
-      setCollapsedProjectAreas((current) => {
-        const next = new Set(current);
-        if (next.has(areaName)) next.delete(areaName); else next.add(areaName);
-        return next;
-      });
+      toggleCollapsedProjectArea(areaName);
       return;
     }
     setCollapsedProjectAreas(new Set(allSidebarProjectAreas.filter((entry) => entry !== areaName)));
@@ -1004,8 +1273,13 @@ function WorkspaceAppContent({
         </div>}
 
         {section === "inbox" && <div className="account-block">
-          <p className="eyebrow">邮箱账户</p>
-          {sidebarMailAccounts === undefined ? <small>正在读取账户…</small> : sidebarMailAccounts.length ? <>
+          <SidebarListHeading
+            title="邮箱账户"
+            collapsed={collapsedSidebarSections.has("inbox-accounts")}
+            onToggle={() => toggleSidebarSection("inbox-accounts")}
+            onContextMenu={(x, y, returnFocus) => setSidebarSectionMenu({ sectionId: "inbox-accounts", title: "邮箱账户", x, y, returnFocus })}
+          />
+          {!collapsedSidebarSections.has("inbox-accounts") && (sidebarMailAccounts === undefined ? <small>正在读取账户…</small> : sidebarMailAccounts.length ? <>
             {sidebarMailAccounts.map((account) => {
               const expanded = expandedMailAccounts.has(account.id);
               return <div className="mail-account-tree" key={account.id}>
@@ -1058,12 +1332,17 @@ function WorkspaceAppContent({
               </div>;
             })}
             <small>{formatSidebarSyncTime(sidebarMailAccounts)}</small>
-          </> : <Link className="sidebar-connect-mail" href="/settings"><Plus size={13} />连接邮箱</Link>}
+          </> : <Link className="sidebar-connect-mail" href="/settings"><Plus size={13} />连接邮箱</Link>)}
         </div>}
 
         {section === "calendar" && <div className="account-block sidebar-context-block">
-          <p className="eyebrow">日历来源</p>
-          {sidebarCalendars === undefined ? <small>正在读取日历…</small> : sidebarCalendars.length
+          <SidebarListHeading
+            title="日历来源"
+            collapsed={collapsedSidebarSections.has("calendar-sources")}
+            onToggle={() => toggleSidebarSection("calendar-sources")}
+            onContextMenu={(x, y, returnFocus) => setSidebarSectionMenu({ sectionId: "calendar-sources", title: "日历来源", x, y, returnFocus })}
+          />
+          {!collapsedSidebarSections.has("calendar-sources") && (sidebarCalendars === undefined ? <small>正在读取日历…</small> : sidebarCalendars.length
             ? <div className="sidebar-calendar-list">{sidebarCalendars.map((calendar) => <div
               className="sidebar-calendar-source"
               key={calendar.id}
@@ -1086,16 +1365,21 @@ function WorkspaceAppContent({
               <span><strong>{calendar.name}</strong><small>{sidebarCalendarSourceLabel(calendar)}</small></span>
               {calendar.primary && <em>默认</em>}
             </div>)}</div>
-            : <Link className="sidebar-connect-mail" href="/settings"><Plus size={13} />连接日历</Link>}
+            : <Link className="sidebar-connect-mail" href="/settings"><Plus size={13} />连接日历</Link>)}
         </div>}
 
         {section === "tasks" && <div className="account-block sidebar-context-block">
-          <p className="eyebrow">ToDo 分组</p>
-          {sidebarTasks === undefined ? <small>正在读取任务…</small> : <nav className="sidebar-task-groups" aria-label="ToDo 分组">
+          <SidebarListHeading
+            title="ToDo 分组"
+            collapsed={collapsedSidebarSections.has("tasks-groups")}
+            onToggle={() => toggleSidebarSection("tasks-groups")}
+            onContextMenu={(x, y, returnFocus) => setSidebarSectionMenu({ sectionId: "tasks-groups", title: "ToDo 分组", x, y, returnFocus })}
+          />
+          {!collapsedSidebarSections.has("tasks-groups") && (sidebarTasks === undefined ? <small>正在读取任务…</small> : <nav className="sidebar-task-groups" aria-label="ToDo 分组">
             {sidebarTaskViews.map(({ view, label, icon: Icon }) => <Link className={initialTaskView === view || (!initialTaskView && view === "today") ? "active" : ""} href={`/tasks?view=${view}`} key={view} onClick={() => setSidebarOpen(false)}>
               <Icon size={14} /><span>{label}</span><em>{sidebarTaskCounts?.[view] ?? 0}</em>
             </Link>)}
-          </nav>}
+          </nav>)}
         </div>}
 
         {section === "projects" && <div className="account-block sidebar-context-block">
@@ -1116,6 +1400,8 @@ function WorkspaceAppContent({
             <SidebarProjectGroups
               collapsedAreas={collapsedProjectAreas}
               groups={activeSidebarProjectGroups}
+              draggedProjectId={draggedSidebarProjectId}
+              dropTarget={projectDropTarget}
               selectedProjectId={initialProjectId ?? defaultSidebarProjectId}
               counts={sidebarProjectTaskCounts}
               onNavigate={() => setSidebarOpen(false)}
@@ -1132,12 +1418,25 @@ function WorkspaceAppContent({
                 setSidebarProjectAreaMenu(undefined);
                 setSidebarProjectMenu({ projectId, x, y, returnFocus });
               }}
+              onProjectDragStart={(projectId) => setDraggedSidebarProjectId(projectId)}
+              onProjectDragEnd={() => {
+                setDraggedSidebarProjectId(undefined);
+                setProjectDropTarget(undefined);
+              }}
+              onProjectDragOver={(target) => setProjectDropTarget(target)}
+              onProjectDrop={(projectId, target) => {
+                setDraggedSidebarProjectId(undefined);
+                setProjectDropTarget(undefined);
+                void reorderSidebarProject(projectId, target.areaName ?? "未分类", target.projectId, target.zone);
+              }}
             />
             {archivedSidebarProjects.length > 0 && <details className="sidebar-archived-projects">
               <summary><Archive size={12} />已归档<span>{archivedSidebarProjects.length}</span></summary>
               <SidebarProjectGroups
                 collapsedAreas={collapsedProjectAreas}
                 groups={archivedSidebarProjectGroups}
+                draggedProjectId={draggedSidebarProjectId}
+                dropTarget={projectDropTarget}
                 selectedProjectId={initialProjectId ?? defaultSidebarProjectId}
                 counts={sidebarProjectTaskCounts}
                 onNavigate={() => setSidebarOpen(false)}
@@ -1154,6 +1453,17 @@ function WorkspaceAppContent({
                   setSidebarProjectAreaMenu(undefined);
                   setSidebarProjectMenu({ projectId, x, y, returnFocus });
                 }}
+                onProjectDragStart={(projectId) => setDraggedSidebarProjectId(projectId)}
+                onProjectDragEnd={() => {
+                  setDraggedSidebarProjectId(undefined);
+                  setProjectDropTarget(undefined);
+                }}
+                onProjectDragOver={(target) => setProjectDropTarget(target)}
+                onProjectDrop={(projectId, target) => {
+                  setDraggedSidebarProjectId(undefined);
+                  setProjectDropTarget(undefined);
+                  void reorderSidebarProject(projectId, target.areaName ?? "未分类", target.projectId, target.zone);
+                }}
               />
             </details>}
           </> : <button className="sidebar-create-project" type="button" onClick={() => {
@@ -1164,7 +1474,16 @@ function WorkspaceAppContent({
 
         {section === "notes" && <div className="account-block sidebar-context-block">
           <div className="sidebar-context-heading">
-            <p className="eyebrow">笔记项目</p>
+            <button
+              type="button"
+              className="sidebar-list-toggle"
+              aria-expanded={!collapsedSidebarSections.has("notes-projects")}
+              onClick={() => toggleSidebarSection("notes-projects")}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setSidebarSectionMenu({ sectionId: "notes-projects", title: "笔记项目", x: event.clientX, y: event.clientY, returnFocus: event.currentTarget });
+              }}
+            ><ChevronRight size={12} /><span>笔记项目</span></button>
             <button
               type="button"
               aria-label="新建项目"
@@ -1175,23 +1494,40 @@ function WorkspaceAppContent({
               }}
             ><Plus size={14} /></button>
           </div>
-          {sidebarProjects === undefined ? <small>正在读取项目…</small> : activeSidebarProjects.length ? <SidebarProjectGroups
+          {!collapsedSidebarSections.has("notes-projects") && (sidebarProjects === undefined ? <small>正在读取项目…</small> : activeSidebarProjects.length ? <SidebarProjectGroups
             collapsedAreas={collapsedProjectAreas}
             groups={activeSidebarProjectGroups}
+            draggedProjectId={draggedSidebarProjectId}
+            dropTarget={projectDropTarget}
             selectedProjectId={initialProjectId}
             counts={sidebarProjectNoteCounts}
             countLabel="篇笔记"
             projectHref={(project) => `/notes?project=${encodeURIComponent(project.id)}`}
             onNavigate={() => setSidebarOpen(false)}
-            onToggleArea={(areaName) => setCollapsedProjectAreas((current) => {
-              const next = new Set(current);
-              if (next.has(areaName)) next.delete(areaName); else next.add(areaName);
-              return next;
-            })}
+            onAreaContextMenu={(areaName, x, y, returnFocus) => {
+              setSidebarProjectMenu(undefined);
+              setSidebarProjectAreaMenu({ areaName, x, y, returnFocus });
+            }}
+            onToggleArea={toggleCollapsedProjectArea}
+            onProjectContextMenu={(projectId, x, y, returnFocus) => {
+              setSidebarProjectAreaMenu(undefined);
+              setSidebarProjectMenu({ projectId, x, y, returnFocus });
+            }}
+            onProjectDragStart={(projectId) => setDraggedSidebarProjectId(projectId)}
+            onProjectDragEnd={() => {
+              setDraggedSidebarProjectId(undefined);
+              setProjectDropTarget(undefined);
+            }}
+            onProjectDragOver={(target) => setProjectDropTarget(target)}
+            onProjectDrop={(projectId, target) => {
+              setDraggedSidebarProjectId(undefined);
+              setProjectDropTarget(undefined);
+              void reorderSidebarProject(projectId, target.areaName ?? "未分类", target.projectId, target.zone);
+            }}
           /> : <button className="sidebar-create-project" type="button" onClick={() => {
             window.dispatchEvent(new Event(OPEN_PROJECT_DIALOG_EVENT));
             setSidebarOpen(false);
-          }}><Plus size={13} />创建第一个项目</button>}
+          }}><Plus size={13} />创建第一个项目</button>)}
         </div>}
 
         <div className="sidebar-user-area" ref={userMenuRef}>
@@ -1244,6 +1580,24 @@ function WorkspaceAppContent({
         </div>
       </section>
       <MobileBottomNav section={section} unreadCount={sidebarUnreadCount} />
+      {sidebarSectionMenu && <ContextMenu
+        anchor={{ x: sidebarSectionMenu.x, y: sidebarSectionMenu.y }}
+        ariaLabel={`${sidebarSectionMenu.title}列表操作`}
+        commands={[{
+          id: "sidebar.toggle-section",
+          label: collapsedSidebarSections.has(sidebarSectionMenu.sectionId) ? "展开列表" : "折叠列表",
+          group: "organize",
+          risk: "read",
+          icon: collapsedSidebarSections.has(sidebarSectionMenu.sectionId) ? "eye" : "eye-off",
+        }]}
+        heading={sidebarSectionMenu.title}
+        returnFocus={sidebarSectionMenu.returnFocus}
+        testId="sidebar-section-context-menu"
+        onClose={() => setSidebarSectionMenu(undefined)}
+        onSelect={(commandId) => {
+          if ((commandId as SidebarCommandId) === "sidebar.toggle-section") toggleSidebarSection(sidebarSectionMenu.sectionId);
+        }}
+      />}
       {sidebarMailAccountMenu && sidebarMailAccounts?.find((account) => account.id === sidebarMailAccountMenu.accountId) && (() => {
         const account = sidebarMailAccounts.find((item) => item.id === sidebarMailAccountMenu.accountId)!;
         const busy = sidebarMailSyncBusyId === account.id || account.syncStatus === "syncing";
@@ -1335,11 +1689,7 @@ function WorkspaceAppContent({
               const current = areaName === currentAreaName;
               return <button key={areaName} type="button" className={current ? "active" : ""} disabled={current || Boolean(sidebarProjectBusyId)} onClick={() => {
                 setSidebarProjectAreaTargetId(undefined);
-                void updateSidebarProject(
-                  sidebarProjectAreaTarget,
-                  { areaName: areaName === "未分类" ? "" : areaName },
-                  `已移动到“${areaName}”`,
-                );
+                void reorderSidebarProject(sidebarProjectAreaTarget.id, areaName);
               }}><Folder size={14} /><span>{areaName}</span>{current && <Check size={13} />}</button>;
             })}
           </div>
@@ -2088,7 +2438,7 @@ function groupSidebarProjectsByArea(projects: readonly SidebarProjectSummary[]):
   }
   return Array.from(groups, ([areaName, entries]) => ({
     areaName,
-    projects: entries.sort((left, right) => left.name.localeCompare(right.name, "zh-CN")),
+    projects: entries.sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "zh-CN")),
   })).sort((left, right) => {
     if (left.areaName === "未分类") return 1;
     if (right.areaName === "未分类") return -1;
@@ -2096,9 +2446,36 @@ function groupSidebarProjectsByArea(projects: readonly SidebarProjectSummary[]):
   });
 }
 
+function SidebarListHeading({
+  title,
+  collapsed,
+  onToggle,
+  onContextMenu,
+}: {
+  readonly title: string;
+  readonly collapsed: boolean;
+  readonly onToggle: () => void;
+  readonly onContextMenu: (x: number, y: number, returnFocus?: HTMLElement | null) => void;
+}) {
+  return <div className="sidebar-context-heading sidebar-list-heading">
+    <button
+      type="button"
+      className="sidebar-list-toggle"
+      aria-expanded={!collapsed}
+      onClick={onToggle}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onContextMenu(event.clientX, event.clientY, event.currentTarget);
+      }}
+    ><ChevronRight size={12} /><span>{title}</span></button>
+  </div>;
+}
+
 function SidebarProjectGroups({
   collapsedAreas,
   groups,
+  draggedProjectId,
+  dropTarget,
   selectedProjectId,
   counts,
   countLabel = "个未完成任务",
@@ -2107,9 +2484,15 @@ function SidebarProjectGroups({
   onAreaContextMenu,
   onToggleArea,
   onProjectContextMenu,
+  onProjectDragStart,
+  onProjectDragEnd,
+  onProjectDragOver,
+  onProjectDrop,
 }: {
   readonly collapsedAreas: ReadonlySet<string>;
   readonly groups: readonly SidebarProjectGroup[];
+  readonly draggedProjectId?: string;
+  readonly dropTarget?: SidebarProjectDropTarget;
   readonly selectedProjectId?: string;
   readonly counts?: ReadonlyMap<string, number>;
   readonly countLabel?: string;
@@ -2118,19 +2501,44 @@ function SidebarProjectGroups({
   readonly onAreaContextMenu?: (areaName: string, x: number, y: number, returnFocus?: HTMLElement | null) => void;
   readonly onToggleArea: (areaName: string) => void;
   readonly onProjectContextMenu?: (projectId: string, x: number, y: number, returnFocus?: HTMLElement | null) => void;
+  readonly onProjectDragStart?: (projectId: string) => void;
+  readonly onProjectDragEnd?: () => void;
+  readonly onProjectDragOver?: (target: SidebarProjectDropTarget | undefined) => void;
+  readonly onProjectDrop?: (projectId: string, target: SidebarProjectDropTarget) => void;
 }) {
   return <div className="sidebar-project-groups">
     {groups.map((group) => {
       const collapsed = collapsedAreas.has(group.areaName);
-      return <section className={`sidebar-project-group ${collapsed ? "collapsed" : ""}`} key={group.areaName}>
+      const areaTargeted = dropTarget?.areaName === group.areaName && !dropTarget.projectId;
+      return <section className={`sidebar-project-group ${collapsed ? "collapsed" : ""} ${areaTargeted ? "drop-target" : ""}`} key={group.areaName}>
       <h3 onContextMenu={(event) => {
         if (!onAreaContextMenu) return;
         event.preventDefault();
         onAreaContextMenu(group.areaName, event.clientX, event.clientY, event.currentTarget.querySelector("button"));
+      }}
+      onDragOver={(event) => {
+        const projectId = Array.from(event.dataTransfer.types).includes(PROJECT_DRAG_TYPE)
+          ? event.dataTransfer.getData(PROJECT_DRAG_TYPE) || draggedProjectId
+          : draggedProjectId;
+        if (!projectId || !onProjectDrop) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        onProjectDragOver?.({ areaName: group.areaName });
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onProjectDragOver?.(undefined);
+      }}
+      onDrop={(event) => {
+        const projectId = event.dataTransfer.getData(PROJECT_DRAG_TYPE) || draggedProjectId;
+        if (!projectId || !onProjectDrop) return;
+        event.preventDefault();
+        onProjectDrop(projectId, { areaName: group.areaName });
       }}><button type="button" aria-expanded={!collapsed} onClick={() => onToggleArea(group.areaName)}><ChevronRight size={11} />{group.areaName}</button><span>{group.projects.length}</span></h3>
       {!collapsed && <nav className="sidebar-project-list" aria-label={`${group.areaName}项目`}>
         {group.projects.map((project) => <SidebarProjectLink
           active={selectedProjectId === project.id}
+          dragging={draggedProjectId === project.id}
+          dropZone={dropTarget?.projectId === project.id ? dropTarget.zone : undefined}
           key={project.id}
           project={project}
           count={counts?.get(project.id) ?? 0}
@@ -2138,6 +2546,10 @@ function SidebarProjectGroups({
           href={projectHref(project)}
           onNavigate={onNavigate}
           onContextMenu={onProjectContextMenu}
+          onDragStart={onProjectDragStart}
+          onDragEnd={onProjectDragEnd}
+          onDragOver={(targetProjectId, zone) => onProjectDragOver?.({ areaName: group.areaName, projectId: targetProjectId, zone })}
+          onDrop={(projectId, targetProjectId, zone) => onProjectDrop?.(projectId, { areaName: group.areaName, projectId: targetProjectId, zone })}
         />)}
       </nav>}
     </section>;
@@ -2147,25 +2559,62 @@ function SidebarProjectGroups({
 
 function SidebarProjectLink({
   active,
+  dragging,
+  dropZone,
   project,
   count,
   countLabel,
   href,
   onNavigate,
   onContextMenu,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
 }: {
   readonly active: boolean;
+  readonly dragging?: boolean;
+  readonly dropZone?: SidebarProjectDropZone;
   readonly project: SidebarProjectSummary;
   readonly count: number;
   readonly countLabel: string;
   readonly href: string;
   readonly onNavigate: () => void;
   readonly onContextMenu?: (projectId: string, x: number, y: number, returnFocus?: HTMLElement | null) => void;
+  readonly onDragStart?: (projectId: string) => void;
+  readonly onDragEnd?: () => void;
+  readonly onDragOver?: (projectId: string, zone: SidebarProjectDropZone) => void;
+  readonly onDrop?: (sourceProjectId: string, targetProjectId: string, zone: SidebarProjectDropZone) => void;
 }) {
   return <Link
-    className={active ? "active" : ""}
+    className={`${active ? "active" : ""} ${dragging ? "dragging" : ""} ${dropZone ? `drop-${dropZone}` : ""}`}
+    draggable={Boolean(onDragStart)}
     href={href}
     onClick={onNavigate}
+    onDragStart={(event) => {
+      if (!onDragStart) return;
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData(PROJECT_DRAG_TYPE, project.id);
+      onDragStart(project.id);
+    }}
+    onDragEnd={onDragEnd}
+    onDragOver={(event) => {
+      if (!onDragOver || dragging) return;
+      const projectId = event.dataTransfer.getData(PROJECT_DRAG_TYPE);
+      if (!projectId && !Array.from(event.dataTransfer.types).includes(PROJECT_DRAG_TYPE)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      const bounds = event.currentTarget.getBoundingClientRect();
+      onDragOver(project.id, event.clientY < bounds.top + bounds.height / 2 ? "before" : "after");
+    }}
+    onDrop={(event) => {
+      if (!onDrop) return;
+      const sourceProjectId = event.dataTransfer.getData(PROJECT_DRAG_TYPE);
+      if (!sourceProjectId || sourceProjectId === project.id) return;
+      event.preventDefault();
+      const bounds = event.currentTarget.getBoundingClientRect();
+      onDrop(sourceProjectId, project.id, event.clientY < bounds.top + bounds.height / 2 ? "before" : "after");
+    }}
     onContextMenu={(event) => {
       if (!onContextMenu) return;
       event.preventDefault();

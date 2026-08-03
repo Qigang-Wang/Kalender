@@ -6,6 +6,7 @@ export interface ProjectRequestBody {
   readonly areaName?: unknown;
   readonly color?: unknown;
   readonly status?: unknown;
+  readonly sortOrder?: unknown;
 }
 
 export interface ProjectAreaRenameRequestBody {
@@ -33,7 +34,20 @@ export function parseProjectInput(body: ProjectRequestBody | null, id?: string):
     areaName: optionalText(body.areaName, 100, "领域名称"),
     color,
     status: body.status === "archived" ? "archived" : "active",
+    sortOrder: optionalSortOrder(body.sortOrder),
   };
+}
+
+export function parseProjectReorderInput(body: { readonly projectIds?: unknown } | null): readonly string[] {
+  if (!body || !Array.isArray(body.projectIds)) throw new NoteValidationError("项目顺序无效");
+  const projectIds = body.projectIds.map((value) => {
+    if (typeof value !== "string" || !value.trim() || value.length > 100) {
+      throw new NoteValidationError("项目顺序无效");
+    }
+    return value.trim();
+  });
+  if (!projectIds.length || projectIds.length > 500) throw new NoteValidationError("项目顺序无效");
+  return projectIds;
 }
 
 export function parseProjectAreaRenameInput(body: ProjectAreaRenameRequestBody | null): {
@@ -84,4 +98,13 @@ function optionalText(value: unknown, maximum: number, label: string): string | 
   if (value === undefined || value === null || value === "") return undefined;
   if (typeof value !== "string" || value.length > maximum) throw new NoteValidationError(`${label}内容过长`);
   return value.trim() || undefined;
+}
+
+function optionalSortOrder(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const sortOrder = Number(value);
+  if (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 1_000_000_000) {
+    throw new NoteValidationError("项目顺序无效");
+  }
+  return sortOrder;
 }

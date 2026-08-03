@@ -15,6 +15,7 @@ export interface StoredProject {
   readonly areaName?: string;
   readonly color: string;
   readonly status: ProjectStatus;
+  readonly sortOrder: number;
   readonly noteCount: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -48,6 +49,7 @@ export interface SaveProjectInput {
   readonly areaName?: string;
   readonly color: string;
   readonly status: ProjectStatus;
+  readonly sortOrder?: number;
 }
 
 export interface SaveNoteInput {
@@ -66,6 +68,7 @@ interface ProjectRow {
   area_name: string | null;
   color: string;
   status: ProjectStatus;
+  sort_order: number;
   note_count: number | string;
   created_at: string | Date;
   updated_at: string | Date;
@@ -89,13 +92,13 @@ export async function listStoredProjects(includeArchived = false): Promise<reado
   const scope = await getUserScope();
   const scoped = await visibleProjectWhere("p", [includeArchived]);
   const result = await database.query<ProjectRow>(
-    `SELECT p.id, p.name, p.description, p.area_name, p.color, p.status,
+    `SELECT p.id, p.name, p.description, p.area_name, p.color, p.status, p.sort_order,
             count(n.id)::int AS note_count, p.created_at, p.updated_at
        FROM projects p
        LEFT JOIN notes n ON n.project_id = p.id${scope.active ? " AND n.user_id = p.user_id" : ""}
       WHERE ($1::boolean OR p.status = 'active')${scoped.clause ? ` AND ${scoped.clause}` : ""}
       GROUP BY p.id
-      ORDER BY (p.status = 'archived'), p.updated_at DESC, p.name`,
+      ORDER BY (p.status = 'archived'), coalesce(p.area_name, ''), p.sort_order, p.name`,
     scoped.parameters,
   );
   return result.rows.map(mapProject);
@@ -106,7 +109,7 @@ export async function getStoredProject(projectId: string): Promise<StoredProject
   const scope = await getUserScope();
   const scoped = await visibleProjectWhere("p", [projectId]);
   const result = await database.query<ProjectRow>(
-    `SELECT p.id, p.name, p.description, p.area_name, p.color, p.status,
+    `SELECT p.id, p.name, p.description, p.area_name, p.color, p.status, p.sort_order,
             count(n.id)::int AS note_count, p.created_at, p.updated_at
        FROM projects p
        LEFT JOIN notes n ON n.project_id = p.id${scope.active ? " AND n.user_id = p.user_id" : ""}
@@ -125,15 +128,18 @@ export async function saveStoredProject(input: SaveProjectInput): Promise<Stored
   if (input.id) {
     await ensureProjectAccess(input.id, "editor");
   }
+  const sortOrder = input.sortOrder ?? (input.id ? undefined : await nextProjectSortOrder(input.areaName, input.status));
   try {
     await database.query(
-      `INSERT INTO projects (id, user_id, name, description, area_name, color, status, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,now())
+      `INSERT INTO projects (id, user_id, name, description, area_name, color, status, sort_order, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8, 0),now())
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name, description = EXCLUDED.description,
          area_name = EXCLUDED.area_name, color = EXCLUDED.color,
-         status = EXCLUDED.status, updated_at = now()`,
-      [id, scope.valueOrNull(), input.name, input.description ?? null, input.areaName ?? null, input.color, input.status],
+         status = EXCLUDED.status,
+         sort_order = COALESCE($8, projects.sort_order),
+         updated_at = now()`,
+      [id, scope.valueOrNull(), input.name, input.description ?? null, input.areaName ?? null, input.color, input.status, sortOrder ?? null],
     );
   } catch (error) {
     if (error instanceof Error && /unique|duplicate/i.test(error.message)) {
@@ -144,6 +150,28 @@ export async function saveStoredProject(input: SaveProjectInput): Promise<Stored
   const saved = await getStoredProject(id);
   if (!saved) throw new NoteRepositoryError("PROJECT_SAVE_FAILED", "无法保存项目", 500);
   return saved;
+}
+
+export async function reorderStoredProjects(projectIds: readonly string[]): Promise<readonly StoredProject[]> {
+  const normalizedIds = Array.from(new Set(projectIds.map((id) => id.trim()).filter(Boolean)));
+  if (!normalizedIds.length) throw new NoteRepositoryError("PROJECT_REORDER_EMPTY", "请提供项目顺序", 400);
+  if (normalizedIds.length > 500) throw new NoteRepositoryError("PROJECT_REORDER_TOO_LARGE", "一次最多重排 500 个项目", 400);
+  const database = await getDatabase();
+  for (const projectId of normalizedIds) await ensureProjectAccess(projectId, "editor");
+  await database.query(
+    `WITH ordered AS (
+       SELECT *
+         FROM unnest($1::text[]) WITH ORDINALITY AS item(id, position)
+     )
+     UPDATE projects p
+        SET sort_order = ordered.position * 1000,
+            updated_at = now()
+       FROM ordered
+      WHERE p.id = ordered.id`,
+    [normalizedIds],
+  );
+  const result = await Promise.all(normalizedIds.map((id) => getStoredProject(id)));
+  return result.filter((project): project is StoredProject => Boolean(project));
 }
 
 export async function renameStoredProjectArea(previousName: string, name: string): Promise<{
@@ -389,10 +417,25 @@ function mapProject(row: ProjectRow): StoredProject {
     areaName: row.area_name ?? undefined,
     color: row.color,
     status: row.status,
+    sortOrder: row.sort_order,
     noteCount: Number(row.note_count),
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
+}
+
+async function nextProjectSortOrder(areaName: string | undefined, status: ProjectStatus): Promise<number> {
+  const database = await getDatabase();
+  const scope = await getUserScope();
+  const scoped = scope.and("p", [areaName ?? null, status]);
+  const result = await database.query<{ next_sort_order: number }>(
+    `SELECT COALESCE(max(p.sort_order), 0) + 1000 AS next_sort_order
+       FROM projects p
+      WHERE p.area_name IS NOT DISTINCT FROM $1
+        AND p.status = $2${scoped.clause}`,
+    scoped.parameters,
+  );
+  return Number(result.rows[0]?.next_sort_order ?? 1000);
 }
 
 function toIso(value: string | Date): string {
