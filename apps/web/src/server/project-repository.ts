@@ -10,6 +10,7 @@ export type ProjectMilestoneStatus = (typeof projectMilestoneStatuses)[number];
 export interface StoredProjectMilestone {
   readonly id: string;
   readonly projectId: string;
+  readonly phaseId?: string;
   readonly title: string;
   readonly dueOn?: string;
   readonly status: ProjectMilestoneStatus;
@@ -21,6 +22,7 @@ export interface StoredProjectMilestone {
 export interface SaveProjectMilestoneInput {
   readonly id?: string;
   readonly projectId: string;
+  readonly phaseId?: string | null;
   readonly title: string;
   readonly dueOn?: string;
   readonly status: ProjectMilestoneStatus;
@@ -453,6 +455,7 @@ export async function deleteStoredProjectPhase(projectId: string, phaseId: strin
 interface ProjectMilestoneRow {
   readonly id: string;
   readonly project_id: string;
+  readonly phase_id: string | null;
   readonly title: string;
   readonly due_on: string | Date | null;
   readonly status: ProjectMilestoneStatus;
@@ -465,7 +468,7 @@ export async function listStoredProjectMilestones(projectId: string): Promise<re
   if (!await getStoredProject(projectId)) return [];
   const database = await getDatabase();
   const result = await database.query<ProjectMilestoneRow>(
-    `SELECT id, project_id, title, due_on, status, sort_order, created_at, updated_at
+    `SELECT id, project_id, phase_id, title, due_on, status, sort_order, created_at, updated_at
        FROM project_milestones
       WHERE project_id = $1
       ORDER BY (status = 'done'), due_on ASC NULLS LAST, sort_order, created_at`,
@@ -481,6 +484,13 @@ export async function saveStoredProjectMilestone(input: SaveProjectMilestoneInpu
   if (project.status === "archived") {
     throw new ProjectRepositoryError("PROJECT_ARCHIVED", "已归档项目不能修改里程碑", 409);
   }
+  if (input.phaseId) {
+    const phase = await database.query<{ id: string }>(
+      "SELECT id FROM project_phases WHERE id = $1 AND project_id = $2 LIMIT 1",
+      [input.phaseId, input.projectId],
+    );
+    if (!phase.rows[0]) throw new ProjectRepositoryError("PHASE_NOT_FOUND", "项目阶段不存在", 404);
+  }
   const id = input.id ?? randomUUID();
   if (input.id) {
     const existing = await database.query<{ id: string }>(
@@ -490,16 +500,17 @@ export async function saveStoredProjectMilestone(input: SaveProjectMilestoneInpu
     if (!existing.rows[0]) throw new ProjectRepositoryError("MILESTONE_NOT_FOUND", "里程碑不存在", 404);
   }
   await database.query(
-    `INSERT INTO project_milestones (id, project_id, title, due_on, status, sort_order, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,now())
+    `INSERT INTO project_milestones (id, project_id, phase_id, title, due_on, status, sort_order, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,now())
      ON CONFLICT (id) DO UPDATE SET
+       phase_id = CASE WHEN $8 THEN EXCLUDED.phase_id ELSE project_milestones.phase_id END,
        title = EXCLUDED.title,
        due_on = EXCLUDED.due_on,
        status = EXCLUDED.status,
        sort_order = EXCLUDED.sort_order,
        updated_at = now()
      WHERE project_milestones.project_id = EXCLUDED.project_id`,
-    [id, input.projectId, input.title, input.dueOn ?? null, input.status, input.sortOrder ?? 0],
+    [id, input.projectId, input.phaseId ?? null, input.title, input.dueOn ?? null, input.status, input.sortOrder ?? 0, input.phaseId !== undefined],
   );
   const saved = (await listStoredProjectMilestones(input.projectId)).find((milestone) => milestone.id === id);
   if (!saved) throw new ProjectRepositoryError("MILESTONE_SAVE_FAILED", "无法保存里程碑", 500);
@@ -527,6 +538,7 @@ function mapProjectMilestone(row: ProjectMilestoneRow): StoredProjectMilestone {
   return {
     id: row.id,
     projectId: row.project_id,
+    phaseId: row.phase_id ?? undefined,
     title: row.title,
     dueOn: row.due_on ? toDateOnly(row.due_on) : undefined,
     status: row.status,

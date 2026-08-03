@@ -1609,6 +1609,14 @@ const PROJECT_SORT_ORDER_SCHEMA_SQL = String.raw`
     ON projects (user_id, status, coalesce(area_name, ''), sort_order, name);
 `;
 
+const PROJECT_MILESTONE_PHASES_SCHEMA_SQL = String.raw`
+  ALTER TABLE project_milestones
+    ADD COLUMN IF NOT EXISTS phase_id text REFERENCES project_phases(id) ON DELETE SET NULL;
+
+  CREATE INDEX IF NOT EXISTS project_milestones_project_phase_due_idx
+    ON project_milestones (project_id, phase_id, status, due_on, sort_order);
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1638,6 +1646,7 @@ export const DATABASE_MIGRATIONS = [
   { version: 26, name: "automatic-backup-retention-three", sql: AUTOMATIC_BACKUP_RETENTION_THREE_SQL },
   { version: 27, name: "user-ui-preferences", sql: USER_PREFERENCES_SCHEMA_SQL },
   { version: 28, name: "project-sort-order", sql: PROJECT_SORT_ORDER_SCHEMA_SQL },
+  { version: 29, name: "project-milestone-phases", sql: PROJECT_MILESTONE_PHASES_SCHEMA_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

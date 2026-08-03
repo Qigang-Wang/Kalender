@@ -10,6 +10,7 @@ export interface ProjectMilestoneRequestBody {
   readonly dueOn?: unknown;
   readonly status?: unknown;
   readonly sortOrder?: unknown;
+  readonly phaseId?: unknown;
 }
 
 export interface ProjectTaskPlanRequestBody {
@@ -130,7 +131,15 @@ export function parseProjectMilestoneInput(
   if (sortOrder !== undefined && (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 100_000)) {
     throw new ProjectValidationError("里程碑顺序无效");
   }
-  return { id, projectId, title, dueOn, status, sortOrder };
+  let phaseId: string | null | undefined;
+  if (body.phaseId === null || body.phaseId === "") phaseId = null;
+  else if (body.phaseId !== undefined) {
+    if (typeof body.phaseId !== "string" || !body.phaseId.trim() || body.phaseId.length > 100) {
+      throw new ProjectValidationError("项目阶段无效");
+    }
+    phaseId = body.phaseId.trim();
+  }
+  return { id, projectId, title, dueOn, status, sortOrder, phaseId };
 }
 
 export class ProjectValidationError extends Error {

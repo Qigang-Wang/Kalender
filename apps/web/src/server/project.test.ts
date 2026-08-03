@@ -7,6 +7,7 @@ import { closeDatabaseForRestore, getDatabase } from "./database";
 import {
   deleteStoredProjectPhase,
   getStoredProjectOverview,
+  saveStoredProjectMilestone,
   saveStoredProjectPhase,
   saveStoredProjectTaskPlan,
 } from "./project-repository";
@@ -44,6 +45,13 @@ async function main() {
       name: "Prototype",
       color: "#86bdf5",
     });
+    const milestone = await saveStoredProjectMilestone({
+      projectId: "project-test",
+      phaseId: phase.id,
+      title: "Prototype approved",
+      dueOn: "2026-07-31",
+      status: "active",
+    });
     await saveStoredProjectTaskPlan({
       projectId: "project-test",
       taskId: "task-a",
@@ -70,6 +78,7 @@ async function main() {
       overview?.tasks.length === 2 && overview.notes.length === 0,
       "project overview queries only the selected project's tasks and notes",
     );
+    assert(overview.milestones[0]?.phaseId === phase.id, "project milestones can belong to a project phase");
     const predecessor = overview?.ganttTasks.find((task) => task.id === "task-a");
     let successor = overview?.ganttTasks.find((task) => task.id === "task-b");
     assert(predecessor?.plannedEnd === "2026-07-25", "task duration includes weekend days");
@@ -96,6 +105,10 @@ async function main() {
     overview = await getStoredProjectOverview("project-test");
     assert(overview?.phases.length === 0, "deleted phase is removed from the project");
     assert(overview?.ganttTasks.every((task) => !task.phaseId), "deleting a phase preserves and ungroups its tasks");
+    assert(
+      overview?.milestones.some((entry) => entry.id === milestone.id && !entry.phaseId),
+      "deleting a phase preserves its milestones as project-level milestones",
+    );
     console.log("Project phase and automatic scheduling tests passed");
   } finally {
     await closeDatabaseForRestore().catch(() => undefined);

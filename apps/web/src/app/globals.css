@@ -1816,6 +1816,12 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .project-milestone-timeline > header > button { display: inline-flex; min-height: 29px; align-items: center; gap: 5px; padding: 0 9px; color: #e5ca8e; background: #332d1f; border: 1px solid #5b4b2c; border-radius: 7px; font-size: 12px; }
 .project-milestone-timeline > header > button:hover { background: #403722; }
 .project-milestone-timeline > header > button:disabled { cursor: not-allowed; opacity: .4; }
+.project-milestone-groups { display: grid; }
+.project-milestone-group + .project-milestone-group { border-top: 1px solid var(--line); }
+.project-milestone-group > header { display: flex; min-height: 32px; align-items: center; gap: 7px; padding: 7px 13px 0; color: var(--muted); }
+.project-milestone-group > header > i { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; }
+.project-milestone-group > header > strong { overflow: hidden; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.project-milestone-group > header > span { display: grid; min-width: 19px; height: 19px; margin-left: 2px; padding: 0 5px; place-items: center; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; font-size: 11px; }
 .project-milestone-timeline ol { display: flex; min-width: 0; margin: 0; padding: 13px 12px 15px; overflow-x: auto; list-style: none; }
 .project-milestone-timeline li { position: relative; display: grid; min-width: 190px; flex: 1 0 190px; grid-template-columns: 27px minmax(0, 1fr); gap: 7px; padding-right: 18px; }
 .project-milestone-timeline li::after { position: absolute; top: 13px; right: 0; left: 27px; z-index: 0; height: 1px; content: ""; background: #45483e; }
