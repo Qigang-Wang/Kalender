@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronUp, Clock3, Link2, ListChecks, LoaderCircle, Mail, MapPin, Paperclip, Star, Users } from "lucide-react";
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { appConfirm } from "@/components/app-dialog-provider";
 import { useRealtimeRefresh } from "@/components/realtime-context";
@@ -18,6 +18,7 @@ interface TodayEventItem {
   readonly calendarId: string;
   readonly title: string;
   readonly description?: string;
+  readonly descriptionContent?: string;
   readonly location?: string;
   readonly start: string;
   readonly end: string;
@@ -30,6 +31,8 @@ interface TodayEventItem {
   readonly calendarColor: string;
   readonly recurrenceSeriesId?: string;
   readonly recurrenceId?: string;
+  readonly timeZone?: string;
+  readonly linkedTask?: { readonly id: string; readonly title: string; readonly href: string };
   readonly deleteDisabledReason?: string;
   readonly href: string;
 }
@@ -225,6 +228,76 @@ export function TodayPage() {
     }
   };
 
+  const resizeEvent = async (event: TodayEventItem, end: Date) => {
+    if (busyEventId || event.allDay || event.deleteDisabledReason) return;
+    const start = new Date(event.start);
+    const targetEnd = new Date(Math.max(start.getTime() + 5 * 60_000, end.getTime()));
+    if (targetEnd.getTime() === new Date(event.end).getTime()) return;
+    setBusyEventId(event.id);
+    try {
+      const requestResize = async (allowConflicts: boolean) => {
+        const linkedTaskUrl = event.linkedTask
+          ? `/api/tasks/${encodeURIComponent(event.linkedTask.id)}/schedule/${encodeURIComponent(event.id)}`
+          : undefined;
+        const response = await fetch(linkedTaskUrl ?? `/api/calendar-events/${encodeURIComponent(event.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(event.linkedTask ? {
+            calendarId: event.calendarId,
+            start: start.toISOString(),
+            end: targetEnd.toISOString(),
+            timeZone: event.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+            allowConflicts,
+          } : {
+            calendarId: event.calendarId,
+            title: event.title,
+            description: event.description,
+            descriptionContent: event.descriptionContent,
+            location: event.location,
+            start: start.toISOString(),
+            end: targetEnd.toISOString(),
+            timeZone: event.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+            allDay: false,
+            recurrenceSeriesId: event.recurrenceSeriesId,
+            recurrenceId: event.recurrenceId,
+            recurrenceScope: event.recurrenceSeriesId && event.recurrenceId ? "occurrence" : undefined,
+            allowConflicts,
+          }),
+        });
+        const payload = await response.json().catch(() => ({})) as {
+          readonly ok?: boolean;
+          readonly conflicts?: readonly { readonly title: string }[];
+          readonly message?: string;
+        };
+        return { response, payload };
+      };
+      let result = await requestResize(false);
+      if (result.response.status === 409 && result.payload.conflicts?.length) {
+        const conflictNames = result.payload.conflicts.slice(0, 3).map((conflict) => `“${conflict.title}”`).join("、");
+        if (!await appConfirm({
+          title: "时间与现有日程冲突",
+          description: `调整后的时间与 ${conflictNames} 冲突。仍然调整这个日程的时长吗？`,
+          confirmLabel: "仍然调整",
+        })) {
+          setFeedback("已取消调整日程时长");
+          return;
+        }
+        result = await requestResize(true);
+      }
+      if (!result.response.ok || !result.payload.ok) throw new Error(result.payload.message ?? "无法调整日程时长");
+      setSnapshot((current) => current ? {
+        ...current,
+        events: current.events.map((entry) => entry.id === event.id ? { ...entry, end: targetEnd.toISOString() } : entry),
+      } : current);
+      void loadToday({ background: true });
+      setFeedback(`已调整“${event.title}”的时长`);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "无法调整日程时长");
+    } finally {
+      setBusyEventId(undefined);
+    }
+  };
+
   const runMailAction = async (message: TodayMailItem, action: TodayMailAction) => {
     if (busyMailId) return;
     if (action === "delete" && !await appConfirm({
@@ -301,7 +374,7 @@ export function TodayPage() {
       <div className="today-layout">
         <section className="panel schedule-panel">
           <h2><Clock3 size={19} />今日安排 <small>{snapshot.events.length}</small></h2>
-          {snapshot.events.length ? <TodayTimeline events={snapshot.events} dayStartValue={snapshot.from} onOpenMenu={(event, x, y, returnFocus) => openContextMenu("event", event.id, x, y, returnFocus)} />
+          {snapshot.events.length ? <TodayTimeline events={snapshot.events} dayStartValue={snapshot.from} busyEventId={busyEventId} onResizeEvent={(event, end) => void resizeEvent(event, end)} onOpenMenu={(event, x, y, returnFocus) => openContextMenu("event", event.id, x, y, returnFocus)} />
             : <TodayEmpty icon={<CalendarDays size={20} />} text="今天没有日程安排" />}
         </section>
         <div className="today-side">
@@ -408,18 +481,32 @@ interface LaidOutTodayEvent {
   readonly columns: number;
 }
 
+interface TodayEventResizePreview {
+  readonly eventId: string;
+  readonly pointerId: number;
+  readonly start: Date;
+  readonly originalEnd: Date;
+  readonly end: Date;
+}
+
 const TODAY_TIMELINE_HOUR_HEIGHT = 56;
 const TODAY_TIMELINE_MIN_EVENT_HEIGHT = 30;
 
 function TodayTimeline({
   events,
   dayStartValue,
+  busyEventId,
+  onResizeEvent,
   onOpenMenu,
 }: {
   readonly events: readonly TodayEventItem[];
   readonly dayStartValue: string;
+  readonly busyEventId?: string;
+  readonly onResizeEvent: (event: TodayEventItem, end: Date) => void;
   readonly onOpenMenu: (event: TodayEventItem, x: number, y: number, returnFocus?: HTMLElement | null) => void;
 }) {
+  const [resizePreview, setResizePreview] = useState<TodayEventResizePreview>();
+  const resizePreviewRef = useRef<TodayEventResizePreview | undefined>(undefined);
   const dayStart = new Date(dayStartValue);
   const timedEvents = events.filter((event) => !event.allDay);
   const allDayEvents = events.filter((event) => event.allDay);
@@ -433,7 +520,7 @@ function TodayTimeline({
   const startHour = Math.max(0, Math.min(8, Math.floor(Math.min(...(eventMinutes.length ? eventMinutes : [8 * 60])) / 60)));
   const endHour = Math.min(24, Math.max(
     18,
-    Math.ceil(Math.max(...(eventMinutes.length ? eventMinutes : [18 * 60])) / 60),
+    Math.ceil(Math.max(...(eventMinutes.length ? eventMinutes : [17 * 60])) / 60) + 1,
     nowMinutes === undefined ? 0 : Math.ceil(nowMinutes / 60),
     startHour + 1,
   ));
@@ -445,6 +532,65 @@ function TodayTimeline({
   const nowTop = nowMinutes !== undefined && nowMinutes >= rangeStartMinutes && nowMinutes <= rangeEndMinutes
     ? ((nowMinutes - rangeStartMinutes) / 60) * TODAY_TIMELINE_HOUR_HEIGHT
     : undefined;
+
+  const setActiveResize = (preview: TodayEventResizePreview | undefined) => {
+    resizePreviewRef.current = preview;
+    setResizePreview(preview);
+  };
+
+  const beginResize = (pointerEvent: ReactPointerEvent<HTMLSpanElement>, event: TodayEventItem) => {
+    if (busyEventId || event.deleteDisabledReason) return;
+    if (pointerEvent.pointerType === "mouse" && pointerEvent.button !== 0) return;
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+    pointerEvent.currentTarget.setPointerCapture(pointerEvent.pointerId);
+    setActiveResize({
+      eventId: event.id,
+      pointerId: pointerEvent.pointerId,
+      start: new Date(event.start),
+      originalEnd: new Date(event.end),
+      end: new Date(event.end),
+    });
+  };
+
+  const updateResize = (pointerEvent: ReactPointerEvent<HTMLSpanElement>) => {
+    const current = resizePreviewRef.current;
+    if (!current || current.pointerId !== pointerEvent.pointerId) return;
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+    if (pointerEvent.clientY < 48) window.scrollBy(0, -12);
+    else if (pointerEvent.clientY > window.innerHeight - 48) window.scrollBy(0, 12);
+    const canvas = pointerEvent.currentTarget.closest<HTMLElement>(".today-event-canvas");
+    if (!canvas) return;
+    const bounds = canvas.getBoundingClientRect();
+    const rawMinutes = rangeStartMinutes + ((pointerEvent.clientY - bounds.top) / TODAY_TIMELINE_HOUR_HEIGHT) * 60;
+    const roundedMinutes = Math.round(rawMinutes / 5) * 5;
+    const clampedMinutes = Math.max(rangeStartMinutes, Math.min(rangeEndMinutes, roundedMinutes));
+    const candidateEnd = new Date(dayStart.getTime() + clampedMinutes * 60_000);
+    setActiveResize({ ...current, end: new Date(Math.max(current.start.getTime() + 5 * 60_000, candidateEnd.getTime())) });
+  };
+
+  const finishResize = (pointerEvent: ReactPointerEvent<HTMLSpanElement>) => {
+    updateResize(pointerEvent);
+    const current = resizePreviewRef.current;
+    if (!current || current.pointerId !== pointerEvent.pointerId) return;
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+    if (pointerEvent.currentTarget.hasPointerCapture(pointerEvent.pointerId)) pointerEvent.currentTarget.releasePointerCapture(pointerEvent.pointerId);
+    setActiveResize(undefined);
+    if (current.end.getTime() !== current.originalEnd.getTime()) {
+      const resizedEvent = events.find((event) => event.id === current.eventId);
+      if (resizedEvent) onResizeEvent(resizedEvent, current.end);
+    }
+  };
+
+  const cancelResize = (pointerEvent: ReactPointerEvent<HTMLSpanElement>) => {
+    const current = resizePreviewRef.current;
+    if (!current || current.pointerId !== pointerEvent.pointerId) return;
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+    setActiveResize(undefined);
+  };
 
   return (
     <div className="today-timeline">
@@ -461,16 +607,37 @@ function TodayTimeline({
         <div className="today-event-canvas">
           {laidOutEvents.map(({ event, top, height, column, columns }) => {
             const width = 100 / columns;
+            const activeResize = resizePreview?.eventId === event.id ? resizePreview : undefined;
+            const eventStartMinutes = Math.max(rangeStartMinutes, minutesSince(dayStart, event.start));
+            const previewEndMinutes = activeResize ? Math.min(rangeEndMinutes, minutesSince(dayStart, activeResize.end.toISOString())) : undefined;
+            const displayHeight = previewEndMinutes === undefined
+              ? height
+              : Math.max(TODAY_TIMELINE_MIN_EVENT_HEIGHT, ((previewEndMinutes - eventStartMinutes) / 60) * TODAY_TIMELINE_HOUR_HEIGHT);
+            const resizable = !busyEventId && !event.deleteDisabledReason
+              && new Date(event.start).getTime() >= dayStart.getTime()
+              && new Date(event.end).getTime() <= dayStart.getTime() + 24 * 60 * 60_000;
             return <TodayEventLink
-              className={`today-timeline-event${height < 44 ? " compact" : ""}`}
-              event={event}
+              className={`today-timeline-event${displayHeight < 44 ? " compact" : ""}${activeResize ? " resizing" : ""}`}
+              event={activeResize ? { ...event, end: activeResize.end.toISOString() } : event}
               style={{
                 top,
-                height,
+                height: displayHeight,
                 left: `${column * width}%`,
                 width: `calc(${width}% - 5px)`,
                 borderLeftColor: event.calendarColor,
               }}
+              resizeHandle={resizable ? <span
+                className="today-event-resize-handle"
+                title="拖动修改时长"
+                onPointerDown={(pointerEvent) => beginResize(pointerEvent, event)}
+                onPointerMove={updateResize}
+                onPointerUp={finishResize}
+                onPointerCancel={cancelResize}
+                onClick={(clickEvent) => {
+                  clickEvent.preventDefault();
+                  clickEvent.stopPropagation();
+                }}
+              /> : undefined}
               onOpenMenu={onOpenMenu}
               key={event.id}
             />;
@@ -486,11 +653,13 @@ function TodayEventLink({
   event,
   className,
   style,
+  resizeHandle,
   onOpenMenu,
 }: {
   readonly event: TodayEventItem;
   readonly className: string;
   readonly style?: CSSProperties;
+  readonly resizeHandle?: ReactNode;
   readonly onOpenMenu: (event: TodayEventItem, x: number, y: number, returnFocus?: HTMLElement | null) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -515,6 +684,7 @@ function TodayEventLink({
         <span className="today-event-time">{event.allDay ? "全天" : formatTodayEventClockRange(event)}</span>
         <strong>{event.title}</strong>
         <small>{event.calendarName}{event.location ? ` · ${event.location}` : ""}</small>
+        {resizeHandle}
       </Link>
     </HoverCardTrigger>
     <HoverCardContent className="today-event-hover-card" align="start" side="right" sideOffset={8} collisionPadding={12}>

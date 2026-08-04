@@ -869,8 +869,9 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .today-hour-mark i { display: block; height: 1px; background: var(--line); }
 .today-hour-mark.end i { opacity: .75; }
 .today-event-canvas { position: absolute; inset: 0 0 0 55px; }
-.today-timeline-event { position: absolute; z-index: 2; display: flex; overflow: hidden; box-sizing: border-box; min-width: 0; flex-direction: column; gap: 2px; padding: 5px 8px; color: inherit; background: #30363b; border: 1px solid #464e53; border-left-width: 3px; border-radius: 6px; text-decoration: none; transition: background .12s ease, border-color .12s ease, box-shadow .12s ease; }
+.today-timeline-event { position: absolute; z-index: 2; display: flex; overflow: hidden; box-sizing: border-box; min-width: 0; flex-direction: column; gap: 2px; padding: 5px 8px 8px; color: inherit; background: #30363b; border: 1px solid #464e53; border-left-width: 3px; border-radius: 6px; text-decoration: none; transition: background .12s ease, border-color .12s ease, box-shadow .12s ease; }
 .today-timeline-event:hover, .today-timeline-event:focus-visible, .today-all-day-event:hover, .today-all-day-event:focus-visible { z-index: 5; background: #374149; border-color: #627687; box-shadow: 0 3px 12px rgb(0 0 0 / 20%); outline: none; }
+.today-timeline-event.resizing { z-index: 6; cursor: ns-resize; box-shadow: 0 5px 16px rgb(0 0 0 / 28%); }
 .today-timeline-event .today-event-time { color: var(--muted); font-size: 12px; line-height: 1.2; white-space: nowrap; }
 .today-timeline-event strong { overflow: hidden; font-size: 13px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
 .today-timeline-event small { overflow: hidden; color: var(--muted); font-size: 12px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
@@ -878,6 +879,9 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .today-timeline-event.compact .today-event-time { flex: 0 0 auto; }
 .today-timeline-event.compact strong { min-width: 0; }
 .today-timeline-event.compact small { display: none; }
+.today-event-resize-handle { position: absolute; right: 3px; bottom: 0; left: 3px; height: 8px; cursor: ns-resize; touch-action: none; }
+.today-event-resize-handle::after { position: absolute; bottom: 2px; left: 50%; width: 22px; height: 2px; content: ""; background: currentcolor; border-radius: 2px; opacity: 0; transform: translateX(-50%); }
+.today-timeline-event:hover .today-event-resize-handle::after, .today-timeline-event.resizing .today-event-resize-handle::after { opacity: .72; }
 .today-now-line { position: absolute; right: 0; left: 0; z-index: 4; height: 1px; pointer-events: none; background: #ff655d; }
 .today-now-line > i { position: absolute; top: -3px; left: -4px; width: 7px; height: 7px; background: #ff655d; border-radius: 50%; }
 .today-now-line > time { position: absolute; top: -9px; right: 3px; padding: 1px 4px; color: #e95c55; background: var(--surface); font-size: 12px; font-weight: 650; }

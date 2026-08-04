@@ -17,7 +17,7 @@ async function main() {
   const database = await getDatabase();
 
   try {
-    await calendar.upsertStoredCalendarEvent({
+    const todayEvent = await calendar.upsertStoredCalendarEvent({
       calendarId: "local:personal",
       title: "Today review",
       start: "2026-07-21T09:00:00.000Z",
@@ -31,7 +31,7 @@ async function main() {
       end: "2026-07-22T10:00:00.000Z",
       timeZone: "Europe/Berlin",
     });
-    await tasks.saveStoredTask({
+    const dueTodayTask = await tasks.saveStoredTask({
       title: "Due today",
       status: "next",
       important: true,
@@ -58,9 +58,14 @@ async function main() {
       urgencyMode: "urgent",
       dueAt: "2026-07-20T15:00:00.000Z",
     });
+    await database.query(
+      "INSERT INTO task_time_blocks (task_id, calendar_event_id) VALUES ($1, $2)",
+      [dueTodayTask.id, todayEvent.id],
+    );
 
     const snapshot = await today.getTodaySnapshot("2026-07-21T00:00:00.000Z", "2026-07-22T00:00:00.000Z");
     assert(snapshot.events.length === 1 && snapshot.events[0]?.title === "Today review", "Today includes only overlapping calendar events");
+    assert(snapshot.events[0]?.linkedTask?.id === dueTodayTask.id, "Today includes calendar task links for schedule editing");
     assert(
       snapshot.tasks.length === 2
         && snapshot.tasks[0]?.title === "Due today"

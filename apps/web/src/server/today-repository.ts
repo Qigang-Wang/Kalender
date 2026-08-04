@@ -1,12 +1,14 @@
 import { listStoredCalendarEvents, listStoredCalendars } from "./calendar-repository";
 import { listUnreadInboxSummary } from "./mail-repository";
 import { listStoredTodayTasks, type TaskSourceReference } from "./task-repository";
+import { listCalendarTaskLinks } from "./task-schedule";
 
 export interface TodayEventItem {
   readonly id: string;
   readonly calendarId: string;
   readonly title: string;
   readonly description?: string;
+  readonly descriptionContent?: string;
   readonly location?: string;
   readonly start: string;
   readonly end: string;
@@ -19,6 +21,8 @@ export interface TodayEventItem {
   readonly calendarColor: string;
   readonly recurrenceSeriesId?: string;
   readonly recurrenceId?: string;
+  readonly timeZone?: string;
+  readonly linkedTask?: { readonly id: string; readonly title: string; readonly href: string };
   readonly deleteDisabledReason?: string;
   readonly href: string;
 }
@@ -79,6 +83,7 @@ export async function getTodaySnapshot(from: string, to: string): Promise<TodayS
   const fromTime = new Date(from).getTime();
   const toTime = new Date(to).getTime();
   const calendarById = new Map(calendars.map((calendar) => [calendar.id, calendar]));
+  const calendarTaskLinks = await listCalendarTaskLinks(events.map((event) => event.id));
   const todayTasks = tasks
     .slice(0, 8)
     .map((task): TodayTaskItem => {
@@ -126,6 +131,7 @@ export async function getTodaySnapshot(from: string, to: string): Promise<TodayS
         calendarId: event.calendarId,
         title: event.title,
         description: todayEventDescription(event.description),
+        descriptionContent: event.descriptionContent,
         location: event.location,
         start: event.start,
         end: event.end,
@@ -138,6 +144,8 @@ export async function getTodaySnapshot(from: string, to: string): Promise<TodayS
         calendarColor: calendar?.color ?? "#86bdf5",
         recurrenceSeriesId: event.recurrenceSeriesId,
         recurrenceId: event.recurrenceId,
+        timeZone: event.timeZone,
+        linkedTask: calendarTaskLinks.get(event.id),
         deleteDisabledReason: todayEventDeleteDisabledReason(event, calendar),
         href: `/calendar?event=${encodeURIComponent(event.id)}&date=${encodeURIComponent(event.start)}`,
       };
