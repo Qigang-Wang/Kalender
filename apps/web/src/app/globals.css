@@ -2228,6 +2228,8 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .note-plate-editor { min-height: 0; flex: 1; overflow-y: auto; background: transparent; }
 .note-plate-editor > div:first-child { border-radius: 0; }
 .note-plate-content { min-height: 500px; color: #e2e5e3; font-size: 16px; line-height: 1.8; caret-color: var(--blue); }
+.editor-media-unavailable { display: flex; min-height: 54px; align-items: center; gap: 9px; padding: 12px; color: #d8aaa4; background: #2b211f; border: 1px solid #69423d; border-radius: 6px; font-size: 12px; }
+.editor-media-unavailable svg { flex: 0 0 auto; }
 .note-plate-content ::selection { background: #315777; }
 .note-relations { padding: 16px 24px 18px; border-top: 1px solid var(--line); }
 .note-relations-heading > span { gap: 7px; font-size: 12px; }
@@ -3995,6 +3997,11 @@ html[data-qgw-scheme="light"] .note-plate-editor {
 }
 html[data-qgw-scheme="light"] .note-plate-content ::selection {
   background: color-mix(in srgb, var(--blue) 22%, transparent);
+}
+html[data-qgw-scheme="light"] .editor-media-unavailable {
+  color: #8f3d35;
+  background: #fff4f1;
+  border-color: #e1b2aa;
 }
 html[data-qgw-scheme="light"] :is(
   .auth-context div,

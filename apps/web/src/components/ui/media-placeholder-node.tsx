@@ -56,7 +56,9 @@ export const PlaceholderElement = withHOC(
     const { api } = useEditorPlugin(PlaceholderPlugin);
 
     const { isUploading, progress, uploadedFile, uploadFile, uploadingFile } =
-      useUploadFile();
+      useUploadFile({
+        onUploadError: () => api.placeholder.removeUploadingFile(element.id as string),
+      });
 
     const loading = isUploading && uploadingFile;
 
@@ -83,8 +85,8 @@ export const PlaceholderElement = withHOC(
 
     const replaceCurrentPlaceholder = React.useCallback(
       (file: File) => {
-        void uploadFile(file);
         api.placeholder.addUploadingFile(element.id as string, file);
+        void uploadFile(file).catch(() => undefined);
       },
       [api.placeholder, element.id, uploadFile]
     );

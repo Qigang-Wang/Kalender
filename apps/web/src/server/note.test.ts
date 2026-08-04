@@ -13,6 +13,7 @@ async function main() {
   const notes = await import("./note-repository");
   const tasks = await import("./task-repository");
   const projectRepository = await import("./project-repository");
+  const editorAssets = await import("./editor-asset-service");
   const projectValidation = await import("./project-validation");
   const entityLinks = await import("./entity-link-repository");
   const {
@@ -23,6 +24,33 @@ async function main() {
   } = await import("./note-validation");
   const { getDatabase } = await import("./database");
   const database = await getDatabase();
+
+  const assetUserId = randomUUID();
+  await database.query(
+    `INSERT INTO app_users (id, display_name, email, password_hash, role)
+     VALUES ($1, 'Asset Test', $2, 'test-hash', 'user')`,
+    [assetUserId, `asset-${assetUserId}@example.test`],
+  );
+  const sourceImage = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+  const savedAsset = await editorAssets.saveEditorAsset(
+    new File([sourceImage], "clipboard.png", { type: "image/png" }),
+    assetUserId,
+  );
+  const loadedAsset = await editorAssets.getEditorAsset(savedAsset.id, assetUserId);
+  assert(loadedAsset?.filename === "clipboard.png", "editor assets preserve their filename");
+  assert(Buffer.from(loadedAsset?.content ?? []).equals(Buffer.from(sourceImage)), "editor asset bytes survive persistence");
+  assert(!await editorAssets.getEditorAsset(savedAsset.id, randomUUID()), "editor assets are isolated by user");
+  assert(editorAssets.editorAssetDisposition("image/png") === "inline", "safe image assets render inline");
+  assert(editorAssets.editorAssetDisposition("text/html") === "attachment", "untrusted assets download as attachments");
+  try {
+    await editorAssets.saveEditorAsset(
+      new File(["<svg/>"], "unsafe.svg", { type: "image/svg+xml" }),
+      assetUserId,
+    );
+    throw new Error("SVG editor asset unexpectedly accepted");
+  } catch (error) {
+    assert(error instanceof editorAssets.EditorAssetError, "unsafe SVG editor assets are rejected");
+  }
 
   const project = await notes.saveStoredProject(parseProjectInput({
     name: " Kalender Development ",

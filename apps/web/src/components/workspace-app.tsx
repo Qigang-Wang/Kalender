@@ -85,6 +85,7 @@ export type { TaskView } from "./pages/tasks-page";
 import { GlobalCommandBar } from "./global-command-bar";
 import { WorkspaceAssistantProvider, useWorkspaceAssistant } from "./workspace-assistant-context";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { isDesktopApp, waitForDesktopApp } from "@/lib/desktop-bridge";
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
 import { appConfirm, appPrompt } from "@/components/app-dialog-provider";
 import {
@@ -339,12 +340,14 @@ const settingsNavigation: ReadonlyArray<{
   { tab: "backup", label: "备份", icon: DatabaseBackup },
 ];
 
-function visibleSettingsNavigation(role: AppRole) {
-  return settingsNavigation.filter((item) => !item.adminOnly || role === "admin");
+function visibleSettingsNavigation(role: AppRole, desktopAvailable: boolean) {
+  return settingsNavigation.filter((item) => (
+    (!item.adminOnly || role === "admin") && (item.tab !== "desktop" || desktopAvailable)
+  ));
 }
 
-function normalizeSettingsTab(value: string | null | undefined, role: AppRole): SettingsTab {
-  const visibleTabs = new Set(visibleSettingsNavigation(role).map((item) => item.tab));
+function normalizeSettingsTab(value: string | null | undefined, role: AppRole, desktopAvailable: boolean): SettingsTab {
+  const visibleTabs = new Set(visibleSettingsNavigation(role, desktopAvailable).map((item) => item.tab));
   return visibleTabs.has(value as SettingsTab) ? value as SettingsTab : "appearance";
 }
 
@@ -567,15 +570,28 @@ function WorkspaceAppContent({
   const [draggedSidebarProjectId, setDraggedSidebarProjectId] = useState<string>();
   const [projectDropTarget, setProjectDropTarget] = useState<SidebarProjectDropTarget>();
   const [uiPreferencesLoaded, setUiPreferencesLoaded] = useState(false);
+  const [desktopAvailable, setDesktopAvailable] = useState(false);
   const uiPreferenceSaveTimersRef = useRef(new Map<string, number>());
   const mailAccountPreferenceFoundRef = useRef(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
-  const activeSettingsTab = normalizeSettingsTab(searchParams.get("tab"), currentUser.role);
-  const visibleSettingItems = visibleSettingsNavigation(currentUser.role);
+  const activeSettingsTab = normalizeSettingsTab(searchParams.get("tab"), currentUser.role, desktopAvailable);
+  const visibleSettingItems = visibleSettingsNavigation(currentUser.role, desktopAvailable);
   const sidebarUnreadCount = sidebarMailAccounts?.reduce((total, account) => total + account.unreadCount, 0)
     ?? sidebarMailUnreadCount;
   const userInitial = userInitialFor(currentUser.displayName, currentUser.email);
   const assistantAvailable = section === "inbox" || section === "calendar" || section === "tasks";
+
+  useEffect(() => {
+    if (isDesktopApp()) {
+      setDesktopAvailable(true);
+      return;
+    }
+    let disposed = false;
+    void waitForDesktopApp().then((available) => {
+      if (!disposed && available) setDesktopAvailable(true);
+    });
+    return () => { disposed = true; };
+  }, []);
 
   const applyUiPreferences = useCallback((preferences: Readonly<Record<string, unknown>>) => {
     const projectAreas = new Set(stringArrayFromPreference(preferences[UI_PREF_COLLAPSED_PROJECT_AREAS_KEY]));
@@ -1575,7 +1591,7 @@ function WorkspaceAppContent({
           style={{ "--context-assistant-width": `${assistantWidth}px` } as CSSProperties}
         >
           <main className="page-main">
-            <PageContent section={section} currentUser={currentUser} initialMessageId={initialMessageId} initialMailFolderId={initialMailFolderId} initialMailCorrespondent={initialMailCorrespondent} initialComposeTo={initialComposeTo} initialTaskId={initialTaskId} initialTaskView={initialTaskView} initialCreateTask={initialCreateTask} initialScheduleTaskId={initialScheduleTaskId} initialEventId={initialEventId} initialCalendarDate={initialCalendarDate} initialNoteId={initialNoteId} initialNoteFilter={initialNoteFilter} initialProjectId={initialProjectId} onOpenAssistant={() => setAssistantOpen(true)} />
+            <PageContent section={section} currentUser={currentUser} desktopAvailable={desktopAvailable} initialMessageId={initialMessageId} initialMailFolderId={initialMailFolderId} initialMailCorrespondent={initialMailCorrespondent} initialComposeTo={initialComposeTo} initialTaskId={initialTaskId} initialTaskView={initialTaskView} initialCreateTask={initialCreateTask} initialScheduleTaskId={initialScheduleTaskId} initialEventId={initialEventId} initialCalendarDate={initialCalendarDate} initialNoteId={initialNoteId} initialNoteFilter={initialNoteFilter} initialProjectId={initialProjectId} onOpenAssistant={() => setAssistantOpen(true)} />
           </main>
           {assistantAvailable && assistantOpen && <>
             <button className="assistant-scrim" type="button" aria-label="关闭上下文助手" onClick={() => setAssistantOpen(false)} />
@@ -2635,6 +2651,7 @@ function SidebarProjectLink({
 function PageContent({
   section,
   currentUser,
+  desktopAvailable,
   initialMessageId,
   initialMailFolderId,
   initialMailCorrespondent,
@@ -2657,6 +2674,7 @@ function PageContent({
     readonly email: string;
     readonly role: AppRole;
   };
+  readonly desktopAvailable: boolean;
   readonly initialMessageId?: string;
   readonly initialMailFolderId?: string;
   readonly initialMailCorrespondent?: string;
@@ -2680,7 +2698,7 @@ function PageContent({
     case "projects": return <ProjectsPage initialProjectId={initialProjectId} />;
     case "notes": return <NotesPage initialNoteId={initialNoteId} initialFilter={initialNoteFilter} initialProjectId={initialProjectId} />;
     case "ai": return <AiPage />;
-    case "settings": return <SettingsPage currentUser={currentUser} />;
+    case "settings": return <SettingsPage currentUser={currentUser} desktopAvailable={desktopAvailable} />;
   }
 }
 
@@ -2691,10 +2709,10 @@ type WorkspaceUser = {
   readonly role: AppRole;
 };
 
-function SettingsPage({ currentUser }: { readonly currentUser: WorkspaceUser }) {
+function SettingsPage({ currentUser, desktopAvailable }: { readonly currentUser: WorkspaceUser; readonly desktopAvailable: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const activeTab = normalizeSettingsTab(searchParams.get("tab"), currentUser.role);
+  const activeTab = normalizeSettingsTab(searchParams.get("tab"), currentUser.role, desktopAvailable);
   return (
     <div className="settings-page">
       <div className="settings-content">

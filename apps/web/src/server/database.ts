@@ -1667,6 +1667,21 @@ const PROJECT_GANTT_ITEM_ORDER_SCHEMA_SQL = String.raw`
     ON tasks (project_id, phase_id, gantt_sort_order, created_at);
 `;
 
+const EDITOR_ASSETS_SCHEMA_SQL = String.raw`
+  CREATE TABLE IF NOT EXISTS editor_assets (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+    filename text NOT NULL,
+    mime_type text NOT NULL,
+    size_bytes integer NOT NULL CHECK (size_bytes > 0),
+    content bytea NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  CREATE INDEX IF NOT EXISTS editor_assets_user_created_idx
+    ON editor_assets (user_id, created_at DESC);
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1699,6 +1714,7 @@ export const DATABASE_MIGRATIONS = [
   { version: 29, name: "project-milestone-phases", sql: PROJECT_MILESTONE_PHASES_SCHEMA_SQL },
   { version: 30, name: "project-gantt-item-order", sql: PROJECT_GANTT_ITEM_ORDER_SCHEMA_SQL },
   { version: 31, name: "automatic-backup-encryption-opt-in", sql: AUTOMATIC_BACKUP_ENCRYPTION_OPT_IN_SQL },
+  { version: 32, name: "persistent-editor-assets", sql: EDITOR_ASSETS_SCHEMA_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

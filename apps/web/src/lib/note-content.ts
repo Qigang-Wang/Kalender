@@ -32,6 +32,10 @@ export function encodeNoteContent(value: PlateNoteValue): string {
   return `${PLATE_NOTE_PREFIX}${JSON.stringify(value)}`;
 }
 
+export function isTransientEditorMediaUrl(value: unknown): boolean {
+  return typeof value === "string" && /^(?:blob|file):/i.test(value.trim());
+}
+
 export function noteContentToPlainText(value: string): string {
   const document = decodeNoteContent(value);
 

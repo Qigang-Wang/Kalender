@@ -3,6 +3,7 @@ import {
   PLATE_NOTE_PREFIX,
   decodeNoteContent,
   encodeNoteContent,
+  isTransientEditorMediaUrl,
   noteContentToPlainText,
 } from "./note-content";
 import { calendarDescriptionLinks } from "./calendar-description";
@@ -62,6 +63,9 @@ const table = encodeNoteContent([
 ]);
 assert(noteContentToPlainText(table) === "事项\t负责人", "tables remain searchable");
 assert(decodeNoteContent(`${PLATE_NOTE_PREFIX}{broken`)[0]?.type === "p", "damaged JSON falls back safely");
+assert(isTransientEditorMediaUrl("blob:https://kalender.example/temp-id"), "browser object URLs are treated as transient");
+assert(isTransientEditorMediaUrl("file:///C:/Users/example/image.png"), "local file URLs are treated as transient");
+assert(!isTransientEditorMediaUrl("/api/editor-assets/persistent-id"), "server asset URLs remain usable");
 
 const recognizedLinks = calendarDescriptionLinks(encodeNoteContent([
   {
