@@ -1568,6 +1568,21 @@ const AUTOMATIC_BACKUP_RETENTION_THREE_SQL = String.raw`
      AND retention_count = 14;
 `;
 
+const AUTOMATIC_BACKUP_ENCRYPTION_OPT_IN_SQL = String.raw`
+  ALTER TABLE backup_settings
+    ALTER COLUMN encrypt_automatic SET DEFAULT false;
+
+  UPDATE backup_settings
+     SET encrypt_automatic = false,
+         updated_at = now()
+   WHERE id = 'workspace'
+     AND enabled = false
+     AND encrypt_automatic = true
+     AND updated_by_user_id IS NULL
+     AND last_enqueued_at IS NULL
+     AND last_completed_at IS NULL;
+`;
+
 const USER_PREFERENCES_SCHEMA_SQL = String.raw`
   CREATE TABLE IF NOT EXISTS user_preferences (
     id text PRIMARY KEY,
@@ -1683,6 +1698,7 @@ export const DATABASE_MIGRATIONS = [
   { version: 28, name: "project-sort-order", sql: PROJECT_SORT_ORDER_SCHEMA_SQL },
   { version: 29, name: "project-milestone-phases", sql: PROJECT_MILESTONE_PHASES_SCHEMA_SQL },
   { version: 30, name: "project-gantt-item-order", sql: PROJECT_GANTT_ITEM_ORDER_SCHEMA_SQL },
+  { version: 31, name: "automatic-backup-encryption-opt-in", sql: AUTOMATIC_BACKUP_ENCRYPTION_OPT_IN_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

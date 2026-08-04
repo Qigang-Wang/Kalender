@@ -47,7 +47,7 @@ export async function PUT(request: Request) {
       enabled: body?.enabled === true,
       intervalHours: Number(body?.intervalHours ?? 24),
       retentionCount: Number(body?.retentionCount ?? 3),
-      encryptAutomatic: body?.encryptAutomatic !== false,
+      encryptAutomatic: body?.encryptAutomatic === true,
     });
     return NextResponse.json({ ok: true, settings });
   } catch (error) {

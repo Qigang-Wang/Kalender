@@ -184,7 +184,7 @@ function EditorLoading({ label }: { readonly label: string }) {
   return <div className="editor-loading" role="status"><LoaderCircle className="spin" size={18} />{label}</div>;
 }
 
-export const sections = ["today", "inbox", "calendar", "tasks", "projects", "notes", "ai", "settings"] as const;
+export const sections = ["today", "inbox", "calendar", "tasks", "notes", "projects", "ai", "settings"] as const;
 export type WorkspaceSection = (typeof sections)[number];
 
 interface SidebarMailAccount {
@@ -294,8 +294,8 @@ const navigation: ReadonlyArray<{
   { section: "inbox", label: "Inbox", icon: Inbox },
   { section: "calendar", label: "Calendar", icon: CalendarDays },
   { section: "tasks", label: "Tasks", icon: CheckCircle2 },
-  { section: "projects", label: "Projects", icon: Folder },
   { section: "notes", label: "Notes", icon: NotebookPen },
+  { section: "projects", label: "Projects", icon: Folder },
   { section: "ai", label: "AI Command", icon: WandSparkles },
 ];
 
@@ -4453,6 +4453,7 @@ function BackupSettings() {
             <small>下次执行：{automatic.enabled && automatic.nextRunAt ? formatAccountTime(automatic.nextRunAt) : "未计划"}</small>
             <small>最近完成：{automatic.lastCompletedAt ? formatAccountTime(automatic.lastCompletedAt) : "暂无"}</small>
             {automatic.encryptAutomatic && !automatic.encryptionPasswordConfigured && <small className="backup-risk">自动加密需要在服务器设置 KALENDER_BACKUP_PASSWORD。</small>}
+            {!automatic.encryptAutomatic && <small>未启用加密时，自动备份不需要备份密码。</small>}
           </footer>
         </div>
       )}

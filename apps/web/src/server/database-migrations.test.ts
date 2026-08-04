@@ -189,8 +189,8 @@ async function verifyLegacyUpgrade(database: TestPostgresDatabase) {
     );
   `);
 
-  await runDatabaseMigrations(database, DATABASE_MIGRATIONS.slice(0, -1));
-  await database.query("UPDATE backup_settings SET retention_count = 14 WHERE id = 'workspace'");
+  await runDatabaseMigrations(database, DATABASE_MIGRATIONS.slice(0, 25));
+  await database.query("UPDATE backup_settings SET retention_count = 14, encrypt_automatic = true WHERE id = 'workspace'");
   const status = await runDatabaseMigrations(database, DATABASE_MIGRATIONS);
   assert(
     status.currentVersion === LATEST_DATABASE_SCHEMA_VERSION && status.pendingVersions.length === 0,
@@ -200,10 +200,11 @@ async function verifyLegacyUpgrade(database: TestPostgresDatabase) {
     "SELECT count(*)::integer AS count FROM schema_migrations",
   );
   assert(migrationRows.rows[0]?.count === DATABASE_MIGRATIONS.length, "every applied migration is recorded");
-  const backupSettings = await database.query<{ retention_count: number }>(
-    "SELECT retention_count FROM backup_settings WHERE id = 'workspace'",
+  const backupSettings = await database.query<{ retention_count: number; encrypt_automatic: boolean }>(
+    "SELECT retention_count, encrypt_automatic FROM backup_settings WHERE id = 'workspace'",
   );
   assert(backupSettings.rows[0]?.retention_count === 3, "legacy automatic backup retention is reduced to three");
+  assert(backupSettings.rows[0]?.encrypt_automatic === false, "untouched automatic backup settings do not require encryption");
   const linkedTask = await database.query<{ project_id: string | null; project_name: string | null; area_name: string | null }>(
     "SELECT project_id, project_name, area_name FROM tasks WHERE id = 'legacy-task'",
   );

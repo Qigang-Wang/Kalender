@@ -719,10 +719,8 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     }
   };
 
-  const moveTaskTimeBlock = async (event: CalendarViewEvent, start: Date) => {
+  const updateTaskTimeBlock = async (event: CalendarViewEvent, start: Date, end: Date, action: "移动" | "调整时长") => {
     if (taskDropBusy || !event.linkedTask) return;
-    const duration = Math.max(5 * 60_000, new Date(event.end).getTime() - new Date(event.start).getTime());
-    const end = new Date(start.getTime() + duration);
     setTaskDropBusy(true);
     try {
       const requestMove = async (allowConflicts: boolean) => {
@@ -739,10 +737,10 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
         const conflictNames = result.payload.conflicts.slice(0, 3).map((conflict) => `“${conflict.title}”`).join("、");
         if (!await appConfirm({
           title: "时间与现有日程冲突",
-          description: `新时间与 ${conflictNames} 冲突。仍然移动这个任务时间块吗？`,
-          confirmLabel: "仍然移动",
+          description: `新时间与 ${conflictNames} 冲突。仍然${action}这个任务时间块吗？`,
+          confirmLabel: `仍然${action}`,
         })) {
-          setFeedback("已取消移动时间块");
+          setFeedback(`已取消${action}时间块`);
           return;
         }
         result = await requestMove(true);
@@ -750,12 +748,22 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       if (!result.response.ok || !result.payload.task || !result.payload.event) throw new Error(result.payload.message ?? "无法调整时间块");
       setCalendarTasks((current) => current.map((item) => item.id === result.payload.task!.id ? result.payload.task! : item));
       setEvents((current) => [...current.filter((item) => item.id !== result.payload.event!.id), result.payload.event!].sort((left, right) => left.start.localeCompare(right.start)));
-      setFeedback(`已重新安排“${result.payload.task.title}”`);
+      setFeedback(action === "移动" ? `已重新安排“${result.payload.task.title}”` : `已调整“${result.payload.task.title}”的时长`);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法调整时间块");
     } finally {
       setTaskDropBusy(false);
     }
+  };
+
+  const moveTaskTimeBlock = async (event: CalendarViewEvent, start: Date) => {
+    const duration = Math.max(5 * 60_000, new Date(event.end).getTime() - new Date(event.start).getTime());
+    await updateTaskTimeBlock(event, start, new Date(start.getTime() + duration), "移动");
+  };
+
+  const resizeTaskTimeBlock = async (event: CalendarViewEvent, end: Date) => {
+    const start = new Date(event.start);
+    await updateTaskTimeBlock(event, start, new Date(Math.max(start.getTime() + 5 * 60_000, end.getTime())), "调整时长");
   };
 
   const moveCalendarEvent = async (event: CalendarViewEvent, start: Date) => {
@@ -831,6 +839,76 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     }
   };
 
+  const resizeCalendarEvent = async (event: CalendarViewEvent, end: Date) => {
+    if (event.linkedTask) {
+      await resizeTaskTimeBlock(event, end);
+      return;
+    }
+    if (calendarMoveBusy || event.allDay) return;
+    const calendar = calendars.find((item) => item.id === event.calendarId);
+    const disabledReason = calendarEventWriteDisabledReason(event, calendar);
+    if (disabledReason) {
+      setFeedback(disabledReason);
+      return;
+    }
+    const targetStart = new Date(event.start);
+    const originalEnd = new Date(event.end);
+    const targetEnd = new Date(Math.max(targetStart.getTime() + 5 * 60_000, end.getTime()));
+    if (targetEnd.getTime() === originalEnd.getTime()) return;
+    let recurrenceScope: CalendarRecurrenceEditScope | undefined;
+    if (event.recurrenceSeriesId && event.recurrenceId) {
+      recurrenceScope = await requestRecurrenceScope("修改", event.title);
+      if (!recurrenceScope) return;
+    }
+    setCalendarMoveBusy(true);
+    setEventPreview(undefined);
+    try {
+      const requestResize = async (allowConflicts: boolean) => {
+        const response = await fetch(`/api/calendar-events/${encodeURIComponent(event.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            calendarId: event.calendarId,
+            title: event.title,
+            description: event.description,
+            descriptionContent: event.descriptionContent,
+            location: event.location,
+            start: targetStart.toISOString(),
+            end: targetEnd.toISOString(),
+            timeZone: event.timeZone ?? timeZone,
+            allDay: false,
+            recurrenceSeriesId: event.recurrenceSeriesId,
+            recurrenceId: event.recurrenceId,
+            recurrenceScope,
+            allowConflicts,
+          }),
+        });
+        const payload = await response.json() as { readonly event?: CalendarViewEvent; readonly conflicts?: readonly TaskScheduleConflict[]; readonly message?: string };
+        return { response, payload };
+      };
+      let result = await requestResize(false);
+      if (result.response.status === 409 && result.payload.conflicts?.length) {
+        const conflictNames = result.payload.conflicts.slice(0, 3).map((conflict) => `“${conflict.title}”`).join("、");
+        if (!await appConfirm({
+          title: "时间与现有日程冲突",
+          description: `调整后的时间与 ${conflictNames} 冲突。仍然调整这个日程的时长吗？`,
+          confirmLabel: "仍然调整",
+        })) {
+          setFeedback("已取消调整日程时长");
+          return;
+        }
+        result = await requestResize(true);
+      }
+      if (!result.response.ok || !result.payload.event) throw new Error(result.payload.message ?? "无法调整日程时长");
+      setEvents((current) => [...current.filter((item) => item.id !== result.payload.event!.id), result.payload.event!].sort((left, right) => left.start.localeCompare(right.start)));
+      setFeedback(`已调整“${event.title}”的时长`);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "无法调整日程时长");
+    } finally {
+      setCalendarMoveBusy(false);
+    }
+  };
+
   const unscheduledTasks = calendarTasks.filter((task) => task.status !== "done" && task.scheduledBlocks.length === 0).slice(0, 8);
   const previewEvent = eventPreview ? events.find((event) => event.id === eventPreview.eventId) : undefined;
   const previewCalendar = previewEvent ? calendars.find((calendar) => calendar.id === previewEvent.calendarId) : undefined;
@@ -894,6 +972,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
             onDropTask={(taskId, startsAt) => void scheduleDroppedTask(taskId, startsAt)}
             moveBusy={calendarMoveBusy || taskDropBusy}
             onMoveEvent={(event, startsAt) => void moveCalendarEvent(event, startsAt)}
+            onResizeEvent={(event, endsAt) => void resizeCalendarEvent(event, endsAt)}
           />
         ) : (
           <CalendarMonthView
@@ -1233,6 +1312,7 @@ interface CalendarViewCommonProps {
   readonly onDropTask?: (taskId: string, startsAt: Date) => void;
   readonly moveBusy?: boolean;
   readonly onMoveEvent?: (event: CalendarViewEvent, startsAt: Date) => void;
+  readonly onResizeEvent?: (event: CalendarViewEvent, endsAt: Date) => void;
 }
 
 const weekVisibleStartHour = 7;
@@ -1260,6 +1340,14 @@ interface CalendarEventDropPreview {
   readonly startMinutes: number;
   readonly durationMinutes: number;
   readonly title: string;
+}
+
+interface CalendarEventResizePreview {
+  readonly eventId: string;
+  readonly pointerId: number;
+  readonly start: Date;
+  readonly originalEnd: Date;
+  readonly end: Date;
 }
 
 interface CalendarSpanPlacement {
@@ -1314,13 +1402,16 @@ function CalendarWeekView({
   onDropTask,
   moveBusy = false,
   onMoveEvent,
+  onResizeEvent,
 }: CalendarViewCommonProps & { readonly weekStart: Date }) {
   const [currentTime, setCurrentTime] = useState<Date>();
   const [timeSelection, setTimeSelection] = useState<CalendarTimeSelection>();
   const [draggedEventId, setDraggedEventId] = useState("");
   const [draggedEventOffsetMinutes, setDraggedEventOffsetMinutes] = useState(0);
   const [eventDropPreview, setEventDropPreview] = useState<CalendarEventDropPreview>();
+  const [eventResizePreview, setEventResizePreview] = useState<CalendarEventResizePreview>();
   const timeSelectionRef = useRef<CalendarTimeSelection | undefined>(undefined);
+  const eventResizeRef = useRef<CalendarEventResizePreview | undefined>(undefined);
   const suppressLaneClickRef = useRef(false);
   const suppressEventClickRef = useRef(false);
   const days = Array.from({ length: 7 }, (_, index) => addCalendarDays(weekStart, index));
@@ -1465,6 +1556,71 @@ function CalendarWeekView({
     suppressLaneClickRef.current = true;
     window.setTimeout(() => { suppressLaneClickRef.current = false; }, 0);
     setActiveTimeSelection(undefined);
+  };
+
+  const setActiveEventResize = (preview: CalendarEventResizePreview | undefined) => {
+    eventResizeRef.current = preview;
+    setEventResizePreview(preview);
+  };
+
+  const beginEventResize = (pointerEvent: ReactPointerEvent<HTMLSpanElement>, calendarEvent: CalendarViewEvent) => {
+    if (!onResizeEvent || moveBusy || calendarEventSpansMultipleDays(calendarEvent)) return;
+    if (pointerEvent.pointerType === "mouse" && pointerEvent.button !== 0) return;
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+    pointerEvent.currentTarget.setPointerCapture(pointerEvent.pointerId);
+    suppressEventClickRef.current = true;
+    onClearEventPreview();
+    setActiveEventResize({
+      eventId: calendarEvent.id,
+      pointerId: pointerEvent.pointerId,
+      start: new Date(calendarEvent.start),
+      originalEnd: new Date(calendarEvent.end),
+      end: new Date(calendarEvent.end),
+    });
+  };
+
+  const updateEventResize = (pointerEvent: ReactPointerEvent<HTMLSpanElement>, day: Date) => {
+    const current = eventResizeRef.current;
+    if (!current || current.pointerId !== pointerEvent.pointerId) return;
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+    const lane = pointerEvent.currentTarget.closest<HTMLElement>(".calendar-time-lane");
+    if (!lane) return;
+    const viewport = lane.closest<HTMLElement>(".calendar-week-viewport");
+    if (viewport) {
+      const viewportBounds = viewport.getBoundingClientRect();
+      if (pointerEvent.clientY < viewportBounds.top + 34) viewport.scrollTop -= 12;
+      else if (pointerEvent.clientY > viewportBounds.bottom - 34) viewport.scrollTop += 12;
+    }
+    const candidateEnd = dateFromTimelineMinutes(day, minutesFromPointer(lane, pointerEvent.clientY, true));
+    const minimumEnd = current.start.getTime() + weekSelectionStepMinutes * 60_000;
+    const next = { ...current, end: new Date(Math.max(minimumEnd, candidateEnd.getTime())) };
+    setActiveEventResize(next);
+  };
+
+  const finishEventResize = (pointerEvent: ReactPointerEvent<HTMLSpanElement>, day: Date) => {
+    updateEventResize(pointerEvent, day);
+    const current = eventResizeRef.current;
+    if (!current || current.pointerId !== pointerEvent.pointerId) return;
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+    if (pointerEvent.currentTarget.hasPointerCapture(pointerEvent.pointerId)) pointerEvent.currentTarget.releasePointerCapture(pointerEvent.pointerId);
+    setActiveEventResize(undefined);
+    if (current.end.getTime() !== current.originalEnd.getTime()) {
+      const resizedEvent = events.find((item) => item.id === current.eventId);
+      if (resizedEvent) onResizeEvent?.(resizedEvent, current.end);
+    }
+    window.setTimeout(() => { suppressEventClickRef.current = false; }, 0);
+  };
+
+  const cancelEventResize = (pointerEvent: ReactPointerEvent<HTMLSpanElement>) => {
+    const current = eventResizeRef.current;
+    if (!current || current.pointerId !== pointerEvent.pointerId) return;
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+    setActiveEventResize(undefined);
+    window.setTimeout(() => { suppressEventClickRef.current = false; }, 0);
   };
 
   return (
@@ -1646,15 +1802,22 @@ function CalendarWeekView({
                 {laidOutEvents.map((placed) => {
                   const calendar = calendars.find((item) => item.id === placed.event.calendarId);
                   const movable = !moveBusy && !calendarEventWriteDisabledReason(placed.event, calendar);
+                  const resizable = movable && !calendarEventSpansMultipleDays(placed.event) && Boolean(onResizeEvent);
+                  const resizePreview = eventResizePreview?.eventId === placed.event.id ? eventResizePreview : undefined;
+                  const visibleDayStart = new Date(day);
+                  visibleDayStart.setHours(weekVisibleStartHour, 0, 0, 0);
+                  const resizedHeight = resizePreview
+                    ? Math.max(24, Math.min(timelineHeight - placed.top, (resizePreview.end.getTime() - visibleDayStart.getTime()) / 60_000 / 60 * weekHourHeight - placed.top))
+                    : placed.height;
                   return (
                     <button
-                      className={`calendar-week-event ${calendarAvailabilityClass(placed.event)} ${movable ? "calendar-event-draggable" : ""}`}
+                      className={`calendar-week-event ${calendarAvailabilityClass(placed.event)} ${movable ? "calendar-event-draggable" : ""} ${resizePreview ? "resizing" : ""}`}
                       data-testid="calendar-event"
-                      draggable={movable}
+                      draggable={movable && !resizePreview}
                       key={placed.event.id}
                       style={{
                         top: placed.top,
-                        height: placed.height,
+                        height: resizedHeight,
                         left: `${placed.leftPercent}%`,
                         width: `${placed.widthPercent}%`,
                         borderLeftColor: calendar?.color ?? "#86bdf5",
@@ -1705,7 +1868,16 @@ function CalendarWeekView({
                         <strong>{placed.event.title}</strong>
                         {placed.event.recurrence && <Repeat2 size={11} aria-label="重复日程" />}
                       </span>
-                      {placed.height >= 42 && (placed.event.linkedTask ? <small className="calendar-event-task"><ListChecks size={10} />任务 · {placed.event.linkedTask.title}</small> : placed.event.location && <small>{placed.event.location}</small>)}
+                      {resizedHeight >= 42 && (placed.event.linkedTask ? <small className="calendar-event-task"><ListChecks size={10} />任务 · {placed.event.linkedTask.title}</small> : placed.event.location && <small>{placed.event.location}</small>)}
+                      {resizable && <span
+                        className="calendar-event-resize-handle"
+                        title="拖动修改时长"
+                        onPointerDown={(event) => beginEventResize(event, placed.event)}
+                        onPointerMove={(event) => updateEventResize(event, day)}
+                        onPointerUp={(event) => finishEventResize(event, day)}
+                        onPointerCancel={cancelEventResize}
+                        onClick={(event) => event.stopPropagation()}
+                      />}
                     </button>
                   );
                 })}

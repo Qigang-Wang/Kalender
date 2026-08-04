@@ -240,7 +240,7 @@ export async function getAutomaticBackupSettings(databaseInput?: DatabaseExecuto
       enabled: false,
       intervalHours: 24,
       retentionCount: 3,
-      encryptAutomatic: true,
+      encryptAutomatic: false,
       encryptionPasswordConfigured: Boolean(process.env.KALENDER_BACKUP_PASSWORD),
     };
   }
@@ -564,6 +564,29 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
 
 export async function scheduleDueAutomaticBackup(): Promise<AppJob | undefined> {
   const database = await getDatabase();
+  const dueResult = await database.query<AutomaticBackupSettingsRow>(
+    `SELECT enabled, interval_hours, retention_count, encrypt_automatic,
+            next_run_at, last_enqueued_at, last_completed_at, updated_at
+       FROM backup_settings
+      WHERE id = 'workspace'
+        AND enabled = true
+        AND (next_run_at IS NULL OR next_run_at <= now())
+      LIMIT 1`,
+  );
+  const due = dueResult.rows[0];
+  if (!due) return undefined;
+  if (due.encrypt_automatic && !process.env.KALENDER_BACKUP_PASSWORD) {
+    const deferred = await database.query(
+      `UPDATE backup_settings
+          SET next_run_at = now() + (interval_hours || ' hours')::interval,
+              updated_at = now()
+        WHERE id = 'workspace'
+          AND enabled = true
+          AND (next_run_at IS NULL OR next_run_at <= now())`,
+    );
+    if (deferred.affectedRows) await appendSyntheticMaintenanceJob("自动加密备份需要配置 KALENDER_BACKUP_PASSWORD；未加密自动备份不需要密码");
+    return undefined;
+  }
   const result = await database.query<AutomaticBackupSettingsRow>(
     `UPDATE backup_settings
         SET last_enqueued_at = now(),
@@ -579,7 +602,7 @@ export async function scheduleDueAutomaticBackup(): Promise<AppJob | undefined> 
   if (!row) return undefined;
   const encrypted = Boolean(row.encrypt_automatic);
   if (encrypted && !process.env.KALENDER_BACKUP_PASSWORD) {
-    await appendSyntheticMaintenanceJob("自动备份等待配置 KALENDER_BACKUP_PASSWORD");
+    await appendSyntheticMaintenanceJob("自动加密备份需要配置 KALENDER_BACKUP_PASSWORD；未加密自动备份不需要密码");
     return undefined;
   }
   const job = await enqueueJob({
