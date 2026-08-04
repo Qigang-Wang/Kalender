@@ -767,7 +767,8 @@ fn create_main_window(app: &AppHandle, server_url: &str, visible: bool) -> Resul
     let url = Url::parse(&normalized).map_err(|error| format!("服务器地址无效：{error}"))?;
     WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         .title("Kalender")
-        .decorations(false)
+        .decorations(true)
+        .initialization_script("window.__KALENDER_NATIVE_FRAME__ = true;")
         .visible(visible)
         .inner_size(1360.0, 860.0)
         .min_inner_size(980.0, 640.0)

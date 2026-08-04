@@ -3,7 +3,7 @@
 import { Copy, Minus, Square, X } from "lucide-react";
 import { useEffect, useState, type PointerEvent } from "react";
 
-import { invokeDesktop, waitForDesktopApp } from "@/lib/desktop-bridge";
+import { invokeDesktop, usesNativeDesktopFrame, waitForDesktopApp } from "@/lib/desktop-bridge";
 
 export function DesktopWindowControls() {
   const [available, setAvailable] = useState(false);
@@ -20,6 +20,7 @@ export function DesktopWindowControls() {
     };
     void waitForDesktopApp().then(async (desktopAvailable) => {
       if (!desktopAvailable || disposed) return;
+      if (usesNativeDesktopFrame()) return;
       document.documentElement.classList.add("desktop-window");
       setAvailable(true);
       window.addEventListener("resize", syncMaximized);

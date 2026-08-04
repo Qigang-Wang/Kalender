@@ -38,11 +38,16 @@ interface TauriCoreApi {
 declare global {
   interface Window {
     __TAURI__?: { readonly core?: TauriCoreApi };
+    __KALENDER_NATIVE_FRAME__?: boolean;
   }
 }
 
 export function isDesktopApp(): boolean {
   return typeof window !== "undefined" && typeof window.__TAURI__?.core?.invoke === "function";
+}
+
+export function usesNativeDesktopFrame(): boolean {
+  return typeof window !== "undefined" && window.__KALENDER_NATIVE_FRAME__ === true;
 }
 
 export async function waitForDesktopApp(timeoutMs = 5_000): Promise<boolean> {
