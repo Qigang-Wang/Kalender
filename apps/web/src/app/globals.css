@@ -496,6 +496,19 @@ input:-webkit-autofill:focus {
   min-height: 100vh;
   background: var(--bg);
 }
+.desktop-window-titlebar { position: fixed; top: 0; right: 0; left: 0; z-index: 100; display: flex; height: 36px; align-items: stretch; color: #d9ddda; background: #111514; border-bottom: 1px solid #303531; user-select: none; }
+.desktop-window-drag-region { display: flex; min-width: 0; flex: 1 1 auto; align-items: center; padding: 0 12px; cursor: default; }
+.desktop-window-drag-region span { overflow: hidden; font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-window-controls { display: flex; flex: 0 0 auto; }
+.desktop-window-controls button { display: grid; width: 46px; height: 35px; place-items: center; padding: 0; color: #bac1bc; background: transparent; border: 0; border-radius: 0; }
+.desktop-window-controls button:hover { color: #ffffff; background: #2a2f2c; }
+.desktop-window-controls .desktop-window-close:hover { background: #c42b1c; }
+html.desktop-window .app-shell { min-height: calc(100vh - 36px); margin-top: 36px; }
+html.desktop-window .sidebar { top: 36px; height: calc(100vh - 36px); }
+html[data-qgw-scheme="light"] .desktop-window-titlebar { color: #252a27; background: #f5f7f6; border-bottom-color: #d5dad7; }
+html[data-qgw-scheme="light"] .desktop-window-controls button { color: #4f5651; }
+html[data-qgw-scheme="light"] .desktop-window-controls button:hover { color: #171a18; background: #e2e6e3; }
+html[data-qgw-scheme="light"] .desktop-window-controls .desktop-window-close:hover { color: #ffffff; background: #c42b1c; }
 .sidebar { position: sticky; top: 0; z-index: 20; display: flex; flex-direction: column; height: 100vh; padding: 18px 12px 14px; background: var(--sidebar); border-right: 1px solid var(--line); }
 .sidebar-resize-handle { position: absolute; top: 0; right: -6px; z-index: 25; width: 12px; height: 100%; padding: 0; cursor: col-resize; touch-action: none; outline: none; }
 .sidebar-resize-handle::after { position: absolute; top: 0; bottom: 0; left: 5px; width: 1px; content: ""; background: transparent; transition: width .12s ease, background .12s ease, box-shadow .12s ease; }

@@ -1,10 +1,19 @@
-use std::{collections::HashMap, fs, path::PathBuf, sync::Mutex, thread, time::Duration};
+use std::{
+    collections::HashMap,
+    fs,
+    net::{TcpStream, ToSocketAddrs},
+    path::PathBuf,
+    sync::Mutex,
+    thread,
+    time::Duration,
+};
 
 use chrono::{Days, Local, TimeZone, Utc};
 use notify_rust::Notification;
 use serde::{Deserialize, Serialize};
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
+    image::Image,
+    menu::{IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
@@ -14,6 +23,8 @@ use url::Url;
 const TRAY_ID: &str = "kalender-tray";
 const STATE_FILE: &str = "desktop-reminders.json";
 const REMINDER_CHECK_INTERVAL: Duration = Duration::from_secs(10);
+const SERVER_CONNECTION_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+const SERVER_CONNECTION_TIMEOUT: Duration = Duration::from_secs(3);
 const DEFAULT_SERVER_URL: &str = "http://localhost:3000/";
 const MAX_SERVER_URL_LENGTH: usize = 2_048;
 
@@ -92,11 +103,14 @@ struct PersistedState {
     #[serde(default)]
     last_sync_error: Option<String>,
     server_url: Option<String>,
+    #[serde(skip)]
+    server_connected: Option<bool>,
 }
 
 struct DesktopRuntime {
     state: Mutex<PersistedState>,
     state_path: PathBuf,
+    server_status_item: Mutex<Option<IconMenuItem<tauri::Wry>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -260,8 +274,10 @@ async fn save_server_config(
         state.summary = DesktopSummary::default();
         state.last_sync_attempt_at = None;
         state.last_sync_error = None;
+        state.server_connected = None;
         save_state(&runtime.state_path, &state)?;
         update_tray_tooltip(&app, &state);
+        update_server_connection_menu(&app, None);
         server_config_from_state(&state)
     };
 
@@ -273,6 +289,8 @@ async fn save_server_config(
     } else {
         create_main_window(&app, &normalized)?;
     }
+    let connection_app = app.clone();
+    thread::spawn(move || check_server_connection(&connection_app));
     Ok(config)
 }
 
@@ -282,6 +300,72 @@ async fn close_server_config(window: WebviewWindow) -> Result<(), String> {
     window
         .close()
         .map_err(|error| format!("无法关闭服务器配置窗口：{error}"))
+}
+
+#[tauri::command]
+fn desktop_window_is_maximized(
+    window: WebviewWindow,
+    runtime: State<'_, DesktopRuntime>,
+) -> Result<bool, String> {
+    ensure_main_caller(&window, &runtime)?;
+    window
+        .is_maximized()
+        .map_err(|error| format!("无法读取窗口状态：{error}"))
+}
+
+#[tauri::command]
+fn desktop_window_minimize(
+    window: WebviewWindow,
+    runtime: State<'_, DesktopRuntime>,
+) -> Result<(), String> {
+    ensure_main_caller(&window, &runtime)?;
+    window
+        .minimize()
+        .map_err(|error| format!("无法最小化窗口：{error}"))
+}
+
+#[tauri::command]
+fn desktop_window_toggle_maximized(
+    window: WebviewWindow,
+    runtime: State<'_, DesktopRuntime>,
+) -> Result<bool, String> {
+    ensure_main_caller(&window, &runtime)?;
+    if window
+        .is_maximized()
+        .map_err(|error| format!("无法读取窗口状态：{error}"))?
+    {
+        window
+            .unmaximize()
+            .map_err(|error| format!("无法还原窗口：{error}"))?;
+        Ok(false)
+    } else {
+        window
+            .maximize()
+            .map_err(|error| format!("无法最大化窗口：{error}"))?;
+        Ok(true)
+    }
+}
+
+#[tauri::command]
+fn desktop_window_start_dragging(
+    window: WebviewWindow,
+    runtime: State<'_, DesktopRuntime>,
+) -> Result<(), String> {
+    ensure_main_caller(&window, &runtime)?;
+    window
+        .start_dragging()
+        .map_err(|error| format!("无法拖动窗口：{error}"))
+}
+
+#[tauri::command]
+fn desktop_window_close(
+    window: WebviewWindow,
+    runtime: State<'_, DesktopRuntime>,
+) -> Result<(), String> {
+    ensure_main_caller(&window, &runtime)?;
+    window
+        .close()
+        .map_err(|error| format!("无法关闭窗口：{error}"))
 }
 
 pub fn run() {
@@ -300,7 +384,12 @@ pub fn run() {
             report_sync_error,
             get_server_config,
             save_server_config,
-            close_server_config
+            close_server_config,
+            desktop_window_is_maximized,
+            desktop_window_minimize,
+            desktop_window_toggle_maximized,
+            desktop_window_start_dragging,
+            desktop_window_close
         ])
         .setup(|app| {
             let state_path = app
@@ -313,10 +402,12 @@ pub fn run() {
             app.manage(DesktopRuntime {
                 state: Mutex::new(persisted),
                 state_path,
+                server_status_item: Mutex::new(None),
             });
             create_main_window(app.handle(), &server_url)?;
             build_tray(app)?;
             start_reminder_scheduler(app.handle().clone());
+            start_server_connection_monitor(app.handle().clone());
             if let Ok(state) = app.state::<DesktopRuntime>().state.lock() {
                 update_tray_tooltip(app.handle(), &state);
             }
@@ -360,6 +451,14 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
     )?;
     let sync = MenuItem::with_id(app, "sync", "同步", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
+    let server_status = IconMenuItem::with_id(
+        app,
+        "server-status",
+        server_connection_label(None),
+        true,
+        Some(server_connection_icon(None)),
+        None::<&str>,
+    )?;
     let server_config = MenuItem::with_id(app, "server-config", "服务器地址…", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
@@ -370,11 +469,16 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
             &pause_menu,
             &sync,
             &settings,
+            &server_status,
             &server_config,
             &separator,
             &quit,
         ],
     )?;
+
+    if let Ok(mut item) = app.state::<DesktopRuntime>().server_status_item.lock() {
+        *item = Some(server_status);
+    }
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(
@@ -453,6 +557,52 @@ fn start_reminder_scheduler(app: AppHandle) {
     });
 }
 
+fn start_server_connection_monitor(app: AppHandle) {
+    thread::spawn(move || loop {
+        check_server_connection(&app);
+        thread::sleep(SERVER_CONNECTION_CHECK_INTERVAL);
+    });
+}
+
+fn check_server_connection(app: &AppHandle) {
+    let runtime = app.state::<DesktopRuntime>();
+    let server_url = match runtime
+        .state
+        .lock()
+        .map(|state| configured_server_url(&state).to_string())
+    {
+        Ok(url) => url,
+        Err(_) => return,
+    };
+    let connected = probe_server_connection(&server_url);
+    let should_publish = runtime
+        .state
+        .lock()
+        .map(|mut state| {
+            if configured_server_url(&state) != server_url {
+                return false;
+            }
+            state.server_connected = Some(connected);
+            true
+        })
+        .unwrap_or(false);
+    if should_publish {
+        update_server_connection_menu(app, Some(connected));
+    }
+}
+
+fn probe_server_connection(server_url: &str) -> bool {
+    let Ok((host, port)) = server_socket_target(server_url) else {
+        return false;
+    };
+    let Ok(addresses) = (host.as_str(), port).to_socket_addrs() else {
+        return false;
+    };
+    addresses
+        .take(4)
+        .any(|address| TcpStream::connect_timeout(&address, SERVER_CONNECTION_TIMEOUT).is_ok())
+}
+
 fn show_notification(app: AppHandle, reminder: ReminderInput, show_title: bool) {
     let title = if show_title && !reminder.title.trim().is_empty() {
         reminder.title.clone()
@@ -519,6 +669,7 @@ fn create_main_window(app: &AppHandle, server_url: &str) -> Result<(), String> {
     let url = Url::parse(&normalized).map_err(|error| format!("服务器地址无效：{error}"))?;
     WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         .title("Kalender")
+        .decorations(false)
         .inner_size(1360.0, 860.0)
         .min_inner_size(980.0, 640.0)
         .center()
@@ -565,6 +716,53 @@ fn update_tray_tooltip(app: &AppHandle, state: &PersistedState) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let _ = tray.set_tooltip(Some(tooltip));
     }
+}
+
+fn update_server_connection_menu(app: &AppHandle, connected: Option<bool>) {
+    let item = app
+        .state::<DesktopRuntime>()
+        .server_status_item
+        .lock()
+        .ok()
+        .and_then(|item| item.clone());
+    if let Some(item) = item {
+        let _ = item.set_text(server_connection_label(connected));
+        let _ = item.set_icon(Some(server_connection_icon(connected)));
+    }
+}
+
+fn server_connection_label(connected: Option<bool>) -> &'static str {
+    match connected {
+        Some(true) => "服务器连接正常",
+        Some(false) => "服务器连接断开",
+        None => "正在检查服务器连接",
+    }
+}
+
+fn server_connection_icon(connected: Option<bool>) -> Image<'static> {
+    let color = match connected {
+        Some(true) => [70, 181, 116],
+        Some(false) => [224, 83, 83],
+        None => [145, 152, 148],
+    };
+    let size = 16_u32;
+    let center = (size as f32 - 1.0) / 2.0;
+    let mut rgba = vec![0; (size * size * 4) as usize];
+    for y in 0..size {
+        for x in 0..size {
+            let distance = ((x as f32 - center).powi(2) + (y as f32 - center).powi(2)).sqrt();
+            let alpha = if distance <= 5.0 {
+                255
+            } else if distance < 6.0 {
+                ((6.0 - distance) * 255.0) as u8
+            } else {
+                0
+            };
+            let offset = ((y * size + x) * 4) as usize;
+            rgba[offset..offset + 4].copy_from_slice(&[color[0], color[1], color[2], alpha]);
+        }
+    }
+    Image::new_owned(rgba, size, size)
 }
 
 fn tray_tooltip_text(state: &PersistedState, now: i64) -> String {
@@ -650,6 +848,17 @@ fn configured_server_url(state: &PersistedState) -> &str {
         .as_deref()
         .filter(|value| normalize_server_url(value).is_ok())
         .unwrap_or(DEFAULT_SERVER_URL)
+}
+
+fn server_socket_target(server_url: &str) -> Result<(String, u16), String> {
+    let url = Url::parse(server_url).map_err(|_| "服务器地址无效".to_string())?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| "服务器地址缺少域名或 IP 地址".to_string())?;
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| "服务器地址缺少端口".to_string())?;
+    Ok((host.to_string(), port))
 }
 
 fn normalize_server_url(input: &str) -> Result<String, String> {
@@ -781,6 +990,7 @@ fn end_of_local_day() -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::TcpListener;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -840,6 +1050,32 @@ mod tests {
             route.as_str(),
             "https://kalender.example.com/calendar?event=123"
         );
+    }
+
+    #[test]
+    fn resolves_server_socket_targets() {
+        assert_eq!(
+            server_socket_target("https://kalender.example.com/calendar").unwrap(),
+            ("kalender.example.com".to_string(), 443)
+        );
+        assert_eq!(
+            server_socket_target("http://localhost:3000/").unwrap(),
+            ("localhost".to_string(), 3000)
+        );
+    }
+
+    #[test]
+    fn connection_labels_cover_all_states() {
+        assert_eq!(server_connection_label(None), "正在检查服务器连接");
+        assert_eq!(server_connection_label(Some(true)), "服务器连接正常");
+        assert_eq!(server_connection_label(Some(false)), "服务器连接断开");
+    }
+
+    #[test]
+    fn detects_a_reachable_server_port() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        assert!(probe_server_connection(&format!("http://{address}/")));
     }
 
     #[test]
