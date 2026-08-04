@@ -2642,6 +2642,19 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .sync-settings-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 15px; padding-top: 14px; border-top: 1px solid var(--line); }
 .sync-settings-actions > span { margin-right: auto; color: var(--muted); font-size: 12px; }
 .sync-settings-actions button { min-width: 112px; }
+.desktop-runtime-status { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+.desktop-runtime-status i { width: 7px; height: 7px; background: var(--muted); border-radius: 50%; }
+.desktop-runtime-status.connected { color: var(--green); }
+.desktop-runtime-status.connected i { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 14%, transparent); }
+.desktop-settings-notice { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; padding: 10px 12px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 7px; font-size: 12px; }
+.desktop-settings-list { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.desktop-settings-row { display: grid; min-height: 64px; grid-template-columns: 34px minmax(0, 1fr) 150px; align-items: center; gap: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--surface-2) 72%, var(--surface)); }
+.desktop-settings-row + .desktop-settings-row { border-top: 1px solid var(--line); }
+.desktop-settings-icon { display: grid; width: 34px; height: 34px; color: var(--blue); background: var(--blue-deep); border: 1px solid color-mix(in srgb, var(--blue) 28%, var(--line)); border-radius: 7px; place-items: center; }
+.desktop-settings-copy strong, .desktop-settings-copy small { display: block; }
+.desktop-settings-copy strong { color: var(--text); font-size: 13px; }
+.desktop-settings-copy small { margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.desktop-settings-select { width: 100%; }
 .step-badge { padding: 5px 9px; color: color-mix(in srgb, var(--blue) 62%, var(--text)); background: var(--blue-deep); border-radius: 99px; font-size: 12px; white-space: nowrap; }
 .backup-settings { padding: 18px; }
 .backup-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
@@ -2942,6 +2955,9 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .sync-realtime-metrics > div { padding: 0; border-left: 0; }
   .sync-realtime-overview > button { grid-column: 1 / -1; grid-row: auto; width: 100%; min-height: 42px; }
   .sync-settings-row { grid-template-columns: 34px minmax(0, 1fr) 86px; }
+  .desktop-settings-row { grid-template-columns: 34px minmax(0, 1fr); }
+  .desktop-settings-row > .sync-settings-toggle, .desktop-settings-row > .desktop-settings-select { grid-column: 2; grid-row: auto; justify-self: start; }
+  .desktop-settings-row > .desktop-settings-select { width: min(160px, 100%); }
   .sync-settings-interval { grid-column: 2 / 3; }
   .sync-settings-toggle { grid-column: 3; grid-row: 1 / span 2; }
   .sync-settings-actions { align-items: stretch; flex-direction: column; }

@@ -19,6 +19,7 @@ import {
   Clock3,
   DatabaseBackup,
   Download,
+  BellRing,
   FileText,
   Folder,
   GripVertical,
@@ -68,6 +69,8 @@ import { ContextMenu } from "./context-menu";
 import { AppSelect } from "./app-select";
 import { BrandLogo } from "./brand-logo";
 import { MailSignatureSettings } from "./mail-signature-settings";
+import { DesktopReminderBridge } from "./desktop-reminder-bridge";
+import { DesktopReminderSettingsPanel } from "./desktop-reminder-settings";
 import { readThemePreference, saveThemePreference } from "./theme-controller";
 import { TransientToast } from "./workspace-shared";
 import {
@@ -313,7 +316,7 @@ const sidebarTaskViews: ReadonlyArray<{
   { view: "matrix", label: "四象限", icon: LayoutGrid },
 ];
 
-type SettingsTab = "appearance" | "profile" | "users" | "diagnostics" | "jobs" | "operations" | "sync" | "mail" | "calendar" | "shortcuts" | "ai" | "backup";
+type SettingsTab = "appearance" | "profile" | "users" | "diagnostics" | "jobs" | "operations" | "sync" | "desktop" | "mail" | "calendar" | "shortcuts" | "ai" | "backup";
 
 const settingsNavigation: ReadonlyArray<{
   tab: SettingsTab;
@@ -328,6 +331,7 @@ const settingsNavigation: ReadonlyArray<{
   { tab: "jobs", label: "后台任务", icon: Clock3 },
   { tab: "operations", label: "系统状态", icon: HardDrive, adminOnly: true },
   { tab: "sync", label: "同步", icon: RefreshCw },
+  { tab: "desktop", label: "桌面提醒", icon: BellRing },
   { tab: "mail", label: "邮箱账户", icon: Mail },
   { tab: "calendar", label: "日历账户", icon: CalendarDays },
   { tab: "shortcuts", label: "快捷键", icon: Keyboard },
@@ -505,6 +509,7 @@ export function WorkspaceApp(props: WorkspaceAppProps) {
   return (
     <RealtimeProvider>
       <SyncSettingsProvider>
+        <DesktopReminderBridge />
         <WorkspaceAppContent {...props} />
       </SyncSettingsProvider>
     </RealtimeProvider>
@@ -2700,6 +2705,7 @@ function SettingsPage({ currentUser }: { readonly currentUser: WorkspaceUser }) 
         {activeTab === "jobs" && <JobCenterSettings />}
         {activeTab === "operations" && currentUser.role === "admin" && <OperationsSettings />}
         {activeTab === "sync" && <SyncSettings />}
+        {activeTab === "desktop" && <DesktopReminderSettingsPanel />}
         {activeTab === "mail" && <MailAccountSettings onManageExchange={() => router.push("/settings?tab=calendar")} />}
         {activeTab === "calendar" && <CalendarAccountSettings />}
         {activeTab === "shortcuts" && <ShortcutsSettings />}

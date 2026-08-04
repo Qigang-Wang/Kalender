@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/remote-schema.json",
+  "identifier": "remote-main",
+  "description": "Allows the configured Kalender server to call the restricted desktop bridge.",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["https://*", "https://*:*", "http://*", "http://*:*"]
+  },
+  "permissions": []
+}

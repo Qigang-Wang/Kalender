@@ -5,6 +5,7 @@ node_modules
 .next
 **/.next
 dist
+src-tauri
 
 .data
 .backups

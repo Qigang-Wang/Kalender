@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>服务器地址</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        --bg: #f5f7f8;
+        --surface: #ffffff;
+        --text: #202522;
+        --muted: #68716c;
+        --line: #d9dedb;
+        --blue: #3578b8;
+        --blue-hover: #29689f;
+        --error: #b33b34;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg: #151816; --surface: #202421; --text: #edf1ee; --muted: #9ca59f; --line: #3a403c; --blue: #6fa9df; --blue-hover: #83b7e6; --error: #ef8c84; }
+      }
+      * { box-sizing: border-box; }
+      body { min-height: 100vh; margin: 0; padding: 24px; color: var(--text); background: var(--bg); }
+      main { max-width: 520px; margin: 0 auto; }
+      h1 { margin: 0; font-size: 20px; font-weight: 650; }
+      .intro { margin: 8px 0 22px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+      label { display: block; font-size: 13px; font-weight: 600; }
+      input { width: 100%; height: 42px; margin-top: 8px; padding: 0 11px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; outline: none; font: inherit; }
+      input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 18%, transparent); }
+      small { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+      #feedback { min-height: 20px; margin: 14px 0 0; color: var(--muted); font-size: 12px; }
+      #feedback.error { color: var(--error); }
+      footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+      button { min-width: 88px; height: 36px; padding: 0 14px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font: inherit; cursor: pointer; }
+      button.primary { color: #fff; background: var(--blue); border-color: var(--blue); }
+      button.primary:hover { background: var(--blue-hover); }
+      button:disabled { cursor: wait; opacity: .6; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>服务器地址</h1>
+      <p class="intro">输入 Kalender 所在的域名或完整网址。域名默认使用 HTTPS，本机地址默认使用 HTTP。</p>
+      <form id="server-form">
+        <label for="server-url">域名或网址</label>
+        <input id="server-url" name="server-url" type="text" inputmode="url" autocomplete="url" spellcheck="false" placeholder="kalender.example.com" required />
+        <small>示例：kalender.example.com、https://kalender.example.com、http://192.168.1.20:3000</small>
+        <p id="feedback" role="status" aria-live="polite"></p>
+        <footer>
+          <button id="cancel" type="button">取消</button>
+          <button id="save" class="primary" type="submit">保存并打开</button>
+        </footer>
+      </form>
+    </main>
+    <script>
+      const invoke = window.__TAURI__.core.invoke;
+      const form = document.querySelector("#server-form");
+      const input = document.querySelector("#server-url");
+      const feedback = document.querySelector("#feedback");
+      const save = document.querySelector("#save");
+
+      function showFeedback(message, isError = false) {
+        feedback.textContent = message;
+        feedback.classList.toggle("error", isError);
+      }
+
+      invoke("get_server_config")
+        .then((config) => { input.value = config.url; input.select(); })
+        .catch((error) => showFeedback(String(error), true));
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        save.disabled = true;
+        showFeedback("正在保存…");
+        try {
+          const config = await invoke("save_server_config", { input: input.value });
+          input.value = config.url;
+          showFeedback("已保存，正在打开 Kalender");
+          window.setTimeout(() => { void invoke("close_server_config"); }, 150);
+        } catch (error) {
+          showFeedback(String(error), true);
+          save.disabled = false;
+        }
+      });
+
+      document.querySelector("#cancel").addEventListener("click", () => { void invoke("close_server_config"); });
+    </script>
+  </body>
+</html>

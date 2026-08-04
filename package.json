@@ -50,9 +50,13 @@
     "test:links": "tsx apps/web/src/server/entity-link.test.ts",
     "test:today": "tsx apps/web/src/server/today.test.ts",
     "test:search": "tsx apps/web/src/server/workspace-search.test.ts",
-    "test:http-client": "tsx apps/web/src/lib/fetch-with-timeout.test.ts"
+    "test:http-client": "tsx apps/web/src/lib/fetch-with-timeout.test.ts",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "desktop:check": "cargo check --manifest-path src-tauri/Cargo.toml"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.8.4",
     "@types/nodemailer": "^8.0.1",
     "@types/sanitize-html": "^2.16.1",
     "tsx": "^4.23.1",
