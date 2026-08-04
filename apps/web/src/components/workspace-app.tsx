@@ -332,7 +332,7 @@ const settingsNavigation: ReadonlyArray<{
   { tab: "jobs", label: "后台任务", icon: Clock3 },
   { tab: "operations", label: "系统状态", icon: HardDrive, adminOnly: true },
   { tab: "sync", label: "同步", icon: RefreshCw },
-  { tab: "desktop", label: "桌面提醒", icon: BellRing },
+  { tab: "desktop", label: "桌面端", icon: BellRing },
   { tab: "mail", label: "邮箱账户", icon: Mail },
   { tab: "calendar", label: "日历账户", icon: CalendarDays },
   { tab: "shortcuts", label: "快捷键", icon: Keyboard },

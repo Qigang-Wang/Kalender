@@ -1793,24 +1793,6 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .project-switcher-empty { display: grid; min-height: 150px; place-items: center; align-content: center; gap: 8px; color: var(--muted); font-size: 12px; }
 .project-overview { min-width: 0; }
 .project-overview-loading { display: flex; min-height: 260px; align-items: center; justify-content: center; gap: 9px; color: var(--muted); }
-.project-hero { padding: 18px 20px; }
-.project-hero > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
-.project-identity { display: flex; min-width: 0; align-items: flex-start; gap: 13px; }
-.project-identity > i { width: 12px; height: 12px; flex: 0 0 auto; margin-top: 7px; border-radius: 50%; box-shadow: 0 0 0 5px rgb(255 255 255 / 4%); }
-.project-identity > div { min-width: 0; }
-.project-identity span { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
-.project-identity h1 { margin-top: 4px; font-size: clamp(21px, 3vw, 29px); letter-spacing: -.035em; }
-.project-identity p { max-width: 680px; margin-top: 7px; color: #aeb5b0; font-size: 12px; line-height: 1.6; }
-.project-progress { margin-top: 19px; }
-.project-progress > div { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; color: var(--muted); font-size: 12px; }
-.project-progress > div strong { color: #dbe7df; font-size: 12px; }
-.project-progress > i { display: block; overflow: hidden; height: 6px; background: #2d322f; border-radius: 99px; }
-.project-progress > i > b { display: block; height: 100%; min-width: 0; border-radius: inherit; transition: width .25s ease; }
-.project-share-panel { display: grid; grid-template-columns: minmax(180px, .55fr) minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-top: 10px; padding: 12px 14px; }
-.project-share-panel > header > div { display: flex; min-width: 0; align-items: center; gap: 9px; color: var(--blue); }
-.project-share-panel > header strong, .project-share-panel > header small { display: block; }
-.project-share-panel > header strong { color: var(--text); font-size: 12px; }
-.project-share-panel > header small { margin-top: 2px; color: var(--muted); font-size: 12px; }
 .project-share-members { display: flex; min-width: 0; flex-wrap: wrap; gap: 6px; }
 .project-share-members > span { display: inline-flex; max-width: 190px; align-items: center; gap: 6px; padding: 5px 6px 5px 8px; color: #cdd8d1; background: #242925; border: 1px solid #343b36; border-radius: 8px; }
 .project-share-members strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1818,10 +1800,6 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .project-share-members button { display: grid; padding: 2px; color: var(--muted); background: transparent; border: 0; place-items: center; }
 .project-share-form { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .project-share-form select { min-height: 31px; max-width: 220px; padding: 0 8px; color: var(--text); background: #252925; border: 1px solid #414641; border-radius: 8px; font-size: 12px; }
-.project-view-tabs { display: inline-flex; gap: 3px; margin-top: 10px; padding: 3px; background: #1b1e1c; border: 1px solid var(--line); border-radius: 9px; }
-.project-view-tabs button { display: inline-flex; min-height: 31px; align-items: center; gap: 6px; padding: 0 11px; color: var(--muted); background: transparent; border: 0; border-radius: 7px; font-size: 12px; }
-.project-view-tabs button:hover { color: var(--text); }
-.project-view-tabs button.active { color: #152433; background: var(--blue); font-weight: 700; }
 .project-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-top: 10px; }
 .project-stats article { display: flex; min-width: 0; min-height: 70px; align-items: center; gap: 11px; padding: 11px 13px; }
 .project-stats article > svg { flex: 0 0 auto; color: var(--blue); }
@@ -1915,6 +1893,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .project-related-panel { margin-top: 10px; padding: 0 13px; }
 .project-related-panel > .related-content { border-top: 0; }
 .project-gantt { overflow: hidden; margin-top: 10px; }
+.project-overview > .project-gantt:first-child { margin-top: 0; }
 .project-gantt > header { display: flex; min-height: 56px; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
 .project-gantt > header > div { display: flex; align-items: center; gap: 9px; color: var(--blue); }
 .project-gantt > header span, .project-gantt > header strong, .project-gantt > header small { display: block; }
@@ -1947,6 +1926,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .project-gantt-task small { margin-top: 1px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .project-gantt-task > svg { color: var(--muted); }
 .project-gantt-task .project-gantt-row-actions { display: inline-flex; min-width: auto; align-items: center; gap: 5px; color: var(--muted); }
+.project-gantt-duration { margin: 0 3px 0 0 !important; color: var(--muted); font-variant-numeric: tabular-nums; }
 .project-gantt-row-actions > svg:first-child { opacity: .42; }
 .project-gantt-task:hover .project-gantt-row-actions > svg:first-child { opacity: 1; }
 .project-gantt-row-dragging { opacity: .42; }
@@ -2166,7 +2146,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .note-editor-empty > svg { color: var(--blue); }
 .note-editor-empty h3 { margin: 14px 0 6px; color: var(--text); font-size: 14px; }
 .note-editor-empty p { max-width: 300px; margin: 0 0 16px; font-size: 12px; line-height: 1.6; }
-.note-project-dialog { width: min(580px, 100%); }
+.note-project-dialog { width: min(680px, 100%); }
 .note-project-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 70px; gap: 13px; }
 .project-dialog-error { grid-column: 1 / -1; display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; color: #f4c7c7; background: rgb(104 36 36 / 28%); border: 1px solid rgb(211 99 99 / 36%); border-radius: 9px; }
 .project-dialog-error > svg { flex: 0 0 auto; margin-top: 2px; }
@@ -2180,6 +2160,12 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .note-project-color input { width: 100%; height: 38px; padding: 3px; background: #2c2f2d; border: 1px solid #464a47; border-radius: 8px; }
 .note-project-description { grid-column: 1 / -1; }
 .note-project-description textarea { min-height: 90px; padding-top: 9px; resize: vertical; }
+.project-dialog-sharing { display: grid; grid-column: 1 / -1; gap: 10px; margin-top: 2px; padding-top: 14px; border-top: 1px solid var(--line); }
+.project-dialog-sharing > header > div { display: flex; min-width: 0; align-items: center; gap: 9px; color: var(--blue); }
+.project-dialog-sharing > header span, .project-dialog-sharing > header strong, .project-dialog-sharing > header small { display: block; min-width: 0; }
+.project-dialog-sharing > header strong { color: var(--text); font-size: 12px; }
+.project-dialog-sharing > header small { margin-top: 2px; color: var(--muted); font-size: 12px; }
+.project-dialog-sharing .project-share-form { justify-content: flex-start; }
 .note-project-dialog > footer > small { color: var(--muted); font-size: 12px; line-height: 1.5; }
 
 /* Notes v2: a flatter, reading-first workspace. */
@@ -2600,7 +2586,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .settings-section-heading > h2 { font-size: 17px; }
 .settings-section-heading p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
 .settings-inline-note { margin: -3px 0 12px; color: var(--muted); font-size: 12px; }
-.sync-settings { padding: 18px; }
+.sync-settings, .desktop-reminder-settings { padding: 18px; }
 .sync-settings-notice { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: center; padding: 11px 12px; color: var(--muted); background: color-mix(in srgb, var(--blue-deep) 52%, var(--surface)); border: 1px solid color-mix(in srgb, var(--blue) 24%, var(--line)); border-radius: 8px; }
 .sync-settings-notice > svg { display: block; box-sizing: content-box; padding: 8px; color: var(--blue); background: var(--blue-deep); border-radius: 7px; }
 .sync-settings-notice strong, .sync-settings-notice span { display: block; }
@@ -2660,6 +2646,8 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .desktop-runtime-status.connected { color: var(--green); }
 .desktop-runtime-status.connected i { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 14%, transparent); }
 .desktop-settings-notice { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; padding: 10px 12px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 7px; font-size: 12px; }
+.desktop-settings-group + .desktop-settings-group { margin-top: 16px; }
+.desktop-settings-group > h3 { margin-bottom: 8px; color: var(--text); font-size: 13px; }
 .desktop-settings-list { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .desktop-settings-row { display: grid; min-height: 64px; grid-template-columns: 34px minmax(0, 1fr) 150px; align-items: center; gap: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--surface-2) 72%, var(--surface)); }
 .desktop-settings-row + .desktop-settings-row { border-top: 1px solid var(--line); }
@@ -3104,7 +3092,6 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .project-gantt-toolbar { margin-left: auto; }
   .project-gantt-resize-handle { display: none; }
   .project-gantt-bar { cursor: pointer; touch-action: auto; }
-  .project-share-panel { grid-template-columns: 1fr; }
   .project-share-form { justify-content: stretch; }
   .project-share-form select, .project-share-form button { width: 100%; max-width: none; }
   .account-form input, .account-form select, .calendar-account-form input, .calendar-account-form select, .calendar-form input:not([type="checkbox"]), .calendar-form select, .task-form input:not([type="checkbox"]), .task-form select { min-height: 44px; }
@@ -3239,9 +3226,6 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .projects-page { grid-template-columns: 1fr; }
   .project-switcher > div { display: flex; max-height: none; overflow-x: auto; overflow-y: hidden; }
   .project-switcher > div > button { min-width: 150px; flex: 0 0 auto; }
-  .project-hero { padding: 15px; }
-  .project-hero > header { flex-direction: column; }
-  .project-hero > header > button { align-self: flex-end; }
   .project-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .project-content-grid { grid-template-columns: 1fr; }
   .project-gantt > header { align-items: stretch; }
@@ -3736,7 +3720,6 @@ html[data-qgw-scheme="light"] :is(
   .calendar-meta-field,
   .calendar-modern-form .calendar-description,
   .calendar-linked-task,
-  .project-view-tabs,
   .project-actions-panel > form,
   .project-review-panel article,
   .project-review-panel > p,
@@ -3782,7 +3765,6 @@ html[data-qgw-scheme="light"] :is(
   .project-switcher > div > button:hover,
   .project-switcher > div > button.active,
   .project-share-members > span,
-  .project-progress > i,
   .project-action-list > a:hover,
   .project-notes-panel > div > a:hover,
   .project-schedule-panel > div > a:hover,
@@ -3848,8 +3830,6 @@ html[data-qgw-scheme="light"] :is(
   .calendar-modern-form .calendar-meta-field input,
   .calendar-modern-form .calendar-meta-field select,
   .calendar-modern-form .calendar-description textarea,
-  .project-identity p,
-  .project-progress > div strong,
   .project-share-members > span,
   .milestone-body strong,
   .project-milestone-form label > span,
@@ -3993,9 +3973,6 @@ html[data-qgw-scheme="light"] .calendar-event-drop-preview {
 }
 html[data-qgw-scheme="light"] :is(.calendar-month-day.outside, .project-gantt-phase-row, .project-gantt-ungrouped-row .project-gantt-task) {
   background: color-mix(in srgb, var(--surface-2) 42%, white);
-}
-html[data-qgw-scheme="light"] .project-progress > i > b {
-  background: var(--blue);
 }
 html[data-qgw-scheme="light"] :is(.project-gantt-time-heading, .project-gantt-track) {
   background-color: color-mix(in srgb, var(--surface-2) 42%, white);
@@ -5186,8 +5163,7 @@ html[data-qgw-scheme="light"] .notes-new-project {
 html[data-qgw-scheme="light"] :is(
   .calendar-view-switch button.active,
   .calendar-week-day-heading.today b,
-  .calendar-month-day.today > header span,
-  .project-view-tabs button.active
+  .calendar-month-day.today > header span
 ) {
   color: #ffffff;
 }

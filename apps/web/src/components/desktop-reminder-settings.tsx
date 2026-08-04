@@ -53,9 +53,9 @@ export function DesktopReminderSettingsPanel() {
       const nextStatus = await invokeDesktop<DesktopStatus>("update_desktop_settings", { settings: normalized });
       setDraft(normalized);
       setStatus(nextStatus);
-      setFeedback("桌面提醒设置已保存");
+      setFeedback("桌面客户端设置已保存");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法保存桌面提醒设置");
+      setFeedback(error instanceof Error ? error.message : "无法保存桌面客户端设置");
     } finally {
       setSaving(false);
     }
@@ -65,25 +65,34 @@ export function DesktopReminderSettingsPanel() {
     <section className="desktop-reminder-settings panel" aria-labelledby="desktop-reminder-settings-title">
       <div className="settings-section-heading">
         <div>
-          <h2 id="desktop-reminder-settings-title">桌面提醒</h2>
-          <p>通知由本机调度，即使 Kalender 窗口隐藏也会按时提醒。</p>
+          <h2 id="desktop-reminder-settings-title">桌面客户端</h2>
+          <p>管理本机通知、启动方式和托盘行为。</p>
         </div>
         <span className={`desktop-runtime-status ${desktopAvailable ? "connected" : "browser"}`}>
           <i />{desktopAvailable ? "桌面客户端已连接" : "当前为网页版本"}
         </span>
       </div>
 
-      {!desktopAvailable && <div className="desktop-settings-notice"><MonitorDown size={17} /><span>这些选项需要在 Kalender 桌面客户端中设置。</span></div>}
+      {!desktopAvailable && <div className="desktop-settings-notice"><MonitorDown size={17} /><span>请在 Kalender 桌面客户端中打开此页面后设置。</span></div>}
 
-      <div className="desktop-settings-list" aria-disabled={!desktopAvailable}>
-        <SettingToggle icon={<BellRing size={16} />} title="桌面通知" description="为同步到本机的日程发送系统通知" checked={draft.enabled} disabled={!desktopAvailable} onChange={(enabled) => setDraft({ ...draft, enabled })} />
-        <SettingSelect icon={<Clock3 size={16} />} title="默认提前提醒" description="适用于没有单独提醒规则的普通日程" value={draft.reminderMinutesBefore} disabled={!desktopAvailable || !draft.enabled} options={[{ value: 0, label: "准时" }, { value: 5, label: "5 分钟" }, { value: 10, label: "10 分钟" }, { value: 15, label: "15 分钟" }, { value: 30, label: "30 分钟" }, { value: 60, label: "1 小时" }]} onChange={(reminderMinutesBefore) => setDraft({ ...draft, reminderMinutesBefore })} />
-        <SettingSelect icon={<CalendarDays size={16} />} title="全天日程提醒" description="全天日程在当天的这个时间发送通知" value={draft.allDayReminderHour} disabled={!desktopAvailable || !draft.enabled} options={[{ value: 7, label: "07:00" }, { value: 8, label: "08:00" }, { value: 9, label: "09:00" }, { value: 10, label: "10:00" }, { value: 12, label: "12:00" }]} onChange={(allDayReminderHour) => setDraft({ ...draft, allDayReminderHour })} />
-        <SettingToggle icon={<Power size={16} />} title="开机启动" description="登录系统后在托盘中启动 Kalender" checked={draft.launchAtLogin} disabled={!desktopAvailable} onChange={(launchAtLogin) => setDraft({ ...draft, launchAtLogin })} />
-        <SettingToggle icon={<MonitorDown size={16} />} title="关闭后驻留" description="关闭主窗口时隐藏到托盘并继续提醒" checked={draft.minimizeToTray} disabled={!desktopAvailable} onChange={(minimizeToTray) => setDraft({ ...draft, minimizeToTray })} />
-        <SettingToggle icon={<Eye size={16} />} title="显示下一项标题" description="在托盘悬停提示中显示下一项日程名称" checked={draft.showEventTitle} disabled={!desktopAvailable} onChange={(showEventTitle) => setDraft({ ...draft, showEventTitle })} />
-        <SettingSelect icon={<RefreshCw size={16} />} title="补发错过的提醒" description="系统休眠恢复后，只补发这个时间范围内的提醒" value={draft.missedReminderWindowMinutes} disabled={!desktopAvailable || !draft.enabled} options={[{ value: 0, label: "不补发" }, { value: 15, label: "15 分钟" }, { value: 30, label: "30 分钟" }, { value: 60, label: "1 小时" }, { value: 180, label: "3 小时" }]} onChange={(missedReminderWindowMinutes) => setDraft({ ...draft, missedReminderWindowMinutes })} />
-      </div>
+      <section className="desktop-settings-group" aria-labelledby="desktop-notification-settings-title">
+        <h3 id="desktop-notification-settings-title">通知与提醒</h3>
+        <div className="desktop-settings-list" aria-disabled={!desktopAvailable}>
+          <SettingToggle icon={<BellRing size={16} />} title="桌面通知" description="为同步到本机的日程发送系统通知" checked={draft.enabled} disabled={!desktopAvailable} onChange={(enabled) => setDraft({ ...draft, enabled })} />
+          <SettingSelect icon={<Clock3 size={16} />} title="默认提前提醒" description="适用于没有单独提醒规则的普通日程" value={draft.reminderMinutesBefore} disabled={!desktopAvailable || !draft.enabled} options={[{ value: 0, label: "准时" }, { value: 5, label: "5 分钟" }, { value: 10, label: "10 分钟" }, { value: 15, label: "15 分钟" }, { value: 30, label: "30 分钟" }, { value: 60, label: "1 小时" }]} onChange={(reminderMinutesBefore) => setDraft({ ...draft, reminderMinutesBefore })} />
+          <SettingSelect icon={<CalendarDays size={16} />} title="全天日程提醒" description="全天日程在当天的这个时间发送通知" value={draft.allDayReminderHour} disabled={!desktopAvailable || !draft.enabled} options={[{ value: 7, label: "07:00" }, { value: 8, label: "08:00" }, { value: 9, label: "09:00" }, { value: 10, label: "10:00" }, { value: 12, label: "12:00" }]} onChange={(allDayReminderHour) => setDraft({ ...draft, allDayReminderHour })} />
+          <SettingSelect icon={<RefreshCw size={16} />} title="补发错过的提醒" description="系统休眠恢复后，只补发这个时间范围内的提醒" value={draft.missedReminderWindowMinutes} disabled={!desktopAvailable || !draft.enabled} options={[{ value: 0, label: "不补发" }, { value: 15, label: "15 分钟" }, { value: 30, label: "30 分钟" }, { value: 60, label: "1 小时" }, { value: 180, label: "3 小时" }]} onChange={(missedReminderWindowMinutes) => setDraft({ ...draft, missedReminderWindowMinutes })} />
+        </div>
+      </section>
+
+      <section className="desktop-settings-group" aria-labelledby="desktop-behavior-settings-title">
+        <h3 id="desktop-behavior-settings-title">应用与托盘</h3>
+        <div className="desktop-settings-list" aria-disabled={!desktopAvailable}>
+          <SettingToggle icon={<Power size={16} />} title="开机启动" description="登录系统后在托盘中启动 Kalender" checked={draft.launchAtLogin} disabled={!desktopAvailable} onChange={(launchAtLogin) => setDraft({ ...draft, launchAtLogin })} />
+          <SettingToggle icon={<MonitorDown size={16} />} title="关闭后驻留" description="关闭主窗口时隐藏到托盘并继续提醒" checked={draft.minimizeToTray} disabled={!desktopAvailable} onChange={(minimizeToTray) => setDraft({ ...draft, minimizeToTray })} />
+          <SettingToggle icon={<Eye size={16} />} title="显示下一项标题" description="在托盘悬停提示中显示下一项日程名称" checked={draft.showEventTitle} disabled={!desktopAvailable} onChange={(showEventTitle) => setDraft({ ...draft, showEventTitle })} />
+        </div>
+      </section>
 
       <footer className="sync-settings-actions">
         <span>{feedback || desktopStatusText(status, desktopAvailable)}</span>
@@ -94,7 +103,7 @@ export function DesktopReminderSettingsPanel() {
 }
 
 function desktopStatusText(status: DesktopStatus | undefined, desktopAvailable: boolean): string {
-  if (!desktopAvailable) return "设置只保存在当前设备";
+  if (!desktopAvailable) return "网页版无法修改桌面客户端设置";
   if (!status) return "正在读取本机提醒状态";
   if (status.lastSyncError) return `日历同步失败：${status.lastSyncError}`;
   if (!status.lastSyncedAt) return "等待首次日历同步";

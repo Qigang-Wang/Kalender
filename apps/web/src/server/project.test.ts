@@ -92,7 +92,10 @@ async function main() {
       overview?.tasks.length === 2 && overview.notes.length === 0,
       "project overview queries only the selected project's tasks and notes",
     );
-    assert(overview.milestones[0]?.phaseId === phase.id, "project milestones can belong to a project phase");
+    assert(
+      overview.milestones.find((entry) => entry.id === milestone.id)?.phaseId === phase.id,
+      "project milestones can belong to a project phase",
+    );
     const predecessor = overview?.ganttTasks.find((task) => task.id === "task-a");
     let successor = overview?.ganttTasks.find((task) => task.id === "task-b");
     assert(predecessor?.plannedEnd === "2026-07-25", "task duration includes weekend days");
