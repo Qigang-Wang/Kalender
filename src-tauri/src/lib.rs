@@ -87,6 +87,10 @@ struct PersistedState {
     pause_until: Option<i64>,
     #[serde(default)]
     summary: DesktopSummary,
+    #[serde(default)]
+    last_sync_attempt_at: Option<i64>,
+    #[serde(default)]
+    last_sync_error: Option<String>,
     server_url: Option<String>,
 }
 
@@ -110,6 +114,8 @@ struct DesktopStatus {
     pause_until: Option<i64>,
     queued_reminder_count: usize,
     last_synced_at: Option<i64>,
+    last_sync_attempt_at: Option<i64>,
+    last_sync_error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -177,6 +183,8 @@ fn sync_reminders(
         .state
         .lock()
         .map_err(|_| "桌面提醒状态暂时不可用".to_string())?;
+    state.last_sync_attempt_at = Some(Utc::now().timestamp_millis());
+    state.last_sync_error = None;
     let delivered = state
         .reminders
         .iter()
@@ -196,6 +204,25 @@ fn sync_reminders(
         })
         .collect();
     state.reminders.sort_by_key(|item| item.reminder.remind_at);
+    save_state(&runtime.state_path, &state)?;
+    update_tray_tooltip(&app, &state);
+    Ok(status_from_state(&state))
+}
+
+#[tauri::command]
+fn report_sync_error(
+    app: AppHandle,
+    window: WebviewWindow,
+    runtime: State<'_, DesktopRuntime>,
+    message: String,
+) -> Result<DesktopStatus, String> {
+    ensure_main_caller(&window, &runtime)?;
+    let mut state = runtime
+        .state
+        .lock()
+        .map_err(|_| "桌面提醒状态暂时不可用".to_string())?;
+    state.last_sync_attempt_at = Some(Utc::now().timestamp_millis());
+    state.last_sync_error = Some(normalize_sync_error(&message));
     save_state(&runtime.state_path, &state)?;
     update_tray_tooltip(&app, &state);
     Ok(status_from_state(&state))
@@ -231,6 +258,8 @@ async fn save_server_config(
         state.server_url = Some(normalized.clone());
         state.reminders.clear();
         state.summary = DesktopSummary::default();
+        state.last_sync_attempt_at = None;
+        state.last_sync_error = None;
         save_state(&runtime.state_path, &state)?;
         update_tray_tooltip(&app, &state);
         server_config_from_state(&state)
@@ -268,6 +297,7 @@ pub fn run() {
             desktop_status,
             update_desktop_settings,
             sync_reminders,
+            report_sync_error,
             get_server_config,
             save_server_config,
             close_server_config
@@ -531,32 +561,44 @@ fn dispatch_web_event(app: &AppHandle, event_name: &str) {
 }
 
 fn update_tray_tooltip(app: &AppHandle, state: &PersistedState) {
+    let tooltip = tray_tooltip_text(state, Utc::now().timestamp_millis());
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let _ = tray.set_tooltip(Some(tooltip));
+    }
+}
+
+fn tray_tooltip_text(state: &PersistedState, now: i64) -> String {
     let mut lines = vec!["Kalender".to_string()];
-    if state.summary.today_count == 0 {
+    if let Some(error) = state.last_sync_error.as_deref() {
+        lines.push(format!("日历同步失败：{error}"));
+    } else if state.summary.synced_at.is_none() {
+        lines.push("等待日历同步".to_string());
+    } else if state.summary.today_count == 0 {
         lines.push("今天暂无日程".to_string());
     } else {
         lines.push(format!("今天 {} 个日程", state.summary.today_count));
     }
-    let now = Utc::now().timestamp_millis();
     if let Some(until) = state.pause_until.filter(|until| *until > now) {
         lines.push(format!("提醒暂停至 {}", format_local_time(until)));
     } else {
-        if let Some(start_at) = state.summary.next_start_at {
-            let title = state
-                .summary
-                .next_title
-                .as_deref()
-                .filter(|_| state.settings.show_event_title)
-                .unwrap_or("");
-            lines.push(format!(
-                "下一项 {}{}",
-                format_local_time(start_at),
-                if title.is_empty() {
-                    String::new()
-                } else {
-                    format!(" {title}")
-                }
-            ));
+        if state.last_sync_error.is_none() {
+            if let Some(start_at) = state.summary.next_start_at {
+                let title = state
+                    .summary
+                    .next_title
+                    .as_deref()
+                    .filter(|_| state.settings.show_event_title)
+                    .unwrap_or("");
+                lines.push(format!(
+                    "下一项 {}{}",
+                    format_local_time(start_at),
+                    if title.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" {title}")
+                    }
+                ));
+            }
         }
         lines.push(
             if state.settings.enabled {
@@ -567,9 +609,7 @@ fn update_tray_tooltip(app: &AppHandle, state: &PersistedState) {
             .to_string(),
         );
     }
-    if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let _ = tray.set_tooltip(Some(lines.join("\n")));
-    }
+    lines.join("\n")
 }
 
 fn status_from_state(state: &PersistedState) -> DesktopStatus {
@@ -582,6 +622,17 @@ fn status_from_state(state: &PersistedState) -> DesktopStatus {
             .filter(|item| item.delivered_at.is_none())
             .count(),
         last_synced_at: state.summary.synced_at,
+        last_sync_attempt_at: state.last_sync_attempt_at,
+        last_sync_error: state.last_sync_error.clone(),
+    }
+}
+
+fn normalize_sync_error(message: &str) -> String {
+    let normalized = message.trim().chars().take(300).collect::<String>();
+    if normalized.is_empty() {
+        "未知错误".to_string()
+    } else {
+        normalized
     }
 }
 
@@ -818,5 +869,33 @@ mod tests {
     fn older_state_files_keep_the_local_default() {
         let loaded: PersistedState = serde_json::from_str("{}").unwrap();
         assert_eq!(configured_server_url(&loaded), DEFAULT_SERVER_URL);
+    }
+
+    #[test]
+    fn unsynced_tooltip_does_not_claim_the_calendar_is_empty() {
+        let tooltip = tray_tooltip_text(&PersistedState::default(), 0);
+        assert!(tooltip.contains("等待日历同步"));
+        assert!(!tooltip.contains("今天暂无日程"));
+    }
+
+    #[test]
+    fn empty_calendar_is_only_shown_after_a_successful_sync() {
+        let state = PersistedState {
+            summary: DesktopSummary {
+                synced_at: Some(1),
+                ..DesktopSummary::default()
+            },
+            ..PersistedState::default()
+        };
+        assert!(tray_tooltip_text(&state, 1).contains("今天暂无日程"));
+    }
+
+    #[test]
+    fn sync_failure_is_visible_in_the_tooltip() {
+        let state = PersistedState {
+            last_sync_error: Some("请先登录".into()),
+            ..PersistedState::default()
+        };
+        assert!(tray_tooltip_text(&state, 1).contains("日历同步失败：请先登录"));
     }
 }

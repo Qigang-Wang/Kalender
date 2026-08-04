@@ -57,6 +57,9 @@ jobs:
       - name: Type-check application
         run: npm run typecheck
 
+      - name: Test desktop calendar reminders
+        run: npm run test:desktop-reminders
+
       - name: Check Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 

@@ -1,6 +1,7 @@
 export const DESKTOP_SETTINGS_STORAGE_KEY = "kalender.desktop.reminder-settings.v1";
 export const DESKTOP_SETTINGS_CHANGED_EVENT = "kalender:desktop-settings-changed";
 export const DESKTOP_SYNC_REQUESTED_EVENT = "kalender:desktop-sync-requested";
+export const DESKTOP_STATUS_CHANGED_EVENT = "kalender:desktop-status-changed";
 
 export interface DesktopReminderSettings {
   readonly enabled: boolean;
@@ -16,6 +17,8 @@ export interface DesktopStatus {
   readonly pauseUntil?: number;
   readonly queuedReminderCount: number;
   readonly lastSyncedAt?: number;
+  readonly lastSyncAttemptAt?: number;
+  readonly lastSyncError?: string;
 }
 
 export const DEFAULT_DESKTOP_REMINDER_SETTINGS: DesktopReminderSettings = {
@@ -42,10 +45,24 @@ export function isDesktopApp(): boolean {
   return typeof window !== "undefined" && typeof window.__TAURI__?.core?.invoke === "function";
 }
 
+export async function waitForDesktopApp(timeoutMs = 5_000): Promise<boolean> {
+  if (isDesktopApp()) return true;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+    if (isDesktopApp()) return true;
+  }
+  return false;
+}
+
 export async function invokeDesktop<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const invoke = window.__TAURI__?.core?.invoke;
   if (!invoke) throw new Error("当前页面未运行在 Kalender 桌面客户端中");
   return invoke<T>(command, args);
+}
+
+export function publishDesktopStatus(status: DesktopStatus): void {
+  window.dispatchEvent(new CustomEvent(DESKTOP_STATUS_CHANGED_EVENT, { detail: status }));
 }
 
 export function readDesktopReminderSettings(): DesktopReminderSettings {

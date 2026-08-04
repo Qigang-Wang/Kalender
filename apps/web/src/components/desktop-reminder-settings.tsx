@@ -6,10 +6,12 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AppSelect } from "@/components/app-select";
 import {
   DEFAULT_DESKTOP_REMINDER_SETTINGS,
+  DESKTOP_STATUS_CHANGED_EVENT,
   invokeDesktop,
-  isDesktopApp,
+  publishDesktopStatus,
   readDesktopReminderSettings,
   saveDesktopReminderSettings,
+  waitForDesktopApp,
   type DesktopReminderSettings,
   type DesktopStatus,
 } from "@/lib/desktop-bridge";
@@ -23,13 +25,24 @@ export function DesktopReminderSettingsPanel() {
 
   useEffect(() => {
     setDraft(readDesktopReminderSettings());
-    const available = isDesktopApp();
-    setDesktopAvailable(available);
-    if (available) {
+    let disposed = false;
+    const handleStatus = (event: Event) => setStatus((event as CustomEvent<DesktopStatus>).detail);
+    window.addEventListener(DESKTOP_STATUS_CHANGED_EVENT, handleStatus);
+    void waitForDesktopApp().then((available) => {
+      if (disposed) return;
+      setDesktopAvailable(available);
+      if (!available) return;
       void invokeDesktop<DesktopStatus>("desktop_status")
-        .then(setStatus)
+        .then((nextStatus) => {
+          setStatus(nextStatus);
+          publishDesktopStatus(nextStatus);
+        })
         .catch(() => setFeedback("无法读取桌面客户端状态"));
-    }
+    });
+    return () => {
+      disposed = true;
+      window.removeEventListener(DESKTOP_STATUS_CHANGED_EVENT, handleStatus);
+    };
   }, []);
 
   const save = async () => {
@@ -73,11 +86,19 @@ export function DesktopReminderSettingsPanel() {
       </div>
 
       <footer className="sync-settings-actions">
-        <span>{feedback || (status ? `本机队列中有 ${status.queuedReminderCount} 个待处理提醒` : "设置只保存在当前设备")}</span>
+        <span>{feedback || desktopStatusText(status, desktopAvailable)}</span>
         <button type="button" className="primary-button" disabled={!desktopAvailable || saving} onClick={() => void save()}>{saving ? "保存中…" : "保存设置"}</button>
       </footer>
     </section>
   );
+}
+
+function desktopStatusText(status: DesktopStatus | undefined, desktopAvailable: boolean): string {
+  if (!desktopAvailable) return "设置只保存在当前设备";
+  if (!status) return "正在读取本机提醒状态";
+  if (status.lastSyncError) return `日历同步失败：${status.lastSyncError}`;
+  if (!status.lastSyncedAt) return "等待首次日历同步";
+  return `本机队列中有 ${status.queuedReminderCount} 个待处理提醒`;
 }
 
 function SettingToggle({ icon, title, description, checked, disabled, onChange }: { readonly icon: ReactNode; readonly title: string; readonly description: string; readonly checked: boolean; readonly disabled: boolean; readonly onChange: (checked: boolean) => void }) {

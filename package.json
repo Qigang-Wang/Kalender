@@ -51,6 +51,7 @@
     "test:today": "tsx apps/web/src/server/today.test.ts",
     "test:search": "tsx apps/web/src/server/workspace-search.test.ts",
     "test:http-client": "tsx apps/web/src/lib/fetch-with-timeout.test.ts",
+    "test:desktop-reminders": "tsx apps/web/src/lib/desktop-reminders.test.ts",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
     "desktop:check": "cargo check --manifest-path src-tauri/Cargo.toml"
