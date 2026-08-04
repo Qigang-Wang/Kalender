@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as Reac
 import { ContextMenu } from "./context-menu";
 import type { ContextCommandId, ResolvedContextCommand } from "./context-commands";
 import { AppSelect } from "./app-select";
+import { DesktopWindowControls } from "./desktop-window-titlebar";
 import { DateTimeField } from "./ui/date-time-field";
 
 interface SearchResult {
@@ -202,6 +203,7 @@ export function GlobalCommandBar({
         >
           {assistantOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
         </button>}
+        <DesktopWindowControls />
       </header>
       {captureOpen && <QuickCaptureDialog onClose={() => setCaptureOpen(false)} onCreated={(href) => { setCaptureOpen(false); router.push(href); }} />}
     </>

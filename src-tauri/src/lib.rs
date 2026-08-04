@@ -1,12 +1,4 @@
-use std::{
-    collections::HashMap,
-    fs,
-    net::{TcpStream, ToSocketAddrs},
-    path::PathBuf,
-    sync::Mutex,
-    thread,
-    time::Duration,
-};
+use std::{collections::HashMap, fs, path::PathBuf, sync::Mutex, thread, time::Duration};
 
 use chrono::{Days, Local, TimeZone, Utc};
 use notify_rust::Notification;
@@ -137,6 +129,13 @@ struct DesktopStatus {
 struct ServerConfig {
     url: String,
     is_default: bool,
+    connected: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ServerHealthResponse {
+    ok: bool,
+    status: String,
 }
 
 #[tauri::command]
@@ -264,6 +263,11 @@ async fn save_server_config(
 ) -> Result<ServerConfig, String> {
     ensure_config_caller(&window)?;
     let normalized = normalize_server_url(&input)?;
+    let health_target = normalized.clone();
+    let connected =
+        tauri::async_runtime::spawn_blocking(move || probe_server_health(&health_target))
+            .await
+            .map_err(|error| format!("无法完成服务器健康检查：{error}"))?;
     let config = {
         let mut state = runtime
             .state
@@ -274,23 +278,25 @@ async fn save_server_config(
         state.summary = DesktopSummary::default();
         state.last_sync_attempt_at = None;
         state.last_sync_error = None;
-        state.server_connected = None;
+        state.server_connected = Some(connected);
         save_state(&runtime.state_path, &state)?;
         update_tray_tooltip(&app, &state);
-        update_server_connection_menu(&app, None);
+        update_server_connection_menu(&app, Some(connected));
         server_config_from_state(&state)
     };
 
-    let target = Url::parse(&normalized).map_err(|_| "保存后的服务器地址无效".to_string())?;
-    if let Some(main) = app.get_webview_window("main") {
-        main.navigate(target)
-            .map_err(|error| format!("无法打开服务器地址：{error}"))?;
-        show_main_window(&app);
+    if connected {
+        let target = Url::parse(&normalized).map_err(|_| "保存后的服务器地址无效".to_string())?;
+        if let Some(main) = app.get_webview_window("main") {
+            main.navigate(target)
+                .map_err(|error| format!("无法打开服务器地址：{error}"))?;
+            show_main_window_unchecked(&app);
+        } else {
+            create_main_window(&app, &normalized, true)?;
+        }
     } else {
-        create_main_window(&app, &normalized)?;
+        hide_main_window(&app);
     }
-    let connection_app = app.clone();
-    thread::spawn(move || check_server_connection(&connection_app));
     Ok(config)
 }
 
@@ -371,7 +377,7 @@ fn desktop_window_close(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            show_main_window(app);
+            request_main_window(app, None);
         }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -397,15 +403,22 @@ pub fn run() {
                 .app_data_dir()
                 .map_err(|error| format!("无法确定桌面数据目录：{error}"))?
                 .join(STATE_FILE);
-            let persisted = load_state(&state_path);
+            let mut persisted = load_state(&state_path);
             let server_url = configured_server_url(&persisted).to_string();
+            let connected = probe_server_health(&server_url);
+            persisted.server_connected = Some(connected);
             app.manage(DesktopRuntime {
                 state: Mutex::new(persisted),
                 state_path,
                 server_status_item: Mutex::new(None),
             });
-            create_main_window(app.handle(), &server_url)?;
             build_tray(app)?;
+            update_server_connection_menu(app.handle(), Some(connected));
+            if connected {
+                create_main_window(app.handle(), &server_url, true)?;
+            } else {
+                show_server_unavailable_notification(app.handle());
+            }
             start_reminder_scheduler(app.handle().clone());
             start_server_connection_monitor(app.handle().clone());
             if let Ok(state) = app.state::<DesktopRuntime>().state.lock() {
@@ -490,13 +503,14 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "open" => show_main_window(app),
+            "open" => request_main_window(app, None),
             "pause-30" => set_pause(app, Some(Utc::now().timestamp_millis() + 30 * 60_000)),
             "pause-120" => set_pause(app, Some(Utc::now().timestamp_millis() + 120 * 60_000)),
             "pause-today" => set_pause(app, end_of_local_day()),
             "resume" => set_pause(app, None),
             "sync" => dispatch_web_event(app, "kalender:desktop-sync-requested"),
             "settings" => open_route(app, "/settings?tab=desktop"),
+            "server-status" => open_server_config(app),
             "server-config" => open_server_config(app),
             "quit" => app.exit(0),
             _ => {}
@@ -508,7 +522,7 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 ..
             } = event
             {
-                show_main_window(tray.app_handle());
+                request_main_window(tray.app_handle(), None);
             }
         })
         .build(app)?;
@@ -574,33 +588,67 @@ fn check_server_connection(app: &AppHandle) {
         Ok(url) => url,
         Err(_) => return,
     };
-    let connected = probe_server_connection(&server_url);
-    let should_publish = runtime
+    let connected = probe_server_health(&server_url);
+    let previous = runtime
         .state
         .lock()
         .map(|mut state| {
             if configured_server_url(&state) != server_url {
-                return false;
+                return None;
             }
+            let previous = state.server_connected;
             state.server_connected = Some(connected);
-            true
+            Some(previous)
         })
-        .unwrap_or(false);
-    if should_publish {
-        update_server_connection_menu(app, Some(connected));
+        .ok()
+        .flatten();
+    let Some(previous) = previous else {
+        return;
+    };
+    update_server_connection_menu(app, Some(connected));
+    if connected {
+        if app.get_webview_window("main").is_none() {
+            let _ = create_main_window(app, &server_url, false);
+        } else if previous == Some(false) {
+            if let Some(main) = app.get_webview_window("main") {
+                if let Ok(target) = Url::parse(&server_url) {
+                    let _ = main.navigate(target);
+                }
+            }
+        }
+        if previous == Some(false) {
+            show_server_recovered_notification();
+        }
+    } else if previous == Some(true) {
+        hide_main_window(app);
+        show_server_unavailable_notification(app);
     }
 }
 
-fn probe_server_connection(server_url: &str) -> bool {
-    let Ok((host, port)) = server_socket_target(server_url) else {
+fn probe_server_health(server_url: &str) -> bool {
+    let Ok(health_url) = server_route_url(server_url, "/api/health") else {
         return false;
     };
-    let Ok(addresses) = (host.as_str(), port).to_socket_addrs() else {
+    let Ok(client) = reqwest::blocking::Client::builder()
+        .connect_timeout(SERVER_CONNECTION_TIMEOUT)
+        .timeout(SERVER_CONNECTION_TIMEOUT)
+        .build()
+    else {
         return false;
     };
-    addresses
-        .take(4)
-        .any(|address| TcpStream::connect_timeout(&address, SERVER_CONNECTION_TIMEOUT).is_ok())
+    let Ok(response) = client
+        .get(health_url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .send()
+    else {
+        return false;
+    };
+    if !response.status().is_success() {
+        return false;
+    }
+    response
+        .json::<ServerHealthResponse>()
+        .is_ok_and(|health| health.ok && health.status.eq_ignore_ascii_case("healthy"))
 }
 
 fn show_notification(app: AppHandle, reminder: ReminderInput, show_title: bool) {
@@ -641,7 +689,59 @@ fn set_pause(app: &AppHandle, until: Option<i64>) {
     };
 }
 
-fn show_main_window(app: &AppHandle) {
+fn request_main_window(app: &AppHandle, route: Option<&str>) {
+    let app = app.clone();
+    let route = route.map(str::to_string);
+    thread::spawn(move || {
+        let runtime = app.state::<DesktopRuntime>();
+        let server_url = match runtime
+            .state
+            .lock()
+            .map(|state| configured_server_url(&state).to_string())
+        {
+            Ok(url) => url,
+            Err(_) => return,
+        };
+        let connected = probe_server_health(&server_url);
+        let current_server = runtime
+            .state
+            .lock()
+            .map(|mut state| {
+                if configured_server_url(&state) != server_url {
+                    return false;
+                }
+                state.server_connected = Some(connected);
+                true
+            })
+            .unwrap_or(false);
+        if !current_server {
+            return;
+        }
+        update_server_connection_menu(&app, Some(connected));
+        if !connected {
+            hide_main_window(&app);
+            show_server_unavailable_notification(&app);
+            open_server_config(&app);
+            return;
+        }
+
+        if app.get_webview_window("main").is_none()
+            && create_main_window(&app, &server_url, false).is_err()
+        {
+            return;
+        }
+        if let Some(route) = route.as_deref() {
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(target) = server_route_url(&server_url, route) {
+                    let _ = window.navigate(target);
+                }
+            }
+        }
+        show_main_window_unchecked(&app);
+    });
+}
+
+fn show_main_window_unchecked(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -649,19 +749,17 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
-fn open_route(app: &AppHandle, route: &str) {
-    show_main_window(app);
+fn hide_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let runtime = app.state::<DesktopRuntime>();
-        if let Ok(state) = runtime.state.lock() {
-            if let Ok(target) = server_route_url(configured_server_url(&state), route) {
-                let _ = window.navigate(target);
-            }
-        };
+        let _ = window.hide();
     }
 }
 
-fn create_main_window(app: &AppHandle, server_url: &str) -> Result<(), String> {
+fn open_route(app: &AppHandle, route: &str) {
+    request_main_window(app, Some(route));
+}
+
+fn create_main_window(app: &AppHandle, server_url: &str, visible: bool) -> Result<(), String> {
     if app.get_webview_window("main").is_some() {
         return Ok(());
     }
@@ -670,12 +768,30 @@ fn create_main_window(app: &AppHandle, server_url: &str) -> Result<(), String> {
     WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         .title("Kalender")
         .decorations(false)
+        .visible(visible)
         .inner_size(1360.0, 860.0)
         .min_inner_size(980.0, 640.0)
         .center()
         .build()
         .map_err(|error| format!("无法创建 Kalender 窗口：{error}"))?;
     Ok(())
+}
+
+fn show_server_unavailable_notification(app: &AppHandle) {
+    let _ = Notification::new()
+        .appname("Kalender")
+        .summary("Kalender 服务器不可用")
+        .body("健康检查失败，主窗口未打开。Kalender 将留在托盘中并自动重试。")
+        .show();
+    update_server_connection_menu(app, Some(false));
+}
+
+fn show_server_recovered_notification() {
+    let _ = Notification::new()
+        .appname("Kalender")
+        .summary("Kalender 服务器已恢复")
+        .body("后台同步已恢复，可从托盘打开 Kalender。")
+        .show();
 }
 
 fn open_server_config(app: &AppHandle) {
@@ -733,9 +849,9 @@ fn update_server_connection_menu(app: &AppHandle, connected: Option<bool>) {
 
 fn server_connection_label(connected: Option<bool>) -> &'static str {
     match connected {
-        Some(true) => "服务器连接正常",
-        Some(false) => "服务器连接断开",
-        None => "正在检查服务器连接",
+        Some(true) => "服务器运行正常",
+        Some(false) => "服务器健康检查失败",
+        None => "正在检查服务器状态",
     }
 }
 
@@ -767,7 +883,9 @@ fn server_connection_icon(connected: Option<bool>) -> Image<'static> {
 
 fn tray_tooltip_text(state: &PersistedState, now: i64) -> String {
     let mut lines = vec!["Kalender".to_string()];
-    if let Some(error) = state.last_sync_error.as_deref() {
+    if state.server_connected == Some(false) {
+        lines.push("服务器健康检查失败".to_string());
+    } else if let Some(error) = state.last_sync_error.as_deref() {
         lines.push(format!("日历同步失败：{error}"));
     } else if state.summary.synced_at.is_none() {
         lines.push("等待日历同步".to_string());
@@ -839,6 +957,7 @@ fn server_config_from_state(state: &PersistedState) -> ServerConfig {
     ServerConfig {
         is_default: url == DEFAULT_SERVER_URL,
         url,
+        connected: state.server_connected,
     }
 }
 
@@ -848,17 +967,6 @@ fn configured_server_url(state: &PersistedState) -> &str {
         .as_deref()
         .filter(|value| normalize_server_url(value).is_ok())
         .unwrap_or(DEFAULT_SERVER_URL)
-}
-
-fn server_socket_target(server_url: &str) -> Result<(String, u16), String> {
-    let url = Url::parse(server_url).map_err(|_| "服务器地址无效".to_string())?;
-    let host = url
-        .host_str()
-        .ok_or_else(|| "服务器地址缺少域名或 IP 地址".to_string())?;
-    let port = url
-        .port_or_known_default()
-        .ok_or_else(|| "服务器地址缺少端口".to_string())?;
-    Ok((host.to_string(), port))
 }
 
 fn normalize_server_url(input: &str) -> Result<String, String> {
@@ -990,8 +1098,11 @@ fn end_of_local_day() -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::TcpListener;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+    };
 
     #[test]
     fn reminder_key_keeps_recurring_instances_distinct() {
@@ -1053,29 +1164,27 @@ mod tests {
     }
 
     #[test]
-    fn resolves_server_socket_targets() {
-        assert_eq!(
-            server_socket_target("https://kalender.example.com/calendar").unwrap(),
-            ("kalender.example.com".to_string(), 443)
-        );
-        assert_eq!(
-            server_socket_target("http://localhost:3000/").unwrap(),
-            ("localhost".to_string(), 3000)
-        );
-    }
-
-    #[test]
     fn connection_labels_cover_all_states() {
-        assert_eq!(server_connection_label(None), "正在检查服务器连接");
-        assert_eq!(server_connection_label(Some(true)), "服务器连接正常");
-        assert_eq!(server_connection_label(Some(false)), "服务器连接断开");
+        assert_eq!(server_connection_label(None), "正在检查服务器状态");
+        assert_eq!(server_connection_label(Some(true)), "服务器运行正常");
+        assert_eq!(server_connection_label(Some(false)), "服务器健康检查失败");
     }
 
     #[test]
-    fn detects_a_reachable_server_port() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        assert!(probe_server_connection(&format!("http://{address}/")));
+    fn health_probe_requires_a_healthy_kalender_response() {
+        let (healthy_url, healthy_server) =
+            health_server("200 OK", r#"{"ok":true,"status":"healthy"}"#);
+        assert!(probe_server_health(&format!("{healthy_url}calendar")));
+        healthy_server.join().unwrap();
+
+        let (gateway_url, gateway_server) =
+            health_server("502 Bad Gateway", "<html><title>Bad gateway</title></html>");
+        assert!(!probe_server_health(&gateway_url));
+        gateway_server.join().unwrap();
+
+        let (wrong_app_url, wrong_app_server) = health_server("200 OK", r#"{"ok":true}"#);
+        assert!(!probe_server_health(&wrong_app_url));
+        wrong_app_server.join().unwrap();
     }
 
     #[test]
@@ -1133,5 +1242,23 @@ mod tests {
             ..PersistedState::default()
         };
         assert!(tray_tooltip_text(&state, 1).contains("日历同步失败：请先登录"));
+    }
+
+    fn health_server(status: &'static str, body: &'static str) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1_024];
+            let bytes_read = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..bytes_read]);
+            assert!(request.starts_with("GET /api/health "));
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        (format!("http://{address}/"), handle)
     }
 }

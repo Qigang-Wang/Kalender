@@ -49,7 +49,7 @@
         <p id="feedback" role="status" aria-live="polite"></p>
         <footer>
           <button id="cancel" type="button">取消</button>
-          <button id="save" class="primary" type="submit">保存并打开</button>
+          <button id="save" class="primary" type="submit">保存并检测</button>
         </footer>
       </form>
     </main>
@@ -66,18 +66,31 @@
       }
 
       invoke("get_server_config")
-        .then((config) => { input.value = config.url; input.select(); })
+        .then((config) => {
+          input.value = config.url;
+          input.select();
+          if (config.connected === false) {
+            showFeedback("服务器健康检查失败。Kalender 将留在托盘中并每 30 秒自动重试。", true);
+          } else if (config.connected === true) {
+            showFeedback("服务器运行正常");
+          }
+        })
         .catch((error) => showFeedback(String(error), true));
 
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         save.disabled = true;
-        showFeedback("正在保存…");
+        showFeedback("正在检查 /api/health…");
         try {
           const config = await invoke("save_server_config", { input: input.value });
           input.value = config.url;
-          showFeedback("已保存，正在打开 Kalender");
-          window.setTimeout(() => { void invoke("close_server_config"); }, 150);
+          if (config.connected) {
+            showFeedback("服务器运行正常，正在打开 Kalender");
+            window.setTimeout(() => { void invoke("close_server_config"); }, 150);
+          } else {
+            showFeedback("地址已保存，但服务器健康检查失败。主窗口不会打开，后台将每 30 秒自动重试。", true);
+            save.disabled = false;
+          }
         } catch (error) {
           showFeedback(String(error), true);
           save.disabled = false;

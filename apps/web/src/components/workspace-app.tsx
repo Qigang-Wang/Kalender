@@ -71,7 +71,6 @@ import { BrandLogo } from "./brand-logo";
 import { MailSignatureSettings } from "./mail-signature-settings";
 import { DesktopReminderBridge } from "./desktop-reminder-bridge";
 import { DesktopReminderSettingsPanel } from "./desktop-reminder-settings";
-import { DesktopWindowTitlebar } from "./desktop-window-titlebar";
 import { readThemePreference, saveThemePreference } from "./theme-controller";
 import { TransientToast } from "./workspace-shared";
 import {
@@ -511,7 +510,6 @@ export function WorkspaceApp(props: WorkspaceAppProps) {
     <RealtimeProvider>
       <SyncSettingsProvider>
         <DesktopReminderBridge />
-        <DesktopWindowTitlebar />
         <WorkspaceAppContent {...props} />
       </SyncSettingsProvider>
     </RealtimeProvider>

@@ -1,11 +1,11 @@
 "use client";
 
-import { Copy, Maximize2, Minus, X } from "lucide-react";
+import { Copy, Minus, Square, X } from "lucide-react";
 import { useEffect, useState, type PointerEvent } from "react";
 
 import { invokeDesktop, waitForDesktopApp } from "@/lib/desktop-bridge";
 
-export function DesktopWindowTitlebar() {
+export function DesktopWindowControls() {
   const [available, setAvailable] = useState(false);
   const [maximized, setMaximized] = useState(false);
 
@@ -41,10 +41,12 @@ export function DesktopWindowTitlebar() {
       console.warn("Desktop window maximize command failed", error);
     }
   };
-  const runWindowCommand = (command: "desktop_window_minimize" | "desktop_window_close") => {
-    void invokeDesktop(command).catch((error) => {
+  const runWindowCommand = async (command: "desktop_window_minimize" | "desktop_window_close") => {
+    try {
+      await invokeDesktop(command);
+    } catch (error) {
       console.warn(`Desktop window command failed: ${command}`, error);
-    });
+    }
   };
   const startDragging = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || event.detail > 1) return;
@@ -52,26 +54,25 @@ export function DesktopWindowTitlebar() {
   };
 
   return (
-    <header className="desktop-window-titlebar">
+    <div className="desktop-window-command-area">
       <div
         className="desktop-window-drag-region"
         aria-label="拖动 Kalender 窗口"
+        title="拖动窗口，双击最大化"
         onDoubleClick={() => void toggleMaximized()}
         onPointerDown={startDragging}
-      >
-        <span>Kalender</span>
-      </div>
+      />
       <div className="desktop-window-controls" aria-label="窗口控制">
-        <button type="button" aria-label="最小化" title="最小化" onClick={() => runWindowCommand("desktop_window_minimize")}>
+        <button type="button" aria-label="最小化" title="最小化" onPointerDown={(event) => event.stopPropagation()} onClick={() => void runWindowCommand("desktop_window_minimize")}>
           <Minus size={16} strokeWidth={1.7} />
         </button>
-        <button type="button" aria-label={maximized ? "还原" : "最大化"} title={maximized ? "还原" : "最大化"} onClick={() => void toggleMaximized()}>
-          {maximized ? <Copy size={13} strokeWidth={1.7} /> : <Maximize2 size={14} strokeWidth={1.7} />}
+        <button type="button" aria-label={maximized ? "还原" : "最大化"} title={maximized ? "还原" : "最大化"} onPointerDown={(event) => event.stopPropagation()} onClick={() => void toggleMaximized()}>
+          {maximized ? <Copy size={13} strokeWidth={1.7} /> : <Square size={12} strokeWidth={1.7} />}
         </button>
-        <button className="desktop-window-close" type="button" aria-label="关闭" title="关闭" onClick={() => runWindowCommand("desktop_window_close")}>
+        <button className="desktop-window-close" type="button" aria-label="关闭" title="关闭" onPointerDown={(event) => event.stopPropagation()} onClick={() => void runWindowCommand("desktop_window_close")}>
           <X size={16} strokeWidth={1.7} />
         </button>
       </div>
-    </header>
+    </div>
   );
 }
