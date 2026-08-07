@@ -2325,7 +2325,6 @@ function useVisualViewportLayout() {
   useEffect(() => {
     const root = document.documentElement;
     const viewport = window.visualViewport;
-    let focusedControl: HTMLElement | null = null;
 
     const syncViewport = () => {
       const height = viewport?.height ?? window.innerHeight;
@@ -2334,32 +2333,20 @@ function useVisualViewportLayout() {
       root.style.setProperty("--visual-viewport-offset-top", `${Math.round(offsetTop)}px`);
       const keyboardOpen = window.innerWidth <= 760 && height < window.innerHeight * 0.82;
       document.body.classList.toggle("software-keyboard-open", keyboardOpen);
-      if (keyboardOpen && focusedControl?.isConnected) {
-        focusedControl.scrollIntoView({ block: "center", inline: "nearest" });
-      }
-    };
-    const handleFocus = (event: FocusEvent) => {
-      const target = event.target;
-      focusedControl = target instanceof HTMLElement && target.matches("input, select, textarea, [contenteditable='true']") ? target : null;
-      syncViewport();
-    };
-    const handleBlur = () => {
-      focusedControl = null;
-      syncViewport();
     };
 
     syncViewport();
     viewport?.addEventListener("resize", syncViewport);
     viewport?.addEventListener("scroll", syncViewport);
     window.addEventListener("orientationchange", syncViewport);
-    document.addEventListener("focusin", handleFocus);
-    document.addEventListener("focusout", handleBlur);
+    document.addEventListener("focusin", syncViewport);
+    document.addEventListener("focusout", syncViewport);
     return () => {
       viewport?.removeEventListener("resize", syncViewport);
       viewport?.removeEventListener("scroll", syncViewport);
       window.removeEventListener("orientationchange", syncViewport);
-      document.removeEventListener("focusin", handleFocus);
-      document.removeEventListener("focusout", handleBlur);
+      document.removeEventListener("focusin", syncViewport);
+      document.removeEventListener("focusout", syncViewport);
       document.body.classList.remove("software-keyboard-open");
       root.style.removeProperty("--visual-viewport-height");
       root.style.removeProperty("--visual-viewport-offset-top");
