@@ -3137,7 +3137,21 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .ai-command-composer .primary-button, .ai-stop-button { min-height: 40px; }
   .software-keyboard-open .mobile-bottom-nav { display: none; }
   .software-keyboard-open .page-grid { padding-bottom: 18px; }
-  .software-keyboard-open .notes-workspace.mobile-detail-open {
+  .software-keyboard-open .command-bar:focus-within {
+    position: fixed;
+    top: var(--visual-viewport-offset-top, 0);
+    right: 0;
+    left: 0;
+  }
+  .software-keyboard-open .global-command:focus-within .command-palette {
+    max-height: calc(var(--visual-viewport-height, 100dvh) - 58px);
+  }
+  .software-keyboard-open .global-command:focus-within .command-results {
+    max-height: calc(var(--visual-viewport-height, 100dvh) - 112px);
+  }
+  .software-keyboard-open .notes-workspace.mobile-detail-open:focus-within,
+  .software-keyboard-open .mail-layout.mobile-detail-open:focus-within,
+  .software-keyboard-open .ai-command-shell:focus-within {
     position: fixed;
     inset: var(--visual-viewport-offset-top, 0) 0 auto;
     z-index: 70;
@@ -3147,10 +3161,13 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
     border: 0;
     border-radius: 0;
   }
-  .software-keyboard-open .notes-workspace.mobile-detail-open .note-editor {
+  .software-keyboard-open .notes-workspace.mobile-detail-open:focus-within .note-editor,
+  .software-keyboard-open .mail-layout.mobile-detail-open:focus-within .message-detail,
+  .software-keyboard-open .ai-command-shell:focus-within .ai-command-main {
     height: 100%;
   }
-  .software-keyboard-open .notes-workspace.mobile-detail-open .note-plate-editor {
+  .software-keyboard-open .notes-workspace.mobile-detail-open:focus-within .note-plate-editor,
+  .software-keyboard-open .mail-layout.mobile-detail-open:focus-within .message-detail {
     overscroll-behavior-y: auto;
     scroll-padding-block: 48px 20px;
     -webkit-overflow-scrolling: touch;
@@ -3358,6 +3375,12 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .note-editor-toolbar .note-toolbar-type-select { width: min(112px, 100%); min-width: 0; max-width: none; grid-column: 3; grid-row: 2; }
   .notes-filter-scroll .project-filter, .notes-filter-divider, .notes-new-project { display: none; }
   .note-relations { display: none; }
+
+  /* iOS zooms focused editable text below 16px. Keep the controls compact, not the text. */
+  .calendar-modern-form .calendar-meta-field input,
+  .note-plate-content,
+  .calendar-rich-content,
+  .mail-compose-content { font-size: 16px; }
 
   /* Settings switch to one column before the content starts clipping. */
   .account-form, .calendar-account-form, .ai-provider-form, .ai-model-form, .ai-binding-row { grid-template-columns: minmax(0, 1fr); }
