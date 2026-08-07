@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       password,
     });
     const response = NextResponse.json({ ok: true, user }, { status: 201 });
-    setAuthCookie(response, user);
+    setAuthCookie(response, user, request);
     return response;
   } catch (error) {
     return inviteErrorResponse(error);

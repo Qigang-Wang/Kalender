@@ -15,6 +15,11 @@ async function main() {
 
   try {
     const database = await getDatabase();
+    assert(!auth.authCookieIsSecure(new Request("http://workspace.example.test/login")), "HTTP login cookies are usable without TLS");
+    assert(auth.authCookieIsSecure(new Request("https://workspace.example.test/login")), "HTTPS login cookies remain secure");
+    assert(auth.authCookieIsSecure(new Request("http://127.0.0.1/login", {
+      headers: { "x-forwarded-proto": "https" },
+    })), "reverse-proxied HTTPS login cookies remain secure");
     await database.query(
       `INSERT INTO projects (id, name, color, status)
        VALUES ('legacy-project', 'Legacy', '#86bdf5', 'active')`,

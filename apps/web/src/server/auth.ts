@@ -609,25 +609,39 @@ export async function requireAuthenticatedAppUser(nextPath = "/today"): Promise<
   return user;
 }
 
-export function setAuthCookie(response: NextResponse, user: AppUser, options: { readonly remember?: boolean } = {}): void {
+export function setAuthCookie(
+  response: NextResponse,
+  user: AppUser,
+  request: Request,
+  options: { readonly remember?: boolean } = {},
+): void {
   const ttl = options.remember ? REMEMBERED_SESSION_TTL_SECONDS : SESSION_TTL_SECONDS;
   response.cookies.set(AUTH_COOKIE_NAME, createSessionToken(user, ttl), {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: authCookieIsSecure(request),
     path: "/",
     maxAge: ttl,
   });
 }
 
-export function clearAuthCookie(response: NextResponse): void {
+export function clearAuthCookie(response: NextResponse, request: Request): void {
   response.cookies.set(AUTH_COOKIE_NAME, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: authCookieIsSecure(request),
     path: "/",
     maxAge: 0,
   });
+}
+
+export function authCookieIsSecure(request: Request): boolean {
+  const forwardedProtocol = request.headers.get("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim()
+    .toLocaleLowerCase();
+  if (forwardedProtocol) return forwardedProtocol === "https";
+  return new URL(request.url).protocol === "https:";
 }
 
 export function verifySessionToken(token: string | undefined): SessionPayload | undefined {

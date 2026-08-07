@@ -21,7 +21,7 @@ export async function PATCH(request: Request) {
       newPassword: optionalString(body?.newPassword),
     });
     const response = NextResponse.json({ ok: true, user });
-    setAuthCookie(response, user);
+    setAuthCookie(response, user, request);
     return response;
   } catch (error) {
     return userErrorResponse(error);

@@ -18,7 +18,7 @@ export async function POST(request: Request) {
       userAgent: request.headers.get("user-agent") ?? undefined,
     });
     const response = NextResponse.json({ ok: true, user });
-    setAuthCookie(response, user, { remember: body?.remember === true });
+    setAuthCookie(response, user, request, { remember: body?.remember === true });
     return response;
   } catch (error) {
     return authErrorResponse(error);

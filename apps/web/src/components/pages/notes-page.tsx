@@ -527,7 +527,7 @@ export function NotesPage({
         <article className="note-editor">
         {draft ? <>
           <header className="note-editor-toolbar">
-            <div>
+            <div className="note-editor-main-controls">
               <button className="mobile-detail-back" aria-label="返回笔记列表" onClick={() => setMobileNoteDetail(false)}><ChevronLeft size={20} /></button>
               <AppSelect ariaLabel="笔记所属项目" className="note-toolbar-project-select" size="compact" value={draft.projectId ?? ""} onValueChange={(projectId) => {
                 const project = projects.find((entry) => entry.id === projectId);
@@ -536,7 +536,7 @@ export function NotesPage({
               <AppSelect ariaLabel="笔记类型" className="note-toolbar-type-select" size="compact" value={draft.noteType} onValueChange={(noteType) => updateDraft({ noteType: noteType as ClientNoteType })} options={Object.entries(noteTypeLabels).map(([value, label]) => ({ value, label }))} />
               <input ref={noteTitleRef} className="note-title-inline" aria-label="笔记标题" value={draft.title} maxLength={240} onChange={(event) => updateDraft({ title: event.target.value })} placeholder="无标题笔记" />
             </div>
-            <div>
+            <div className="note-editor-actions">
               <span className={`note-save-state ${saveState}`}><i />{saveState === "saving" ? "正在保存" : saveState === "error" ? "保存失败" : "已保存"}</span>
               <button className={draft.pinned ? "active" : ""} aria-label={draft.pinned ? "取消置顶" : "置顶笔记"} title={draft.pinned ? "取消置顶" : "置顶笔记"} onClick={() => updateDraft({ pinned: !draft.pinned })}><Pin size={15} fill={draft.pinned ? "currentColor" : "none"} /></button>
               <button className="danger-button" aria-label="删除笔记" title="删除笔记" disabled={busy} onClick={() => void deleteNote()}><Trash2 size={15} /></button>

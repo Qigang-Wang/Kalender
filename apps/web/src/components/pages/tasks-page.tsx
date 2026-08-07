@@ -153,12 +153,12 @@ interface TaskContextMenuState {
 }
 
 const taskViewCopy: Record<TaskView, string> = {
-  today: "Today",
-  inbox: "Inbox",
-  upcoming: "Upcoming",
-  waiting: "Waiting",
+  today: "今天",
+  inbox: "收集箱",
+  upcoming: "后续",
+  waiting: "等待",
   projects: "项目",
-  completed: "Completed",
+  completed: "已完成",
   matrix: "四象限",
 };
 
@@ -500,7 +500,7 @@ export function TasksPage({
     (task.dueAt && new Date(task.dueAt).getTime() <= todayEnd.getTime()) || (task.status === "next" && task.isUrgent),
   );
   const upcomingTasks = matrixTasks.filter((task) => task.dueAt && new Date(task.dueAt).getTime() > todayEnd.getTime());
-  const projectTasks = matrixTasks.filter((task) => task.projectName);
+  const projectTasks = matrixTasks.filter((task) => task.projectId || task.projectName);
   const visibleTasks = view === "inbox" ? inboxTasks
     : view === "upcoming" ? upcomingTasks
       : view === "waiting" ? waitingTasks
@@ -512,7 +512,7 @@ export function TasksPage({
     inbox: inboxTasks.length,
     upcoming: upcomingTasks.length,
     waiting: waitingTasks.length,
-    projects: new Set(projectTasks.map((task) => task.projectName)).size,
+    projects: new Set(projectTasks.map((task) => task.projectId ?? `legacy:${task.projectName}`)).size,
     completed: completedTasks.length,
     matrix: matrixTasks.length,
   };
@@ -537,7 +537,7 @@ export function TasksPage({
       ) : view === "matrix" ? (
         <TaskMatrix tasks={matrixTasks} busyTaskId={busyTaskId} onComplete={(task) => void updateTask(task, { status: "done" })} onEdit={(task) => setDraft(taskToDraft(task))} onMenu={openTaskMenu} onMove={(task, important, urgent) => void updateTask(task, { important, urgencyMode: urgent ? "urgent" : "not_urgent" })} />
       ) : view === "projects" ? (
-        <TaskProjectGroups tasks={projectTasks} busyTaskId={busyTaskId} onComplete={(task) => void updateTask(task, { status: "done" })} onEdit={(task) => setDraft(taskToDraft(task))} onMenu={openTaskMenu} />
+        <TaskProjectGroups projects={taskProjects} selectedProjectId={initialProjectId} tasks={projectTasks} busyTaskId={busyTaskId} onComplete={(task) => void updateTask(task, { status: "done" })} onEdit={(task) => setDraft(taskToDraft(task))} onMenu={openTaskMenu} />
       ) : visibleTasks.length ? (
         <section className="panel task-list-panel">
           {visibleTasks.map((task) => <TaskCard task={task} key={task.id} busy={busyTaskId === task.id} onComplete={() => void updateTask(task, { status: task.status === "done" ? "next" : "done" })} onEdit={() => setDraft(taskToDraft(task))} onMenu={(x, y, returnFocus) => openTaskMenu(task, x, y, returnFocus)} />)}
@@ -619,21 +619,37 @@ export function TasksPage({
   );
 }
 
-function TaskProjectGroups({ tasks, busyTaskId, onComplete, onEdit, onMenu }: {
+function TaskProjectGroups({ projects, selectedProjectId, tasks, busyTaskId, onComplete, onEdit, onMenu }: {
+  readonly projects: readonly ClientProject[];
+  readonly selectedProjectId?: string;
   readonly tasks: readonly ClientTask[];
   readonly busyTaskId?: string;
   readonly onComplete: (task: ClientTask) => void;
   readonly onEdit: (task: ClientTask) => void;
   readonly onMenu: (task: ClientTask, x: number, y: number, returnFocus?: HTMLElement | null) => void;
 }) {
-  const groups = Array.from(new Set(tasks.map((task) => task.projectName).filter((name): name is string => Boolean(name))));
-  if (!groups.length) return <section className="panel task-empty-state"><div><FolderPlus size={22} /></div><h3>还没有项目任务</h3><p>在任务详情中选择一个项目，相关行动会自动汇总到这里。</p></section>;
-  return <div className="task-project-groups">{groups.map((project) => {
-    const entries = tasks.filter((task) => task.projectName === project);
-    const color = entries.find((task) => task.projectColor)?.projectColor;
-    const projectId = entries.find((task) => task.projectId)?.projectId;
-    return <section className="panel" key={project}><header><div>{color ? <i style={{ background: color }} /> : <FolderPlus size={15} />}{projectId ? <Link href={`/projects?project=${encodeURIComponent(projectId)}`}>{project}</Link> : <strong>{project}</strong>}</div><span>{entries.length}</span></header>{entries.map((task) => <TaskCard task={task} key={task.id} busy={busyTaskId === task.id} onComplete={() => onComplete(task)} onEdit={() => onEdit(task)} onMenu={(x, y, returnFocus) => onMenu(task, x, y, returnFocus)} />)}</section>;
-  })}</div>;
+  const visibleProjects = projects.filter((project) => (
+    (project.status === "active" || project.id === selectedProjectId)
+    && (!selectedProjectId || project.id === selectedProjectId)
+    && (Boolean(selectedProjectId) || tasks.some((task) => task.projectId === project.id))
+  ));
+  const legacyGroups = selectedProjectId ? [] : Array.from(new Set(
+    tasks.filter((task) => !task.projectId).map((task) => task.projectName).filter((name): name is string => Boolean(name)),
+  ));
+  if (!visibleProjects.length && !legacyGroups.length) {
+    const selectedProject = projects.find((project) => project.id === selectedProjectId);
+    return <section className="panel task-empty-state"><div><FolderPlus size={22} /></div><h3>{selectedProject ? `${selectedProject.name} 暂无任务` : "还没有项目任务"}</h3><p>{selectedProject ? "在新建或编辑任务时选择这个项目，任务会显示在这里。" : "在任务详情中选择一个项目，相关行动会自动汇总到这里。"}</p></section>;
+  }
+  return <div className="task-project-groups">
+    {visibleProjects.map((project) => {
+      const entries = tasks.filter((task) => task.projectId === project.id);
+      return <section className="panel" key={project.id}><header><div><i style={{ background: project.color }} /><Link href={`/projects?project=${encodeURIComponent(project.id)}`}>{project.name}</Link>{project.areaName && <small>{project.areaName}</small>}</div><span>{entries.length}</span></header>{entries.map((task) => <TaskCard task={task} key={task.id} busy={busyTaskId === task.id} onComplete={() => onComplete(task)} onEdit={() => onEdit(task)} onMenu={(x, y, returnFocus) => onMenu(task, x, y, returnFocus)} />)}</section>;
+    })}
+    {legacyGroups.map((projectName) => {
+      const entries = tasks.filter((task) => !task.projectId && task.projectName === projectName);
+      return <section className="panel" key={`legacy:${projectName}`}><header><div><FolderPlus size={15} /><strong>{projectName}</strong><small>旧分组</small></div><span>{entries.length}</span></header>{entries.map((task) => <TaskCard task={task} key={task.id} busy={busyTaskId === task.id} onComplete={() => onComplete(task)} onEdit={() => onEdit(task)} onMenu={(x, y, returnFocus) => onMenu(task, x, y, returnFocus)} />)}</section>;
+    })}
+  </div>;
 }
 
 function TaskMatrix({ tasks, busyTaskId, onComplete, onEdit, onMenu, onMove }: {

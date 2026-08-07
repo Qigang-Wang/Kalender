@@ -1778,7 +1778,7 @@ function ProjectGanttChart({
   return (
     <section className="panel project-gantt">
       <header>
-        <div className="project-gantt-title"><CalendarClock size={17} /><span><strong>项目甘特图</strong><small>{plannedTasks.length} / {tasks.length} 项任务已安排 · {phases.length} 个阶段</small></span></div>
+        <div className="project-gantt-title"><CalendarClock size={17} /><span><strong><span className="project-gantt-desktop-label">项目甘特图</span><span className="project-gantt-mobile-label">项目计划</span></strong><small>{plannedTasks.length} / {tasks.length} 项任务已安排 · {phases.length} 个阶段</small></span></div>
         <div className="project-gantt-toolbar" aria-label="甘特图视图控制">
           <button type="button" onClick={scrollToToday}>今天</button>
           <button type="button" onClick={fitTimeline}>适应项目</button>

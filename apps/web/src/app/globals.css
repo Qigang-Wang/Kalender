@@ -489,7 +489,7 @@ input:-webkit-autofill:focus {
 
 .app-shell {
   --muted: #969b97;
-  --sidebar: #141615;
+  --workspace-sidebar-background: #141615;
   --radius: 15px;
   display: grid;
   grid-template-columns: var(--workspace-sidebar-width, 176px) minmax(0, 1fr);
@@ -505,7 +505,7 @@ input:-webkit-autofill:focus {
 html[data-qgw-scheme="light"] .desktop-window-controls button { color: #4f5651; }
 html[data-qgw-scheme="light"] .desktop-window-controls button:hover { color: #171a18; background: #e2e6e3; }
 html[data-qgw-scheme="light"] .desktop-window-controls .desktop-window-close:hover { color: #ffffff; background: #c42b1c; }
-.sidebar { position: sticky; top: 0; z-index: 20; display: flex; flex-direction: column; height: 100vh; padding: 18px 12px 14px; background: var(--sidebar); border-right: 1px solid var(--line); }
+.sidebar { position: sticky; top: 0; z-index: 20; display: flex; flex-direction: column; height: 100vh; padding: 18px 12px 14px; background: var(--workspace-sidebar-background); border-right: 1px solid var(--line); }
 .sidebar-resize-handle { position: absolute; top: 0; right: -6px; z-index: 25; width: 12px; height: 100%; padding: 0; cursor: col-resize; touch-action: none; outline: none; }
 .sidebar-resize-handle::after { position: absolute; top: 0; bottom: 0; left: 5px; width: 1px; content: ""; background: transparent; transition: width .12s ease, background .12s ease, box-shadow .12s ease; }
 .sidebar-resize-handle:hover::after, .sidebar-resize-handle:focus-visible::after, .sidebar-is-resizing .sidebar-resize-handle::after { width: 2px; background: var(--blue); box-shadow: 0 0 0 2px rgb(134 189 245 / 10%); }
@@ -1304,6 +1304,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .calendar-all-day-event { min-height: 25px; padding: 4px 6px; font-size: 12px; }
 .calendar-all-day-event span, .calendar-month-event span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-week-timeline { display: flex; min-width: 650px; }
+.calendar-week-mobile-agenda { display: none; }
 .calendar-time-axis { position: relative; width: 54px; flex: 0 0 54px; }
 .calendar-time-axis time { position: absolute; right: 7px; color: var(--muted-2); font-size: 12px; transform: translateY(-6px); }
 .calendar-week-grid { position: relative; display: grid; min-width: 0; flex: 1; grid-template-columns: repeat(7, minmax(82px, 1fr)); background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 59px, var(--line) 59px, var(--line) 60px); }
@@ -1652,6 +1653,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .task-project-groups > section > header > div > i { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 3px rgb(255 255 255 / 5%); }
 .task-project-groups > section > header > div > a { color: inherit; font-weight: 650; text-decoration: none; }
 .task-project-groups > section > header > div > a:hover { color: #e1f0ff; text-decoration: underline; }
+.task-project-groups > section > header > div > small { color: var(--muted); font-size: 11px; }
 .task-project-groups > section > header > span { display: grid; min-width: 21px; height: 21px; place-items: center; color: var(--muted); background: #303431; border-radius: 99px; font-size: 12px; }
 .task-card { position: relative; display: grid; min-width: 0; grid-template-columns: 34px minmax(0, 1fr) auto 28px; align-items: center; gap: 8px; min-height: 66px; padding: 9px 10px; border-bottom: 1px solid var(--line); }
 .task-card:last-child { border-bottom: 0; }
@@ -1894,6 +1896,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .project-gantt > header > div { display: flex; align-items: center; gap: 9px; color: var(--blue); }
 .project-gantt > header span, .project-gantt > header strong, .project-gantt > header small { display: block; }
 .project-gantt > header strong { color: var(--text); font-size: 12px; }
+.project-gantt-mobile-label { display: none !important; }
 .project-gantt > header small { margin-top: 2px; color: var(--muted); font-size: 12px; }
 .project-gantt > header .project-gantt-toolbar { gap: 6px; color: var(--muted); }
 .project-gantt-toolbar > button, .project-gantt-zoom > button { display: inline-grid; min-width: 30px; height: 28px; place-items: center; padding: 0 9px; color: #c8cdca; background: #262b27; border: 1px solid #3b423d; border-radius: 7px; font-size: 12px; transition: color .12s ease, background .12s ease, border-color .12s ease; }
@@ -2911,9 +2914,9 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   body { font-size: 13px; }
   input:not([type="checkbox"]):not([type="radio"]), select, textarea { font-size: 16px; }
   .app-shell { display: block; }
-  .sidebar { position: fixed; left: 0; width: 230px; padding: 18px 14px; transform: translateX(-105%); transition: transform .2s ease; box-shadow: 16px 0 50px rgb(0 0 0 / 35%); }
+  .sidebar { position: fixed; left: 0; z-index: 60; width: 230px; padding: 18px 14px; transform: translateX(-105%); transition: transform .2s ease; box-shadow: 16px 0 50px rgb(0 0 0 / 35%); }
   .sidebar-open { transform: translateX(0); }
-  .sidebar-scrim { position: fixed; inset: 0; z-index: 10; display: block; background: rgb(0 0 0 / 48%); border: 0; }
+  .sidebar-scrim { position: fixed; inset: 0; z-index: 55; display: block; background: rgb(0 0 0 / 48%); border: 0; }
   .mobile-close, .mobile-menu { display: grid; place-items: center; padding: 0; color: var(--muted); background: transparent; border: 0; }
   .mobile-close { margin-left: auto; }
   .mobile-menu { width: 44px; height: 44px; }
@@ -3084,7 +3087,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .checkbox { width: 44px; height: 44px; color: #7890a3; border-radius: 13px; }
   .task-view-tabs button, .notes-filter-scroll button, .notes-new-project { min-height: 42px; }
   .task-view-tabs-mobile { display: flex; }
-  .project-switcher-mobile { display: block; }
+  .project-switcher-mobile { display: none; }
   .project-gantt > header { flex-wrap: wrap; }
   .project-gantt-title { min-width: 180px; flex: 1 1 auto; }
   .project-gantt-toolbar { margin-left: auto; }
@@ -3260,6 +3263,100 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .calendar-dialog > footer { margin-top: 9px; padding-top: 9px; }
 }
 
+@media (max-width: 760px) {
+  /* Keep the mobile shell compact without shrinking primary touch targets. */
+  .command-bar { height: 58px; padding: 7px 10px; gap: 7px; }
+  .page-grid { gap: 10px; padding: 8px 10px calc(76px + env(safe-area-inset-bottom)); }
+  .mobile-bottom-nav { height: calc(64px + env(safe-area-inset-bottom)); padding: 5px 6px env(safe-area-inset-bottom); }
+  .mobile-bottom-nav a { gap: 2px; border-radius: 9px; }
+  .mobile-bottom-nav a small { font-size: 11px; }
+  .mobile-bottom-nav em { top: -6px; min-width: 15px; padding: 0 4px; font-size: 11px; }
+  .app-toast { bottom: calc(70px + env(safe-area-inset-bottom)); }
+
+  /* A readable agenda replaces the desktop week grid on touch-sized screens. */
+  .calendar-week-viewport { display: none; }
+  .calendar-week-mobile-agenda { display: grid; }
+  .calendar-week-mobile-agenda > section { display: grid; grid-template-columns: 92px minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+  .calendar-week-mobile-agenda > section:last-of-type { border-bottom: 0; }
+  .calendar-week-mobile-agenda > section.today { background: rgb(78 143 207 / 8%); }
+  .calendar-week-mobile-agenda > section > header { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 5px; padding: 9px 7px 8px 10px; border-right: 1px solid var(--line); }
+  .calendar-week-mobile-agenda > section > header span { display: block; min-width: 0; }
+  .calendar-week-mobile-agenda > section > header strong, .calendar-week-mobile-agenda > section > header time { display: block; }
+  .calendar-week-mobile-agenda > section > header strong { font-size: 12px; }
+  .calendar-week-mobile-agenda > section > header time { margin-top: 2px; color: var(--muted); font-size: 11px; }
+  .calendar-week-mobile-agenda > section > header em { display: inline-block; margin-top: 5px; padding: 1px 5px; color: var(--blue); background: var(--blue-deep); border-radius: 99px; font-size: 10px; font-style: normal; }
+  .calendar-week-mobile-agenda > section > header button { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; padding: 0; color: var(--blue); background: transparent; border: 0; border-radius: 8px; }
+  .calendar-week-mobile-agenda > section > header button:active { background: var(--blue-deep); }
+  .calendar-week-mobile-agenda > section > div { display: grid; min-width: 0; align-content: start; padding: 5px; }
+  .calendar-week-mobile-agenda > section > div > button { display: grid; width: 100%; min-width: 0; min-height: 43px; grid-template-columns: 4px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 5px 8px 5px 5px; color: inherit; background: transparent; border: 0; border-radius: 8px; text-align: left; }
+  .calendar-week-mobile-agenda > section > div > button:active { background: var(--surface-2); }
+  .calendar-week-mobile-agenda > section > div > button > i { width: 4px; height: 28px; border-radius: 4px; }
+  .calendar-week-mobile-agenda > section > div > button > span { min-width: 0; }
+  .calendar-week-mobile-agenda > section > div > button strong, .calendar-week-mobile-agenda > section > div > button small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .calendar-week-mobile-agenda > section > div > button strong { font-size: 12px; }
+  .calendar-week-mobile-agenda > section > div > button small { margin-top: 2px; color: var(--muted); font-size: 11px; }
+  .calendar-week-mobile-agenda > section > div > button > svg { color: var(--muted); }
+  .calendar-mobile-day-empty { align-self: center; padding: 9px 8px; color: var(--muted-2); font-size: 11px; }
+  .calendar-month-day { cursor: pointer; touch-action: manipulation; }
+  .calendar-month-day:active { background: var(--blue-deep); }
+  .calendar-task-shelf { grid-template-columns: auto minmax(0, 1fr); gap: 7px; padding: 6px 7px; }
+  .calendar-task-shelf > header { min-width: 0; }
+  .calendar-task-shelf > header small { display: none; }
+  .calendar-task-shelf > header strong { font-size: 12px; }
+  .calendar-task-shelf > div > a { height: 34px; min-width: 0; max-width: 170px; padding: 0 8px; }
+
+  /* Tabs remain scrollable, but show a clear compact strip instead of squeezed labels. */
+  .task-view-tabs { gap: 3px; margin-bottom: 10px; padding: 3px; scroll-snap-type: x proximity; mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 20px), transparent 100%); }
+  .task-view-tabs button { min-width: 76px; min-height: 38px; flex: 0 0 auto; gap: 5px; padding: 0 8px; scroll-snap-align: start; }
+  .task-view-tabs button span { display: none; }
+  .task-view-actions { margin-bottom: 9px; }
+  .task-card { min-height: 64px; }
+
+  /* On mobile, the project plan becomes a concise task/phase list. */
+  .project-gantt > header { min-height: 50px; padding: 8px 10px; }
+  .project-gantt-title { min-width: 0; }
+  .project-gantt-desktop-label { display: none !important; }
+  .project-gantt-mobile-label { display: inline !important; }
+  .project-gantt-toolbar { display: none !important; }
+  .project-gantt-scroll { max-height: none; overflow: visible; }
+  .project-gantt-table { width: 100%; min-width: 0; }
+  .project-gantt-heading { display: none; }
+  .project-gantt-row { min-height: 44px; grid-template-columns: minmax(0, 1fr); }
+  .project-gantt-task { position: static; width: 100%; min-height: 44px; padding: 4px 10px; border-right: 0; }
+  .project-gantt-track { display: none; }
+  .project-gantt-phase-row { min-height: 46px; }
+  .project-gantt-empty-row { min-height: 54px; }
+  .project-gantt > footer { display: none; }
+
+  /* The note title and primary actions get the first row; metadata uses the second. */
+  .note-editor-toolbar { display: grid; min-height: 96px; grid-template-columns: 40px minmax(0, 1fr) auto; grid-template-rows: 42px 38px; align-items: center; gap: 6px; padding: 6px 8px; }
+  .note-editor-toolbar .note-editor-main-controls { display: contents; }
+  .note-editor-toolbar .mobile-detail-back { grid-column: 1; grid-row: 1; width: 40px; height: 40px; order: initial; }
+  .note-title-inline { width: 100%; min-width: 0; height: 40px; grid-column: 2; grid-row: 1; order: initial; padding: 0 6px; font-size: 18px; }
+  .note-editor-toolbar .note-editor-actions { align-self: center; grid-column: 3; grid-row: 1; gap: 4px; }
+  .note-editor-toolbar .note-editor-actions > button { width: 36px; height: 36px; }
+  .note-save-state { width: 7px; min-width: 7px; margin: 0 2px 0 0; overflow: hidden; gap: 0; font-size: 0; }
+  .note-editor-toolbar .note-toolbar-project-select { width: 100%; min-width: 0; max-width: none; grid-column: 1 / 3; grid-row: 2; }
+  .note-editor-toolbar .note-toolbar-type-select { width: min(112px, 100%); min-width: 0; max-width: none; grid-column: 3; grid-row: 2; }
+  .notes-filter-scroll .project-filter, .notes-filter-divider, .notes-new-project { display: none; }
+  .note-relations { display: none; }
+
+  /* Settings switch to one column before the content starts clipping. */
+  .account-form, .calendar-account-form, .ai-provider-form, .ai-model-form, .ai-binding-row { grid-template-columns: minmax(0, 1fr); }
+  .ai-provider-form label.wide, .ai-binding-row > div { grid-column: auto; }
+  .ai-provider-card { min-width: 0; }
+  .ai-model-row { min-width: 0; grid-template-columns: minmax(0, 1fr) auto 36px 36px; }
+  .ai-model-row > span, .ai-model-row > .ai-capability-tags { display: none; }
+  .backup-create-controls { align-items: stretch; flex-direction: column; }
+  .backup-create-controls .secure-toggle { min-height: 42px; }
+  .backup-create-controls input[type="password"] { width: 100%; min-width: 0; flex: 0 0 42px; }
+  .backup-create-controls button { width: 100%; min-height: 42px; margin-left: 0; }
+  .shortcut-row { min-height: 34px; grid-template-columns: minmax(92px, auto) minmax(0, 1fr); align-items: center; gap: 8px; padding: 5px 0; }
+  .shortcut-row > span { gap: 3px; }
+  .shortcut-row kbd { min-height: 20px; padding: 0 5px; font-size: 11px; }
+  .shortcut-row strong { font-size: 11px; }
+}
+
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: var(--font-sans);
@@ -3355,11 +3452,11 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 
 html[data-qgw-scheme="light"] .app-shell {
   --muted: #64717a;
-  --sidebar: var(--sidebar);
+  --workspace-sidebar-background: var(--sidebar);
   background: var(--bg);
 }
 html[data-qgw-scheme="light"] .sidebar {
-  background: color-mix(in srgb, var(--sidebar) 94%, var(--bg));
+  background: color-mix(in srgb, var(--workspace-sidebar-background) 94%, var(--bg));
   border-color: var(--line);
   box-shadow: 10px 0 30px rgb(54 70 82 / 5%);
 }

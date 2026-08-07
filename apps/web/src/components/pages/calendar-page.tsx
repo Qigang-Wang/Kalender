@@ -285,6 +285,11 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     window.localStorage.setItem("kalender.calendar.view", nextView);
   };
 
+  const openWeekForDate = (date: Date) => {
+    setAnchorDate(new Date(date));
+    changeViewMode("week");
+  };
+
   const loadCalendars = useCallback(async () => {
     const response = await workspaceFetch("/api/calendars");
     const payload = await response.json() as { readonly calendars?: readonly CalendarListItem[]; readonly message?: string };
@@ -981,6 +986,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
             events={events}
             loading={loading}
             rangeStart={visibleRange.start}
+            onOpenWeek={openWeekForDate}
             onCreate={openCreateDraft}
             onEdit={openEditDraft}
             previewEventId={eventPreview?.eventId}
@@ -1625,6 +1631,37 @@ function CalendarWeekView({
 
   return (
     <section className={`calendar-week panel ${timeSelection ? "selecting-time" : ""}`} aria-label="周视图" data-testid="calendar-week-view">
+      <div className="calendar-week-mobile-agenda" aria-label="本周日程摘要">
+        {days.map((day, index) => {
+          const dayEvents = events
+            .filter((event) => calendarEventOverlapsDay(event, day))
+            .sort((left, right) => Number(right.allDay) - Number(left.allDay) || new Date(left.start).getTime() - new Date(right.start).getTime());
+          const isToday = calendarDatesMatch(day, new Date());
+          const createAt = new Date(day);
+          createAt.setHours(9, 0, 0, 0);
+          return <section className={isToday ? "today" : undefined} key={day.toISOString()}>
+            <header>
+              <span><strong>{calendarDayNames[index]}</strong><time dateTime={toCalendarDateKey(day)}>{day.getMonth() + 1}月{day.getDate()}日</time>{isToday && <em>今天</em>}</span>
+              <button type="button" aria-label={`在${calendarDayNames[index]}新建日程`} onClick={() => onCreate(createAt)}><Plus size={15} /></button>
+            </header>
+            <div>
+              {dayEvents.map((event) => {
+                const calendar = calendars.find((item) => item.id === event.calendarId);
+                return <button type="button" className={calendarAvailabilityClass(event)} key={event.id} onClick={() => onEdit(event)}>
+                  <i style={{ background: calendar?.color ?? "#86bdf5" }} />
+                  <span>
+                    <strong>{event.title}</strong>
+                    <small>{event.allDay ? "全天" : `${formatCalendarEventTime(event.start)}–${formatCalendarEventTime(event.end)}`}{event.location ? ` · ${event.location}` : ""}</small>
+                  </span>
+                  {event.recurrence && <Repeat2 size={12} aria-label="重复日程" />}
+                </button>;
+              })}
+              {!loading && dayEvents.length === 0 && <small className="calendar-mobile-day-empty">无安排</small>}
+            </div>
+          </section>;
+        })}
+        {loading && <div className="calendar-view-loading"><LoaderCircle className="spin" size={17} />正在读取日程</div>}
+      </div>
       <div className="calendar-week-viewport">
         <div className="calendar-week-sticky">
           <div className="calendar-week-header">
@@ -1898,6 +1935,7 @@ function CalendarMonthView({
   events,
   loading,
   rangeStart,
+  onOpenWeek,
   onCreate,
   onEdit,
   previewEventId,
@@ -1907,7 +1945,7 @@ function CalendarMonthView({
   onOpenSlotMenu,
   moveBusy = false,
   onMoveEvent,
-}: CalendarViewCommonProps & { readonly anchorDate: Date; readonly rangeStart: Date }) {
+}: CalendarViewCommonProps & { readonly anchorDate: Date; readonly rangeStart: Date; readonly onOpenWeek: (date: Date) => void }) {
   const [expandedDay, setExpandedDay] = useState("");
   const suppressEventClickRef = useRef(false);
   const days = Array.from({ length: 42 }, (_, index) => addCalendarDays(rangeStart, index));
@@ -1959,6 +1997,10 @@ function CalendarMonthView({
                 }}
                 onClick={(event) => {
                   if ((event.target as HTMLElement).closest(".calendar-month-event, .calendar-spanning-event, .calendar-more-events")) return;
+                  if (window.matchMedia("(max-width: 760px)").matches) {
+                    onOpenWeek(day);
+                    return;
+                  }
                   onCreate(slotStart);
                 }}
                 onContextMenu={(event) => {
@@ -1993,7 +2035,11 @@ function CalendarMonthView({
                     />
                   ))}
                   {dayEvents.length > 3 && (
-                    <button className="calendar-more-events" onClick={(event) => { event.stopPropagation(); setExpandedDay(expanded ? "" : dayKey); }}>
+                    <button className="calendar-more-events" onClick={(event) => {
+                      event.stopPropagation();
+                      if (window.matchMedia("(max-width: 760px)").matches) onOpenWeek(day);
+                      else setExpandedDay(expanded ? "" : dayKey);
+                    }}>
                       {expanded ? "收起" : `还有 ${dayEvents.length - 3} 项`}
                     </button>
                   )}

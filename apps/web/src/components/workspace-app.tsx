@@ -28,7 +28,6 @@ import {
   Inbox,
   ImageIcon,
   Keyboard,
-  LayoutGrid,
   Link2,
   ListChecks,
   LogOut,
@@ -301,20 +300,6 @@ const navigation: ReadonlyArray<{
   { section: "notes", label: "Notes", icon: NotebookPen },
   { section: "projects", label: "Projects", icon: Folder },
   { section: "ai", label: "AI Command", icon: WandSparkles },
-];
-
-const sidebarTaskViews: ReadonlyArray<{
-  view: TaskView;
-  label: string;
-  icon: typeof Inbox;
-}> = [
-  { view: "today", label: "Today", icon: CalendarClock },
-  { view: "inbox", label: "Inbox", icon: Inbox },
-  { view: "upcoming", label: "Upcoming", icon: CalendarDays },
-  { view: "waiting", label: "Waiting", icon: Pause },
-  { view: "projects", label: "项目", icon: FolderPlus },
-  { view: "completed", label: "Completed", icon: CheckCircle2 },
-  { view: "matrix", label: "四象限", icon: LayoutGrid },
 ];
 
 type SettingsTab = "appearance" | "profile" | "users" | "diagnostics" | "jobs" | "operations" | "sync" | "desktop" | "mail" | "calendar" | "shortcuts" | "ai" | "backup";
@@ -954,7 +939,7 @@ function WorkspaceAppContent({
   }, [refreshSidebarTasks, section]);
 
   useEffect(() => {
-    if (section !== "projects" && section !== "notes") return;
+    if (section !== "projects" && section !== "notes" && section !== "tasks") return;
     setSidebarProjects(undefined);
     void refreshSidebarProjects().catch(() => setSidebarProjects([]));
     const refresh = () => { void refreshSidebarProjects().catch(() => undefined); };
@@ -968,7 +953,6 @@ function WorkspaceAppContent({
     return () => window.clearTimeout(timer);
   }, [sidebarProjectNotice]);
 
-  const sidebarTaskCounts = sidebarTasks ? createSidebarTaskCounts(sidebarTasks) : undefined;
   const sidebarProjectTaskCounts = sidebarTasks ? createSidebarProjectTaskCounts(sidebarTasks) : undefined;
   const sidebarProjectNoteCounts = sidebarProjects
     ? new Map(sidebarProjects.map((project) => [project.id, project.noteCount ?? 0]))
@@ -1391,16 +1375,27 @@ function WorkspaceAppContent({
 
         {section === "tasks" && <div className="account-block sidebar-context-block">
           <SidebarListHeading
-            title="ToDo 分组"
+            title="任务项目"
             collapsed={collapsedSidebarSections.has("tasks-groups")}
             onToggle={() => toggleSidebarSection("tasks-groups")}
-            onContextMenu={(x, y, returnFocus) => setSidebarSectionMenu({ sectionId: "tasks-groups", title: "ToDo 分组", x, y, returnFocus })}
+            onContextMenu={(x, y, returnFocus) => setSidebarSectionMenu({ sectionId: "tasks-groups", title: "任务项目", x, y, returnFocus })}
           />
-          {!collapsedSidebarSections.has("tasks-groups") && (sidebarTasks === undefined ? <small>正在读取任务…</small> : <nav className="sidebar-task-groups" aria-label="ToDo 分组">
-            {sidebarTaskViews.map(({ view, label, icon: Icon }) => <Link className={initialTaskView === view || (!initialTaskView && view === "today") ? "active" : ""} href={`/tasks?view=${view}`} key={view} onClick={() => setSidebarOpen(false)}>
-              <Icon size={14} /><span>{label}</span><em>{sidebarTaskCounts?.[view] ?? 0}</em>
-            </Link>)}
-          </nav>)}
+          {!collapsedSidebarSections.has("tasks-groups") && (sidebarProjects === undefined || sidebarTasks === undefined ? <small>正在读取项目…</small> : activeSidebarProjects.length ? <>
+            <nav className="sidebar-task-groups" aria-label="任务项目总览">
+              <Link className={initialTaskView === "projects" && !initialProjectId ? "active" : ""} href="/tasks?view=projects" onClick={() => setSidebarOpen(false)}>
+                <FolderPlus size={14} /><span>全部项目</span><em>{Array.from(sidebarProjectTaskCounts?.values() ?? []).reduce((total, count) => total + count, 0)}</em>
+              </Link>
+            </nav>
+            <SidebarProjectGroups
+              collapsedAreas={collapsedProjectAreas}
+              groups={activeSidebarProjectGroups}
+              selectedProjectId={initialProjectId}
+              counts={sidebarProjectTaskCounts}
+              projectHref={(project) => `/tasks?view=projects&project=${encodeURIComponent(project.id)}`}
+              onNavigate={() => setSidebarOpen(false)}
+              onToggleArea={toggleCollapsedProjectArea}
+            />
+          </> : <Link className="sidebar-create-project" href="/projects" onClick={() => setSidebarOpen(false)}><Plus size={13} />创建第一个项目</Link>)}
         </div>}
 
         {section === "projects" && <div className="account-block sidebar-context-block">
@@ -2413,26 +2408,6 @@ function sidebarCalendarSourceLabel(calendar: SidebarCalendarSource): string {
           ? "ICS"
           : "日历";
   return `${source}${calendar.readOnly ? " · 只读" : ""}`;
-}
-
-function createSidebarTaskCounts(tasks: readonly SidebarTaskSummary[]): Record<TaskView, number> {
-  const activeTasks = tasks.filter((task) => task.status !== "inbox" && task.status !== "done");
-  const todayEnd = new Date();
-  todayEnd.setHours(23, 59, 59, 999);
-  const todayEndTime = todayEnd.getTime();
-
-  return {
-    today: activeTasks.filter((task) =>
-      (task.dueAt && new Date(task.dueAt).getTime() <= todayEndTime)
-      || (task.status === "next" && task.isUrgent),
-    ).length,
-    inbox: tasks.filter((task) => task.status === "inbox").length,
-    upcoming: activeTasks.filter((task) => task.dueAt && new Date(task.dueAt).getTime() > todayEndTime).length,
-    waiting: tasks.filter((task) => task.status === "waiting").length,
-    projects: new Set(activeTasks.flatMap((task) => task.projectName ? [task.projectName] : [])).size,
-    completed: tasks.filter((task) => task.status === "done").length,
-    matrix: activeTasks.length,
-  };
 }
 
 function createSidebarProjectTaskCounts(tasks: readonly SidebarTaskSummary[]): ReadonlyMap<string, number> {
