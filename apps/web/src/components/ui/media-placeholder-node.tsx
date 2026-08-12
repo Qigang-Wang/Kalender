@@ -14,9 +14,18 @@ import { AudioLines, FileUp, Film, ImageIcon, Loader2Icon } from 'lucide-react';
 import { KEYS } from 'platejs';
 import { PlateElement, useEditorPlugin, withHOC } from 'platejs/react';
 import { useFilePicker } from 'use-file-picker';
+import type { SelectedFilesOrErrors } from 'use-file-picker/types';
 
 import { cn } from '@/lib/utils';
 import { useUploadFile } from '@/hooks/use-upload-file';
+
+const toFileList = (files: File[]) => {
+  const transfer = new DataTransfer();
+
+  files.forEach((file) => transfer.items.add(file));
+
+  return transfer.files;
+};
 
 const CONTENT: Record<
   string,
@@ -71,14 +80,18 @@ export const PlaceholderElement = withHOC(
     const { openFilePicker } = useFilePicker({
       accept: currentContent.accept,
       multiple: true,
-      onFilesSelected: ({ plainFiles: updatedFiles }) => {
-        const firstFile = updatedFiles[0];
-        const restFiles = updatedFiles.slice(1);
+      onFilesSelected: (selection: SelectedFilesOrErrors<unknown>) => {
+        const files = selection.plainFiles;
+        if (!files?.length) return;
+
+        const [firstFile, ...restFiles] = files;
 
         replaceCurrentPlaceholder(firstFile);
 
         if (restFiles.length > 0) {
-          editor.getTransforms(PlaceholderPlugin).insert.media(restFiles);
+          editor
+            .getTransforms(PlaceholderPlugin)
+            .insert.media(toFileList(restFiles));
         }
       },
     });

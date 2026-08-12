@@ -10,6 +10,7 @@ import { ArrowUpToLineIcon } from 'lucide-react';
 import { getEditorDOMFromHtmlString } from 'platejs/static';
 import { useEditorRef } from 'platejs/react';
 import { useFilePicker } from 'use-file-picker';
+import type { SelectedFilesOrErrors } from 'use-file-picker/types';
 
 import {
   DropdownMenu,
@@ -22,6 +23,7 @@ import {
 import { ToolbarButton } from './toolbar';
 
 type ImportType = 'html' | 'markdown';
+type FilePickerSelection = SelectedFilesOrErrors<unknown>;
 
 export function ImportToolbarButton(props: DropdownMenuProps) {
   const editor = useEditorRef();
@@ -47,8 +49,11 @@ export function ImportToolbarButton(props: DropdownMenuProps) {
   const { openFilePicker: openMdFilePicker } = useFilePicker({
     accept: ['.md', '.mdx'],
     multiple: false,
-    onFilesSelected: async ({ plainFiles }) => {
-      const text = await plainFiles[0].text();
+    onFilesSelected: async (selection: FilePickerSelection) => {
+      const file = selection.plainFiles?.[0];
+      if (!file) return;
+
+      const text = await file.text();
 
       const nodes = getFileNodes(text, 'markdown');
 
@@ -59,8 +64,11 @@ export function ImportToolbarButton(props: DropdownMenuProps) {
   const { openFilePicker: openHtmlFilePicker } = useFilePicker({
     accept: ['text/html'],
     multiple: false,
-    onFilesSelected: async ({ plainFiles }) => {
-      const text = await plainFiles[0].text();
+    onFilesSelected: async (selection: FilePickerSelection) => {
+      const file = selection.plainFiles?.[0];
+      if (!file) return;
+
+      const text = await file.text();
 
       const nodes = getFileNodes(text, 'html');
 
@@ -71,8 +79,11 @@ export function ImportToolbarButton(props: DropdownMenuProps) {
   const { openFilePicker: openDocxFilePicker } = useFilePicker({
     accept: ['.docx'],
     multiple: false,
-    onFilesSelected: async ({ plainFiles }) => {
-      const arrayBuffer = await plainFiles[0].arrayBuffer();
+    onFilesSelected: async (selection: FilePickerSelection) => {
+      const file = selection.plainFiles?.[0];
+      if (!file) return;
+
+      const arrayBuffer = await file.arrayBuffer();
       const result = await importDocx(editor, arrayBuffer);
 
       editor.tf.insertNodes(result.nodes as typeof editor.children);
