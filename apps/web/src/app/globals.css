@@ -1635,15 +1635,17 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .tasks-page-grid .page-main { display: flex; min-height: 0; flex-direction: column; }
 .task-workspace { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
 .task-workspace > .task-matrix { flex: 1; }
+.task-view-toolbar { display: flex; min-width: 0; align-items: center; gap: 10px; margin-bottom: 13px; }
 .task-view-tabs { display: flex; gap: 4px; margin-bottom: 15px; padding: 4px; overflow-x: auto; background: #191c1a; border: 1px solid var(--line); border-radius: 11px; scrollbar-width: none; }
+.task-view-toolbar > .task-view-tabs { min-width: 0; flex: 1; margin-bottom: 0; }
 .task-view-tabs::-webkit-scrollbar { display: none; }
 .task-view-tabs button { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; flex: 0 0 auto; padding: 0 12px; color: var(--muted); background: transparent; border: 0; border-radius: 7px; }
 .task-view-tabs button:hover { color: var(--text); background: #242725; }
 .task-view-tabs button.active { color: #17222b; background: var(--blue); font-weight: 700; }
 .task-view-tabs button span { min-width: 18px; margin-left: 2px; padding: 1px 5px; color: var(--muted); background: #303431; border-radius: 99px; font-size: 12px; text-align: center; }
 .task-view-tabs button.active span { color: #2a4a64; background: rgb(16 54 88 / 16%); }
-.task-view-tabs-mobile { display: none; }
-.task-view-actions { display: flex; justify-content: flex-end; margin-bottom: 13px; }
+.task-view-actions { display: flex; flex: 0 0 auto; justify-content: flex-end; margin-bottom: 13px; }
+.task-view-toolbar > .task-view-actions { margin-bottom: 0; }
 .task-loading { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 260px; color: var(--muted); }
 .task-list-panel { overflow: hidden; }
 .task-project-groups { display: grid; gap: 12px; }
@@ -3086,7 +3088,6 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .task-row { grid-template-columns: 44px minmax(0, 1fr) auto; min-height: 66px; }
   .checkbox { width: 44px; height: 44px; color: #7890a3; border-radius: 13px; }
   .task-view-tabs button, .notes-filter-scroll button, .notes-new-project { min-height: 42px; }
-  .task-view-tabs-mobile { display: flex; }
   .project-switcher-mobile { display: none; }
   .project-gantt > header { flex-wrap: wrap; }
   .project-gantt-title { min-width: 180px; flex: 1 1 auto; }
@@ -3345,6 +3346,9 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .task-view-tabs button { min-width: 76px; min-height: 38px; flex: 0 0 auto; gap: 5px; padding: 0 8px; scroll-snap-align: start; }
   .task-view-tabs button span { display: none; }
   .task-view-actions { margin-bottom: 9px; }
+  .task-view-toolbar { display: block; margin-bottom: 9px; }
+  .task-view-toolbar > .task-view-tabs { margin-bottom: 9px; }
+  .task-view-toolbar > .task-view-actions { margin-bottom: 0; }
   .task-card { min-height: 64px; }
 
   /* On mobile, the project plan becomes a concise task/phase list. */

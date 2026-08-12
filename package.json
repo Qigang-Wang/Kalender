@@ -38,6 +38,7 @@
     "test:mail-date-groups": "tsx apps/web/src/lib/mail-date-groups.test.ts",
     "test:mail-smime": "tsx apps/web/src/lib/mail-smime.test.ts",
     "test:context-commands": "tsx apps/web/src/components/context-commands.test.ts",
+    "test:task-view": "tsx apps/web/src/components/pages/task-view-model.test.ts",
     "test:calendar": "tsx apps/web/src/server/calendar.test.ts",
     "test:calendar-sync-scheduler": "tsx apps/web/src/server/calendar-sync-scheduler.test.ts",
     "test:caldav": "tsx apps/web/src/server/caldav.test.ts",

@@ -17,6 +17,7 @@ import { resolveContextCommands, type TaskCommandId } from "../context-commands"
 import { DateTimeField } from "../ui/date-time-field";
 import { TransientToast } from "../workspace-shared";
 import { RelatedContentPanel } from "./related-content";
+import { resolveNewTaskDefaults } from "./task-view-model";
 
 const TASKS_CHANGED_EVENT = "kalender:tasks-changed";
 
@@ -256,17 +257,17 @@ export function TasksPage({
   useEffect(() => {
     if (!initialCreateTask || !initialProjectId || loading || openedProjectTask.current) return;
     openedProjectTask.current = true;
-    const project = taskProjects.find((entry) => entry.id === initialProjectId);
-    if (!project || project.status === "archived") {
-      setFeedback(project ? "已归档项目不能添加任务" : "项目不存在或已删除");
+    const defaults = resolveNewTaskDefaults("projects", initialProjectId, taskProjects);
+    if (!defaults.ok) {
+      setFeedback(defaults.message);
       return;
     }
     setView("projects");
     setDraft({
-      ...createEmptyTaskDraft("next"),
-      projectId: project.id,
-      projectName: project.name,
-      areaName: project.areaName ?? "",
+      ...createEmptyTaskDraft(defaults.status),
+      projectId: defaults.projectId ?? "",
+      projectName: defaults.projectName ?? "",
+      areaName: defaults.areaName ?? "",
     });
   }, [initialCreateTask, initialProjectId, loading, taskProjects]);
   useEffect(() => {
@@ -517,18 +518,32 @@ export function TasksPage({
     matrix: matrixTasks.length,
   };
   const editingTask = draft?.id ? tasks.find((task) => task.id === draft.id) : undefined;
+  const openNewTask = () => {
+    const defaults = resolveNewTaskDefaults(view, initialProjectId, taskProjects);
+    if (!defaults.ok) {
+      setFeedback(defaults.message);
+      return;
+    }
+    setDraft({
+      ...createEmptyTaskDraft(defaults.status),
+      projectId: defaults.projectId ?? "",
+      projectName: defaults.projectName ?? "",
+      areaName: defaults.areaName ?? "",
+    });
+  };
 
   return (
     <div className="task-workspace">
-      <nav className="task-view-tabs task-view-tabs-mobile" aria-label="任务视图">
-        {taskViews.map((item) => {
-          const Icon = item === "today" ? CalendarClock : item === "inbox" ? Inbox : item === "upcoming" ? CalendarDays : item === "waiting" ? Pause : item === "projects" ? FolderPlus : item === "completed" ? CheckCircle2 : LayoutGrid;
-          return <button className={view === item ? "active" : ""} key={item} onClick={() => setView(item)}><Icon size={15} />{taskViewCopy[item]}<span>{viewCounts[item]}</span></button>;
-        })}
-      </nav>
-
-      <div className="task-view-actions">
-        <button className="secondary-button" onClick={() => setDraft(createEmptyTaskDraft(view === "matrix" ? "next" : "inbox"))}><Plus size={15} />添加任务</button>
+      <div className="task-view-toolbar">
+        <nav className="task-view-tabs" aria-label="任务视图">
+          {taskViews.map((item) => {
+            const Icon = item === "today" ? CalendarClock : item === "inbox" ? Inbox : item === "upcoming" ? CalendarDays : item === "waiting" ? Pause : item === "projects" ? FolderPlus : item === "completed" ? CheckCircle2 : LayoutGrid;
+            return <button className={view === item ? "active" : ""} key={item} onClick={() => setView(item)}><Icon size={15} />{taskViewCopy[item]}<span>{viewCounts[item]}</span></button>;
+          })}
+        </nav>
+        <div className="task-view-actions">
+          <button className="secondary-button" onClick={openNewTask}><Plus size={15} />添加任务</button>
+        </div>
       </div>
 
       {feedback && <TransientToast message={feedback} onClose={() => setFeedback(undefined)} />}

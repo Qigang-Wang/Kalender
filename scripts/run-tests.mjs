@@ -16,6 +16,7 @@ const testScripts = [
   "test:mail-date-groups",
   "test:mail-smime",
   "test:context-commands",
+  "test:task-view",
   "test:calendar",
   "test:caldav",
   "test:exchange",

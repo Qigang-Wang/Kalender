@@ -35,3 +35,9 @@ docker compose up -d --build kalender
 docker ps
 curl -I http://127.0.0.1:3000/api/health
 ```
+
+## 上传代码
+
+当用户要求“上传代码”或推送本地改动时，优先使用仓库已配置的 SSH 远程地址和 `git push`。纯 Git 提交与推送不依赖 GitHub CLI 登录状态；只有创建 Pull Request 等确实需要 GitHub API 的操作才检查 `gh auth status`。
+
+工作区存在无关改动时，只暂存并提交当前任务涉及的文件或补丁，不得把其他未完成改动混入提交。
