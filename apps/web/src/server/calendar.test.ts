@@ -37,10 +37,12 @@ async function main() {
       end: "2026-07-20T08:00:00.000Z",
       timeZone: "Europe/Berlin",
       allDay: false,
+      reminderMinutesBefore: 15,
       attendees: [],
       idempotencyKey: "calendar-test-create",
     });
     assert(created.calendarId === calendarId, "created event retains calendar identity");
+    assert(created.reminderMinutesBefore === 15, "event reminder lead time is persisted");
     assert(
       created.descriptionContent && noteContentToPlainText(created.descriptionContent) === "会议议程\n准备材料",
       "calendar rich description is persisted as structured content",
@@ -82,8 +84,10 @@ async function main() {
       start: created.start,
       end: created.end,
       timeZone: "Europe/Berlin",
+      reminderMinutesBefore: 30,
     });
     assert(updated.title === "Updated calendar event", "event can be edited");
+    assert(updated.reminderMinutesBefore === 30, "event reminder can be changed independently");
 
     const recurring = await localCalendarProvider.upsertEvent(localCalendarContext, {
       calendarId,
@@ -157,6 +161,13 @@ async function main() {
     });
     assert(validated.timeZone === "Europe/Berlin", "IANA time zone is preserved");
     assert(validated.description === "会议议程\n准备材料", "rich description produces a searchable plain-text projection");
+    assert(parseCalendarEventInput({
+      calendarId,
+      title: "Silent event",
+      start: "2026-10-25T08:00:00+01:00",
+      end: "2026-10-25T09:00:00+01:00",
+      reminderMinutesBefore: 0,
+    }).reminderMinutesBefore === 0, "zero explicitly disables reminders");
     const range = parseCalendarRange(new URL("http://localhost/api?from=2026-07-20T00:00:00Z&to=2026-07-27T00:00:00Z"));
     assert(range.from.startsWith("2026-07-20"), "calendar range is normalized");
 
@@ -172,6 +183,20 @@ async function main() {
       invalidRejected = error instanceof CalendarValidationError;
     }
     assert(invalidRejected, "end before start is rejected");
+
+    let invalidReminderRejected = false;
+    try {
+      parseCalendarEventInput({
+        calendarId,
+        title: "Invalid reminder",
+        start: "2026-07-20T09:00:00Z",
+        end: "2026-07-20T10:00:00Z",
+        reminderMinutesBefore: 10,
+      });
+    } catch (error) {
+      invalidReminderRejected = error instanceof CalendarValidationError;
+    }
+    assert(invalidReminderRejected, "unsupported reminder lead times are rejected");
 
     await localCalendarProvider.deleteEvent(localCalendarContext, calendarId, created.id);
     await deleteStoredCalendarEvent(calendarId, recurring.id, {

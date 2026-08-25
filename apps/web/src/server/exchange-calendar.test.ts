@@ -95,6 +95,10 @@ async function main() {
     assert(storedEvents[0]?.description === "准备演示并确认下一步", "Exchange event body is persisted locally");
     assert(storedEvents[0]?.providerData?.itemId === "event-1" && storedEvents[0]?.providerData?.changeKey === "event-key-1", "Exchange mutation identity is persisted locally");
     assert(storedEvents[0]?.providerData?.providerId === "exchange", "stored Exchange event keeps provider identity");
+    await database.query("UPDATE calendar_events SET reminder_minutes_before = 30 WHERE id = $1", [storedEvents[0]!.id]);
+    await saveExchangeCalendarEvents(calendarId, events, "2026-07-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z");
+    const resyncedEvents = await listStoredCalendarEvents({ calendarIds: [calendarId], from: "2026-07-01T00:00:00.000Z", to: "2026-08-01T00:00:00.000Z" });
+    assert(resyncedEvents.find((event) => event.id === storedEvents[0]!.id)?.reminderMinutesBefore === 30, "Exchange sync preserves local reminder overrides");
     assert((await listCalendarAccounts())[0]?.providerId === "exchange", "Exchange account is listed");
     assert(await deleteCalendarAccount(account.id), "Exchange account can be removed with its local index");
 

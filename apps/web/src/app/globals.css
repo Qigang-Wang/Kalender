@@ -1498,7 +1498,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .calendar-modern-form .calendar-title-field input { width: 100%; height: 48px; padding: 0; color: #edf1ee; background: transparent; border: 0; border-radius: 0; outline: 0; box-shadow: none; font-size: 21px; font-weight: 620; letter-spacing: -.025em; }
 .calendar-modern-form .calendar-title-field input::placeholder { color: #747d77; }
 .calendar-schedule-card { margin-top: 10px; padding: 10px 13px 8px; background: #202522; border: 0; border-radius: 11px; }
-.calendar-schedule-row { display: grid; min-width: 0; grid-template-columns: 32px minmax(0, 1fr) 22px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; }
+.calendar-schedule-row { display: grid; min-width: 0; grid-template-columns: 32px minmax(0, 1fr) 22px minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; }
 .calendar-schedule-icon { display: grid; width: 28px; height: 28px; color: #9ecbfa; background: #1a3043; border-radius: 8px; place-items: center; }
 .calendar-schedule-field { min-width: 0; }
 .calendar-modern-form .calendar-schedule-field .date-time-field-trigger { height: 34px; padding: 0; color: #e9edeb; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
@@ -1516,6 +1516,15 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .calendar-all-day-switch input:checked + i b { transform: translateX(15px); }
 .calendar-all-day-switch input:focus-visible + i { outline: 2px solid #86bdf5; outline-offset: 2px; }
 .calendar-schedule-duration { display: flex; align-items: center; gap: 5px; margin: 0; color: #7f8983; font-size: 12px; white-space: nowrap; }
+.calendar-reminder-control { min-width: 0; }
+.calendar-reminder-select-trigger { display: flex; width: auto; max-width: 118px; height: 34px; align-items: center; justify-content: flex-end; gap: 5px; padding: 0 5px; color: #aeb7b1; cursor: pointer; background: transparent; border: 0; border-radius: 7px; outline: 0; box-shadow: none; font-size: 12px; font-weight: 580; white-space: nowrap; }
+.calendar-reminder-select-trigger:hover, .calendar-reminder-select-trigger:focus-visible, .calendar-reminder-select-trigger[data-state="open"] { color: #fff; background: #29302c; box-shadow: none; }
+.calendar-reminder-select-trigger:focus-visible { outline: 2px solid #76a9d7; outline-offset: -2px; }
+.calendar-reminder-select-trigger > svg { width: 15px; height: 15px; color: #7d8781; }
+.calendar-reminder-select-content { z-index: 110; min-width: var(--radix-select-trigger-width); padding: 5px; color: #e6ebe7; background: #252a27; border: 1px solid #454c47; border-radius: 10px; box-shadow: 0 18px 44px rgb(0 0 0 / 42%); }
+.calendar-reminder-select-item { min-height: 36px; padding: 0 34px 0 10px; color: #dce3de; cursor: pointer; border-radius: 7px; font-size: 12px; font-weight: 560; }
+.calendar-reminder-select-item[data-highlighted] { color: #f5f8f6; background: #323a35; }
+.calendar-reminder-select-item[data-state="checked"] { color: #d9edff; background: #21384b; }
 .calendar-edit-meta { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
 .calendar-meta-field { display: grid; min-width: 0; height: 50px; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 0 13px; color: #8fbfee; background: #202522; border: 0; border-radius: 10px; transition: background .16s ease; }
 .calendar-meta-field:hover, .calendar-meta-field:focus-within { background: #232925; }
@@ -3064,6 +3073,9 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .calendar-schedule-icon { width: 28px; height: 28px; }
   .calendar-schedule-duration { grid-column: 2 / 3; justify-self: start; margin-top: 3px; }
   .calendar-all-day-switch { grid-column: 4; grid-row: 2; justify-self: end; margin: 3px 0 0; }
+  .calendar-reminder-control { grid-column: 4; grid-row: 2; justify-self: start; }
+  .calendar-reminder-select-trigger { max-width: 112px; }
+  .calendar-all-day-switch { grid-row: 3; }
   .calendar-edit-meta { grid-template-columns: 1fr; gap: 8px; margin-top: 8px; }
   .calendar-meta-field { height: 48px; padding: 0 12px; }
   .calendar-modern-form .calendar-meta-field input, .calendar-modern-form .calendar-meta-field select { height: 46px; font-size: 13px; }

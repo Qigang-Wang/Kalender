@@ -65,7 +65,13 @@ export async function upsertCalendarEvent(input: UpsertCalendarEventInput): Prom
       const folder: ExchangeCalendarFolder = { folderId, name: "Exchange 日历" };
       remoteEvent = await createExchangeCalendarEvent(credential, folder, input, controller.signal);
     }
-    const eventId = await saveExchangeCalendarMutation(input.calendarId, remoteEvent, input.id, input.descriptionContent);
+    const eventId = await saveExchangeCalendarMutation(
+      input.calendarId,
+      remoteEvent,
+      input.id,
+      input.descriptionContent,
+      input.reminderMinutesBefore,
+    );
     const saved = await getStoredCalendarEvent(eventId);
     if (!saved) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "RWTH 已保存日程，但本地索引更新失败", 500);
     return saved;

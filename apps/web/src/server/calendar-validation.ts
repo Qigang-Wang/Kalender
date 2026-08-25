@@ -1,4 +1,5 @@
 import type {
+  CalendarEventReminderMinutes,
   CalendarRecurrenceEditScope,
   CalendarRecurrenceRule,
   UpsertCalendarEventInput,
@@ -23,6 +24,7 @@ export interface CalendarEventRequestBody {
   readonly end?: unknown;
   readonly timeZone?: unknown;
   readonly allDay?: unknown;
+  readonly reminderMinutesBefore?: unknown;
   readonly idempotencyKey?: unknown;
   readonly allowConflicts?: unknown;
   readonly recurrence?: unknown;
@@ -71,6 +73,7 @@ export function parseCalendarEventInput(body: CalendarEventRequestBody | null): 
     end: end.toISOString(),
     timeZone,
     allDay: body.allDay === true,
+    reminderMinutesBefore: parseReminderMinutes(body.reminderMinutesBefore),
     attendees: [],
     idempotencyKey: typeof body.idempotencyKey === "string" && body.idempotencyKey
       ? body.idempotencyKey.slice(0, 200)
@@ -80,6 +83,14 @@ export function parseCalendarEventInput(body: CalendarEventRequestBody | null): 
     recurrenceId,
     recurrenceScope,
   };
+}
+
+function parseReminderMinutes(value: unknown): CalendarEventReminderMinutes | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || ![0, 5, 15, 30, 60, 1440].includes(value)) {
+    throw new CalendarValidationError("提醒时间无效");
+  }
+  return value as CalendarEventReminderMinutes;
 }
 
 function optionalRichText(value: unknown): string | undefined {

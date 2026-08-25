@@ -303,6 +303,7 @@ export interface CalendarSummary {
 }
 
 export type CalendarAvailability = "free" | "tentative" | "busy" | "oof" | "working_elsewhere";
+export type CalendarEventReminderMinutes = 0 | 5 | 15 | 30 | 60 | 1440;
 
 export interface CalendarEvent {
   readonly id: string;
@@ -316,6 +317,8 @@ export interface CalendarEvent {
   readonly end: ISODateTime;
   readonly timeZone?: string;
   readonly allDay: boolean;
+  /** Undefined uses the desktop default; 0 explicitly disables reminders for this event. */
+  readonly reminderMinutesBefore?: CalendarEventReminderMinutes;
   readonly attendees: readonly MailAddress[];
   readonly meetingUrl?: string;
   readonly status: "confirmed" | "tentative" | "cancelled";
@@ -360,6 +363,7 @@ export interface UpsertCalendarEventInput {
   readonly end: ISODateTime;
   readonly timeZone?: string;
   readonly allDay?: boolean;
+  readonly reminderMinutesBefore?: CalendarEventReminderMinutes;
   readonly attendees?: readonly MailAddress[];
   readonly availability?: CalendarAvailability;
   readonly idempotencyKey?: string;

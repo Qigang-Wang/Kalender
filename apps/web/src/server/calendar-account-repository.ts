@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import type { CalendarEvent } from "../../../../src/mail/types";
+
 import type { CalDavCredential, CalDavEventRecord, DiscoveredCalDavCalendar } from "./caldav-client";
 import { decryptCredential, encryptCredential } from "./credential-crypto";
 import { getDatabase } from "./database";
@@ -565,6 +567,7 @@ export async function saveExchangeCalendarMutation(
   event: ExchangeCalendarEvent,
   localEventId?: string,
   descriptionContent?: string,
+  reminderMinutesBefore?: CalendarEvent["reminderMinutesBefore"],
 ): Promise<string> {
   const database = await getDatabase();
   const id = localEventId ?? `exchange-event:${randomUUID()}`;
@@ -573,8 +576,8 @@ export async function saveExchangeCalendarMutation(
        id, calendar_id, provider_event_id, title, description, description_content, location,
        starts_at, ends_at, time_zone, all_day, attendees, meeting_url,
        status, etag, provider_item_id, provider_change_key,
-       is_meeting, is_recurring, is_organizer, availability, updated_at
-     ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16,$17,$18,$19,$20,$21,now())
+       is_meeting, is_recurring, is_organizer, availability, reminder_minutes_before, updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,now())
      ON CONFLICT (id) DO UPDATE SET
        provider_event_id = EXCLUDED.provider_event_id,
        title = EXCLUDED.title,
@@ -595,6 +598,7 @@ export async function saveExchangeCalendarMutation(
        is_recurring = EXCLUDED.is_recurring,
        is_organizer = EXCLUDED.is_organizer,
        availability = EXCLUDED.availability,
+       reminder_minutes_before = COALESCE(EXCLUDED.reminder_minutes_before, calendar_events.reminder_minutes_before),
        updated_at = now()`,
     [
       id,
@@ -618,6 +622,7 @@ export async function saveExchangeCalendarMutation(
       event.isRecurring,
       event.isOrganizer ?? null,
       event.availability ?? "busy",
+      reminderMinutesBefore ?? null,
     ],
   );
   return id;

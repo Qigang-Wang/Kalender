@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  AlertCircle, ArrowRight, CalendarDays, CalendarClock, Check, ChevronLeft,
+  AlertCircle, ArrowRight, BellRing, CalendarDays, CalendarClock, Check, ChevronLeft,
   ChevronDown, ChevronRight, Circle, Clock3, Copy, Folder, Link2, ListChecks, LoaderCircle, Mail,
   MailOpen, MapPin, MoreHorizontal, NotebookPen, Pencil, Plus, RefreshCw, Repeat2, ShieldCheck, Trash2, Users, X,
 } from "lucide-react";
@@ -26,6 +26,7 @@ import {
   localIsoWeekday,
 } from "@/lib/calendar-recurrence";
 import type {
+  CalendarEventReminderMinutes,
   CalendarRecurrenceEditScope,
   CalendarRecurrenceRule,
 } from "../../../../../src/mail/types";
@@ -140,6 +141,7 @@ interface CalendarViewEvent {
   readonly end: string;
   readonly timeZone?: string;
   readonly allDay: boolean;
+  readonly reminderMinutesBefore?: CalendarEventReminderMinutes;
   readonly status: "confirmed" | "tentative" | "cancelled";
   readonly providerData?: {
     readonly providerId?: string;
@@ -170,6 +172,7 @@ interface CalendarEventDraft {
   readonly endLocal: string;
   readonly timeZone: string;
   readonly allDay: boolean;
+  readonly reminderMinutesBefore?: CalendarEventReminderMinutes;
   readonly availability?: CalendarViewEvent["availability"];
   readonly recurrence?: CalendarRecurrenceRule;
   readonly recurrenceSeriesId?: string;
@@ -361,6 +364,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       endLocal: toLocalDateTimeInput(end),
       timeZone,
       allDay: false,
+      reminderMinutesBefore: 0,
       availability: "busy",
       conflicts: [],
     });
@@ -386,6 +390,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       endLocal: event.allDay ? toCalendarDateKey(inclusiveAllDayEnd) : toLocalDateTimeInput(eventEnd),
       timeZone: event.timeZone ?? timeZone,
       allDay: event.allDay,
+      reminderMinutesBefore: event.reminderMinutesBefore,
       availability: event.availability,
       recurrence: event.recurrence,
       recurrenceSeriesId: event.recurrenceSeriesId,
@@ -493,6 +498,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
           end: end.toISOString(),
           timeZone: draft.timeZone,
           allDay: draft.allDay,
+          reminderMinutesBefore: draft.reminderMinutesBefore,
           recurrence: draft.recurrence ?? null,
           recurrenceSeriesId: draft.recurrenceSeriesId,
           recurrenceId: draft.recurrenceId,
@@ -581,6 +587,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       endLocal: event.allDay ? toCalendarDateKey(addCalendarDays(eventEnd, -1)) : toLocalDateTimeInput(eventEnd),
       timeZone: event.timeZone ?? timeZone,
       allDay: event.allDay,
+      reminderMinutesBefore: event.reminderMinutesBefore ?? 0,
       conflicts: [],
     });
   };
@@ -1058,6 +1065,28 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                       onChange={(endLocal) => updateCalendarDraft({ endLocal })}
                     />
                     <small className="calendar-schedule-duration"><Clock3 size={12} />{formatCalendarDetailDuration(draft)}</small>
+                    <div className="calendar-reminder-control">
+                      <Select
+                        value={draft.reminderMinutesBefore === undefined ? "default" : String(draft.reminderMinutesBefore)}
+                        onValueChange={(value) => updateCalendarDraft({
+                          reminderMinutesBefore: value === "default" ? undefined : Number(value) as CalendarEventReminderMinutes,
+                        })}
+                      >
+                        <SelectTrigger className="calendar-reminder-select-trigger" aria-label="提醒时间">
+                          <BellRing size={14} aria-hidden="true" />
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="calendar-reminder-select-content" position="popper" align="end" sideOffset={6}>
+                          <SelectItem className="calendar-reminder-select-item" value="default">使用桌面默认设置</SelectItem>
+                          <SelectItem className="calendar-reminder-select-item" value="0">不提醒</SelectItem>
+                          <SelectItem className="calendar-reminder-select-item" value="5">提前 5 分钟</SelectItem>
+                          <SelectItem className="calendar-reminder-select-item" value="15">提前 15 分钟</SelectItem>
+                          <SelectItem className="calendar-reminder-select-item" value="30">提前 30 分钟</SelectItem>
+                          <SelectItem className="calendar-reminder-select-item" value="60">提前 1 小时</SelectItem>
+                          <SelectItem className="calendar-reminder-select-item" value="1440">提前 1 天</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <label className="calendar-all-day-switch">
                       <span>全天</span>
                       <input aria-label="全天日程" type="checkbox" checked={draft.allDay} onChange={(event) => changeCalendarAllDay(event.target.checked)} />
@@ -1231,6 +1260,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                 {calendarAvailabilityLabel(draft.availability) && <div className={draft.availability === "oof" ? "calendar-detail-availability oof" : "calendar-detail-availability"}><span className="calendar-detail-icon"><Circle size={15} /></span><strong>显示为：{calendarAvailabilityLabel(draft.availability)}</strong></div>}
                 {draft.location && <div><span className="calendar-detail-icon"><MapPin size={15} /></span><strong>{draft.location}</strong></div>}
                 {draft.recurrence && <div><span className="calendar-detail-icon"><Repeat2 size={15} /></span><strong>{calendarRecurrenceSummary(draft.recurrence)}</strong></div>}
+                <div><span className="calendar-detail-icon"><BellRing size={15} /></span><strong>{formatCalendarReminder(draft.reminderMinutesBefore)}</strong></div>
               </div>
               {draftWriteDisabledReason && <div className="calendar-detail-notice" role="note"><ShieldCheck size={14} /><span>{draftWriteDisabledReason}</span></div>}
               {draftEvent?.attendees?.length ? (
@@ -2617,6 +2647,14 @@ function formatRecurrencePreview(draft: CalendarEventDraft): string {
 
 function formatCalendarEventTime(value: string): string {
   return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
+}
+
+function formatCalendarReminder(value?: CalendarEventReminderMinutes): string {
+  if (value === undefined) return "使用桌面默认提醒";
+  if (value === 0) return "不提醒";
+  if (value === 60) return "提前 1 小时提醒";
+  if (value === 1440) return "提前 1 天提醒";
+  return `提前 ${value} 分钟提醒`;
 }
 
 function calendarAvailabilityClass(event: CalendarViewEvent): string {

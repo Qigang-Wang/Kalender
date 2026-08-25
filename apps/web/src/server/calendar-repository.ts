@@ -48,6 +48,7 @@ interface CalendarEventRow {
   ends_at: string;
   time_zone: string;
   all_day: boolean;
+  reminder_minutes_before: CalendarEvent["reminderMinutesBefore"] | null;
   attendees: readonly { address: string; name?: string }[];
   meeting_url: string | null;
   status: CalendarEvent["status"];
@@ -72,7 +73,7 @@ export interface CalendarEventConflict {
 
 const calendarEventColumns = `
   e.id, e.provider_event_id, e.calendar_id, e.title, e.description, e.description_content, e.location,
-  e.starts_at, e.ends_at, e.time_zone, e.all_day, e.attendees, e.meeting_url, e.status, e.availability,
+  e.starts_at, e.ends_at, e.time_zone, e.all_day, e.reminder_minutes_before, e.attendees, e.meeting_url, e.status, e.availability,
   e.provider_item_id, e.provider_change_key, e.is_meeting, e.is_recurring, e.is_organizer,
   e.recurrence_rule, e.recurrence_series_id, e.recurrence_id, e.recurrence_cancelled
 `;
@@ -179,7 +180,7 @@ export async function listStoredCalendarEvents(
       if (exception) {
         consumedExceptions.add(exception.id);
         if (!exception.recurrence_cancelled && exception.ends_at > input.from && exception.starts_at < input.to) {
-          expanded.push(mapCalendarEvent(exception, master.recurrence_rule));
+          expanded.push(mapCalendarEvent(exception, master.recurrence_rule, master.reminder_minutes_before));
         }
       } else {
         expanded.push(mapExpandedCalendarEvent(master, occurrenceStart, occurrenceEnd));
@@ -197,7 +198,7 @@ export async function listStoredCalendarEvents(
       || exception.starts_at >= input.to
     ) continue;
     const master = masters.rows.find((row) => row.id === exception.recurrence_series_id);
-    if (master?.recurrence_rule) expanded.push(mapCalendarEvent(exception, master.recurrence_rule));
+    if (master?.recurrence_rule) expanded.push(mapCalendarEvent(exception, master.recurrence_rule, master.reminder_minutes_before));
   }
 
   return expanded
@@ -281,8 +282,8 @@ export async function upsertStoredCalendarEvent(
     `INSERT INTO calendar_events (
        id, calendar_id, provider_event_id, title, description, description_content, location,
        starts_at, ends_at, time_zone, all_day, attendees, status,
-       idempotency_key, recurrence_rule, is_recurring, updated_at
-     ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12::jsonb,'confirmed',$13,$14::jsonb,$15,now())
+       idempotency_key, recurrence_rule, is_recurring, reminder_minutes_before, updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12::jsonb,'confirmed',$13,$14::jsonb,$15,$16,now())
      ON CONFLICT (id) DO UPDATE SET
        calendar_id = EXCLUDED.calendar_id,
        title = EXCLUDED.title,
@@ -296,9 +297,10 @@ export async function upsertStoredCalendarEvent(
        attendees = EXCLUDED.attendees,
        recurrence_rule = EXCLUDED.recurrence_rule,
        is_recurring = EXCLUDED.is_recurring,
+       reminder_minutes_before = COALESCE(EXCLUDED.reminder_minutes_before, calendar_events.reminder_minutes_before),
        updated_at = now()
      RETURNING id, provider_event_id, calendar_id, title, description, description_content, location,
-               starts_at, ends_at, time_zone, all_day, attendees, meeting_url, status, availability,
+               starts_at, ends_at, time_zone, all_day, reminder_minutes_before, attendees, meeting_url, status, availability,
                provider_item_id, provider_change_key, is_meeting, is_recurring, is_organizer,
                recurrence_rule, recurrence_series_id, recurrence_id, recurrence_cancelled`,
     [
@@ -317,6 +319,7 @@ export async function upsertStoredCalendarEvent(
       input.idempotencyKey ?? null,
       recurrence ? JSON.stringify(recurrence) : null,
       Boolean(recurrence),
+      input.reminderMinutesBefore ?? null,
     ],
   );
   const row = result.rows[0];
@@ -348,8 +351,8 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
       `INSERT INTO calendar_events (
          id, calendar_id, provider_event_id, title, description, description_content, location,
          starts_at, ends_at, time_zone, all_day, attendees, status,
-         is_recurring, recurrence_series_id, recurrence_id, recurrence_cancelled, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12::jsonb,'confirmed',true,$13,$14,false,now())
+         is_recurring, recurrence_series_id, recurrence_id, recurrence_cancelled, reminder_minutes_before, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12::jsonb,'confirmed',true,$13,$14,false,$15,now())
        ON CONFLICT (recurrence_series_id, recurrence_id)
          WHERE recurrence_series_id IS NOT NULL AND recurrence_id IS NOT NULL
        DO UPDATE SET
@@ -362,10 +365,11 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
          time_zone = EXCLUDED.time_zone,
          all_day = EXCLUDED.all_day,
          attendees = EXCLUDED.attendees,
+         reminder_minutes_before = COALESCE(EXCLUDED.reminder_minutes_before, calendar_events.reminder_minutes_before),
          recurrence_cancelled = false,
          updated_at = now()
        RETURNING id, provider_event_id, calendar_id, title, description, description_content, location,
-                 starts_at, ends_at, time_zone, all_day, attendees, meeting_url, status, availability,
+                 starts_at, ends_at, time_zone, all_day, reminder_minutes_before, attendees, meeting_url, status, availability,
                  provider_item_id, provider_change_key, is_meeting, is_recurring, is_organizer,
                  recurrence_rule, recurrence_series_id, recurrence_id, recurrence_cancelled`,
       [
@@ -383,11 +387,12 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
         JSON.stringify(input.attendees ?? master.attendees ?? []),
         master.id,
         recurrenceId,
+        input.reminderMinutesBefore ?? null,
       ],
     );
     const exception = result.rows[0];
     if (!exception) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "无法保存此次日程", 500);
-    return mapCalendarEvent(exception, master.recurrence_rule);
+    return mapCalendarEvent(exception, master.recurrence_rule, master.reminder_minutes_before);
   }
 
   const delta = new Date(input.start).getTime() - new Date(recurrenceId).getTime();
@@ -407,10 +412,12 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
          title = $2, description = $3, location = $4,
          starts_at = $5, ends_at = $6, time_zone = $7, all_day = $8,
          attendees = $9::jsonb, recurrence_rule = $10::jsonb,
-         description_content = $11::jsonb, is_recurring = true, updated_at = now()
+         description_content = $11::jsonb,
+         reminder_minutes_before = COALESCE($12, reminder_minutes_before),
+         is_recurring = true, updated_at = now()
        WHERE e.id = $1
        RETURNING id, provider_event_id, calendar_id, title, description, description_content, location,
-                 starts_at, ends_at, time_zone, all_day, attendees, meeting_url, status, availability,
+                 starts_at, ends_at, time_zone, all_day, reminder_minutes_before, attendees, meeting_url, status, availability,
                  provider_item_id, provider_change_key, is_meeting, is_recurring, is_organizer,
                  recurrence_rule, recurrence_series_id, recurrence_id, recurrence_cancelled`,
       [
@@ -425,6 +432,7 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
         JSON.stringify(input.attendees ?? master.attendees ?? []),
         JSON.stringify(nextRule),
         calendarDescriptionContentJson(input.descriptionContent),
+        input.reminderMinutesBefore ?? null,
       ],
     );
     const updated = result.rows[0];
@@ -474,10 +482,10 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
       `INSERT INTO calendar_events (
          id, calendar_id, provider_event_id, title, description, location,
          starts_at, ends_at, time_zone, all_day, attendees, status,
-         is_recurring, recurrence_rule, description_content, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'confirmed',true,$12::jsonb,$13::jsonb,now())
+         is_recurring, recurrence_rule, description_content, reminder_minutes_before, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'confirmed',true,$12::jsonb,$13::jsonb,$14,now())
        RETURNING id, provider_event_id, calendar_id, title, description, description_content, location,
-                 starts_at, ends_at, time_zone, all_day, attendees, meeting_url, status, availability,
+                 starts_at, ends_at, time_zone, all_day, reminder_minutes_before, attendees, meeting_url, status, availability,
                  provider_item_id, provider_change_key, is_meeting, is_recurring, is_organizer,
                  recurrence_rule, recurrence_series_id, recurrence_id, recurrence_cancelled`,
       [
@@ -494,6 +502,7 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
         JSON.stringify(input.attendees ?? master.attendees ?? []),
         JSON.stringify(followingRule),
         calendarDescriptionContentJson(input.descriptionContent),
+        input.reminderMinutesBefore ?? null,
       ],
     );
     const newMaster = result.rows[0];
@@ -631,6 +640,7 @@ export class CalendarRepositoryError extends Error {
 function mapCalendarEvent(
   row: CalendarEventRow,
   inheritedRecurrence?: CalendarRecurrenceRule,
+  inheritedReminderMinutes?: CalendarEvent["reminderMinutesBefore"] | null,
 ): CalendarEvent {
   const recurrence = row.recurrence_rule ?? inheritedRecurrence;
   return {
@@ -645,6 +655,7 @@ function mapCalendarEvent(
     end: row.ends_at,
     timeZone: row.time_zone,
     allDay: row.all_day,
+    reminderMinutesBefore: row.reminder_minutes_before ?? inheritedReminderMinutes ?? undefined,
     attendees: row.attendees ?? [],
     meetingUrl: row.meeting_url ?? undefined,
     status: row.status,

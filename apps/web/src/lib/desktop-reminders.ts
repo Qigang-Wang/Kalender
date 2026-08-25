@@ -7,6 +7,7 @@ export interface CalendarReminderEvent {
   readonly end: string;
   readonly allDay: boolean;
   readonly status: "confirmed" | "tentative" | "cancelled";
+  readonly reminderMinutesBefore?: number;
 }
 
 export interface NativeReminderInput {
@@ -63,7 +64,9 @@ export function createDesktopReminderSyncPayload(
 
   return {
     settings,
-    reminders: events.map((event) => toNativeReminder(event, settings)),
+    reminders: events
+      .filter((event) => event.reminderMinutesBefore !== 0)
+      .map((event) => toNativeReminder(event, settings)),
     summary: {
       todayCount: todayEvents.length,
       nextTitle: nextEvent?.title,
@@ -82,7 +85,9 @@ function isValidEventRange(event: CalendarReminderEvent): boolean {
 function toNativeReminder(event: CalendarReminderEvent, settings: DesktopReminderSettings): NativeReminderInput {
   const start = new Date(event.start);
   let remindAt: number;
-  if (event.allDay) {
+  if (event.reminderMinutesBefore !== undefined) {
+    remindAt = start.getTime() - event.reminderMinutesBefore * 60_000;
+  } else if (event.allDay) {
     const allDayReminder = new Date(start);
     allDayReminder.setHours(settings.allDayReminderHour, 0, 0, 0);
     remindAt = allDayReminder.getTime();

@@ -1682,6 +1682,22 @@ const EDITOR_ASSETS_SCHEMA_SQL = String.raw`
     ON editor_assets (user_id, created_at DESC);
 `;
 
+const CALENDAR_EVENT_REMINDERS_SCHEMA_SQL = String.raw`
+  ALTER TABLE calendar_events
+    ADD COLUMN IF NOT EXISTS reminder_minutes_before integer;
+
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint WHERE conname = 'calendar_events_reminder_minutes_check'
+    ) THEN
+      ALTER TABLE calendar_events
+        ADD CONSTRAINT calendar_events_reminder_minutes_check
+        CHECK (reminder_minutes_before IS NULL OR reminder_minutes_before IN (0, 5, 15, 30, 60, 1440));
+    END IF;
+  END $$;
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1715,6 +1731,7 @@ export const DATABASE_MIGRATIONS = [
   { version: 30, name: "project-gantt-item-order", sql: PROJECT_GANTT_ITEM_ORDER_SCHEMA_SQL },
   { version: 31, name: "automatic-backup-encryption-opt-in", sql: AUTOMATIC_BACKUP_ENCRYPTION_OPT_IN_SQL },
   { version: 32, name: "persistent-editor-assets", sql: EDITOR_ASSETS_SCHEMA_SQL },
+  { version: 33, name: "calendar-event-reminders", sql: CALENDAR_EVENT_REMINDERS_SCHEMA_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;
