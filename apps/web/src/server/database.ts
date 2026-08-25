@@ -1698,6 +1698,16 @@ const CALENDAR_EVENT_REMINDERS_SCHEMA_SQL = String.raw`
   END $$;
 `;
 
+// Keep this definition identical to the migration already released by the
+// German UI branch so databases upgraded there remain readable by main.
+const GERMAN_DEFAULT_CALENDAR_NAME_SQL = String.raw`
+  UPDATE calendars
+     SET name = 'Persönlicher Kalender'
+   WHERE provider_id = 'local-calendar'
+     AND provider_calendar_id = 'personal'
+     AND name = '个人日历';
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1732,6 +1742,7 @@ export const DATABASE_MIGRATIONS = [
   { version: 31, name: "automatic-backup-encryption-opt-in", sql: AUTOMATIC_BACKUP_ENCRYPTION_OPT_IN_SQL },
   { version: 32, name: "persistent-editor-assets", sql: EDITOR_ASSETS_SCHEMA_SQL },
   { version: 33, name: "calendar-event-reminders", sql: CALENDAR_EVENT_REMINDERS_SCHEMA_SQL },
+  { version: 34, name: "german-default-calendar-name", sql: GERMAN_DEFAULT_CALENDAR_NAME_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;
