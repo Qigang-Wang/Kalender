@@ -77,7 +77,7 @@ const recognizedLinks = calendarDescriptionLinks(encodeNoteContent([
   },
 ]));
 assert(
-  recognizedLinks.map((link) => link.label).join(",") === "Webex,Teams,链接",
+  recognizedLinks.map((link) => link.label).join(",") === "Webex,Teams,Link",
   "calendar descriptions classify meeting and regular links",
 );
 

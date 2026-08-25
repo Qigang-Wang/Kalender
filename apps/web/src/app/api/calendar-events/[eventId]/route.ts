@@ -18,7 +18,7 @@ export async function PATCH(request: Request, context: CalendarEventRouteContext
     const input = parseCalendarEventInput({ ...body, id: eventId });
     const conflicts = await listStoredCalendarEventConflicts({ calendarId: input.calendarId, start: input.start, end: input.end, excludeEventId: eventId });
     if (conflicts.length && body?.allowConflicts !== true) {
-      return NextResponse.json({ ok: false, message: "所选时间与现有日程冲突", conflicts }, { status: 409 });
+      return NextResponse.json({ ok: false, message: "die ausgewählten Zeitkonflikte mit dem bestehenden Kalenderereignis", conflicts }, { status: 409 });
     }
     const event = await upsertCalendarEvent(input);
     return NextResponse.json({ ok: true, event });
@@ -31,7 +31,7 @@ export async function DELETE(request: Request, context: CalendarEventRouteContex
   const { eventId } = await context.params;
   const searchParams = new URL(request.url).searchParams;
   const calendarId = searchParams.get("calendarId");
-  if (!calendarId) return NextResponse.json({ ok: false, message: "缺少日历标识" }, { status: 400 });
+  if (!calendarId) return NextResponse.json({ ok: false, message: "keine Kalender-Identifikatoren verfügbar" }, { status: 400 });
   try {
     const seriesId = searchParams.get("recurrenceSeriesId");
     const recurrenceId = searchParams.get("recurrenceId");

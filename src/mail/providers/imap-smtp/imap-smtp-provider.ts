@@ -350,7 +350,7 @@ export class ImapSmtpMailProvider implements MailProvider {
     return {
       id,
       providerThreadId: fetched.threadId ?? envelope?.messageId ?? id,
-      subject: envelope?.subject ?? "(无主题)",
+      subject: envelope?.subject ?? "(Kein Betreff)",
       snippet,
       participants: uniqueAddresses([
         ...imapAddresses(envelope?.from),
@@ -371,7 +371,7 @@ export class ImapSmtpMailProvider implements MailProvider {
       id,
       providerMessageId: envelope?.messageId ?? String(fetched.uid),
       threadId: id,
-      subject: envelope?.subject ?? "(无主题)",
+      subject: envelope?.subject ?? "(Kein Betreff)",
       from: imapAddresses(envelope?.from)[0] ?? { address: "unknown@invalid.local" },
       to: imapAddresses(envelope?.to),
       cc: imapAddresses(envelope?.cc),

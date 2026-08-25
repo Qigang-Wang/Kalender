@@ -13,7 +13,7 @@ interface EncryptedEnvelope {
 
 export class CredentialDecryptionError extends Error {
   constructor() {
-    super("保存的连接凭据无法解密。请恢复原 KALENDER_MASTER_KEY，或在设置中重新输入连接密码");
+    super("Die gespeicherten Links können nicht entschlüsselt werden. Bitte das originale KARENDER_MASTER_KEY wiederherstellen oder das Verbindungspasswort in den Einstellungen erneut eingeben");
     this.name = "CredentialDecryptionError";
   }
 }

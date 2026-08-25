@@ -58,19 +58,19 @@ export function DesktopWindowControls() {
     <div className="desktop-window-command-area">
       <div
         className="desktop-window-drag-region"
-        aria-label="拖动 Kalender 窗口"
-        title="拖动窗口，双击最大化"
+        aria-label="Kalender-Fenster ziehen"
+        title="Ziehen Sie Fenster, doppelklicken Sie, um zu maximieren"
         onDoubleClick={() => void toggleMaximized()}
         onPointerDown={startDragging}
       />
-      <div className="desktop-window-controls" aria-label="窗口控制">
-        <button type="button" aria-label="最小化" title="最小化" onPointerDown={(event) => event.stopPropagation()} onClick={() => void runWindowCommand("desktop_window_minimize")}>
+      <div className="desktop-window-controls" aria-label="Fenstersteuerung">
+        <button type="button" aria-label="Minimierung" title="Minimierung" onPointerDown={(event) => event.stopPropagation()} onClick={() => void runWindowCommand("desktop_window_minimize")}>
           <Minus size={16} strokeWidth={1.7} />
         </button>
-        <button type="button" aria-label={maximized ? "还原" : "最大化"} title={maximized ? "还原" : "最大化"} onPointerDown={(event) => event.stopPropagation()} onClick={() => void toggleMaximized()}>
+        <button type="button" aria-label={maximized ? "Wiederherstellen" : "Maximieren"} title={maximized ? "Wiederherstellen" : "Maximieren"} onPointerDown={(event) => event.stopPropagation()} onClick={() => void toggleMaximized()}>
           {maximized ? <Copy size={13} strokeWidth={1.7} /> : <Square size={12} strokeWidth={1.7} />}
         </button>
-        <button className="desktop-window-close" type="button" aria-label="关闭" title="关闭" onPointerDown={(event) => event.stopPropagation()} onClick={() => void runWindowCommand("desktop_window_close")}>
+        <button className="desktop-window-close" type="button" aria-label="Schließen" title="Schließen" onPointerDown={(event) => event.stopPropagation()} onClick={() => void runWindowCommand("desktop_window_close")}>
           <X size={16} strokeWidth={1.7} />
         </button>
       </div>

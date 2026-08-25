@@ -126,26 +126,26 @@ export async function listMailDraftIdsForAccount(accountId: string): Promise<rea
 
 export async function saveMailDraft(input: ParsedMailDraftInput, id?: string): Promise<StoredMailDraft> {
   if (!await getAccount(input.accountId)) {
-    throw new MailDraftRepositoryError("ACCOUNT_NOT_FOUND", "发件账户不存在", 404);
+    throw new MailDraftRepositoryError("ACCOUNT_NOT_FOUND", "Konto senden existiert nicht", 404);
   }
   if (input.replyToMessageId) {
     const reply = await getMailReplyContext(input.replyToMessageId);
-    if (!reply) throw new MailDraftRepositoryError("DRAFT_NOT_FOUND", "回复的原邮件不存在", 404);
+    if (!reply) throw new MailDraftRepositoryError("DRAFT_NOT_FOUND", "die Antwort der ursprünglichen Mail existiert nicht", 404);
     if (reply.accountId !== input.accountId) {
-      throw new MailDraftRepositoryError("REPLY_ACCOUNT_MISMATCH", "回复必须使用收到原邮件的账户", 409);
+      throw new MailDraftRepositoryError("REPLY_ACCOUNT_MISMATCH", "Antwort muss das Konto verwenden, auf das die ursprüngliche E-Mail eingegangen ist", 409);
     }
   }
   if (input.signatureId) {
     const signature = await getMailSignature(input.signatureId);
     if (!signature || signature.accountId !== input.accountId) {
-      throw new MailDraftRepositoryError("ACCOUNT_NOT_FOUND", "所选签名不属于当前发件账户", 400);
+      throw new MailDraftRepositoryError("ACCOUNT_NOT_FOUND", "die ausgewählte Signatur gehört nicht zum aktuellen Absenderkonto", 400);
     }
   }
   const draftId = id ?? randomUUID();
   const existing = id ? await getMailDraft(id) : undefined;
-  if (id && !existing) throw new MailDraftRepositoryError("DRAFT_NOT_FOUND", "草稿不存在", 404);
-  if (existing?.status === "sending") throw new MailDraftRepositoryError("DRAFT_BUSY", "邮件正在发送", 409);
-  if (existing?.status === "sent") throw new MailDraftRepositoryError("DRAFT_SENT", "邮件已经发送", 409);
+  if (id && !existing) throw new MailDraftRepositoryError("DRAFT_NOT_FOUND", "Entwurf existiert nicht", 404);
+  if (existing?.status === "sending") throw new MailDraftRepositoryError("DRAFT_BUSY", "E-Mail wird gesendet", 409);
+  if (existing?.status === "sent") throw new MailDraftRepositoryError("DRAFT_SENT", "E-Mail gesendet", 409);
   const database = await getDatabase();
   const scope = await getUserScope();
   const values = [draftId, input.accountId, input.replyToMessageId ?? null, JSON.stringify(input.to), JSON.stringify(input.cc),
@@ -207,19 +207,19 @@ export async function beginMailDraftSend(
   idempotencyKey: string,
 ): Promise<{ readonly draft: StoredMailDraft; readonly alreadySent: boolean }> {
   const draft = await getMailDraft(id);
-  if (!draft) throw new MailDraftRepositoryError("DRAFT_NOT_FOUND", "草稿不存在", 404);
-  if (draft.accountId !== accountId) throw new MailDraftRepositoryError("REPLY_ACCOUNT_MISMATCH", "发件账户与确认信息不一致", 409);
+  if (!draft) throw new MailDraftRepositoryError("DRAFT_NOT_FOUND", "Entwurf existiert nicht", 404);
+  if (draft.accountId !== accountId) throw new MailDraftRepositoryError("REPLY_ACCOUNT_MISMATCH", "send account stimmt nicht mit Bestätigungsinformationen überein", 409);
   if (draft.status === "sent") {
     if (draft.idempotencyKey === idempotencyKey) return { draft, alreadySent: true };
-    throw new MailDraftRepositoryError("DRAFT_SENT", "邮件已经发送", 409);
+    throw new MailDraftRepositoryError("DRAFT_SENT", "E-Mail gesendet", 409);
   }
-  if (draft.status === "sending") throw new MailDraftRepositoryError("DRAFT_BUSY", "邮件正在发送", 409);
+  if (draft.status === "sending") throw new MailDraftRepositoryError("DRAFT_BUSY", "E-Mail wird gesendet", 409);
   const database = await getDatabase();
   const conflict = await database.query<{ id: string }>(
     "SELECT id FROM mail_drafts WHERE idempotency_key = $1 AND id <> $2 LIMIT 1",
     [idempotencyKey, id],
   );
-  if (conflict.rows[0]) throw new MailDraftRepositoryError("IDEMPOTENCY_CONFLICT", "发送确认已被其他邮件使用", 409);
+  if (conflict.rows[0]) throw new MailDraftRepositoryError("IDEMPOTENCY_CONFLICT", "Versand Bestätigung wurde von anderen Mails verwendet", 409);
   await database.query(
     `UPDATE mail_drafts SET status = 'sending', idempotency_key = $2,
        error_message = NULL, updated_at = now() WHERE id = $1`,

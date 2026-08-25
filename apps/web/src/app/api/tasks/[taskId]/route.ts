@@ -14,7 +14,7 @@ export async function GET(_request: Request, context: TaskRouteContext) {
   const { taskId } = await context.params;
   try {
     const task = await getStoredTask(taskId);
-    if (!task) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404);
+    if (!task) throw new TaskRepositoryError("TASK_NOT_FOUND", "Aufgabe existiert nicht", 404);
     return NextResponse.json({ ok: true, task });
   } catch (error) {
     return taskErrorResponse(error);
@@ -34,7 +34,7 @@ export async function PATCH(request: Request, context: TaskRouteContext) {
 export async function DELETE(_request: Request, context: TaskRouteContext) {
   const { taskId } = await context.params;
   try {
-    if (!await deleteStoredTask(taskId)) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404);
+    if (!await deleteStoredTask(taskId)) throw new TaskRepositoryError("TASK_NOT_FOUND", "Aufgabe existiert nicht", 404);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return taskErrorResponse(error);

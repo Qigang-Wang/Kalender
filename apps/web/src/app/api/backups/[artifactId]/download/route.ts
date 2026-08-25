@@ -13,8 +13,8 @@ interface DownloadRouteContext {
 export async function GET(_request: Request, context: DownloadRouteContext) {
   try {
     const actor = await getCurrentAppUser();
-    if (!actor) throw new AuthError("请先登录", 401);
-    if (actor.role !== "admin") throw new AuthError("需要管理员权限", 403);
+    if (!actor) throw new AuthError("Bitte melden Sie sich zuerst an", 401);
+    if (actor.role !== "admin") throw new AuthError("Administrator-Rechte erfordern", 403);
     const { artifactId } = await context.params;
     const { artifact, bytes } = await readBackupArtifactFile(artifactId);
     return new Response(new Uint8Array(bytes), {
@@ -27,7 +27,7 @@ export async function GET(_request: Request, context: DownloadRouteContext) {
       },
     });
   } catch (error) {
-    const normalized = error instanceof AuthError || error instanceof BackupError ? error : new BackupError("无法下载备份", 500);
+    const normalized = error instanceof AuthError || error instanceof BackupError ? error : new BackupError("Backup kann nicht heruntergeladen werden", 500);
     return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
   }
 }

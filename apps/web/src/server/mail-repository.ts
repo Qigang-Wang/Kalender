@@ -552,7 +552,7 @@ export async function startSyncRun(accountId: string, mode: SyncMode): Promise<s
     await transaction.query(
       `UPDATE sync_runs
           SET status = 'failed',
-              error_message = '同步进程已中断',
+              error_message = 'Synchronisierung wurde unterbrochen',
               finished_at = now()
         WHERE account_id = $1 AND status = 'running'`,
       [accountId],
@@ -758,7 +758,7 @@ export async function updateFolderManualOrder(
     );
     const available = new Set(result.rows.map((row) => row.id));
     if (available.size !== orderedFolderIds.length || orderedFolderIds.some((id) => !available.has(id))) {
-      throw new Error("文件夹顺序已经变化，请刷新后重试");
+      throw new Error("Ordner-Ordner-Ordner hat sich geändert, bitte aktualisieren und versuchen Sie es erneut");
     }
     for (const [manualSortOrder, folderId] of orderedFolderIds.entries()) {
       await transaction.query(
@@ -1799,7 +1799,7 @@ export async function getMailAiContext(messageId: string): Promise<MailAiContext
   return {
     id: row.id,
     subject: row.subject,
-    senderName: typeof sender.name === "string" ? sender.name : typeof sender.address === "string" ? sender.address : "未知发件人",
+    senderName: typeof sender.name === "string" ? sender.name : typeof sender.address === "string" ? sender.address : "Unbekannter Absender",
     senderAddress: typeof sender.address === "string" ? sender.address : "",
     to: jsonArray(row.to_addresses).flatMap((item) => {
       const mailbox = jsonRecord(item);

@@ -14,7 +14,7 @@ export async function POST(_request: Request, context: RouteContext) {
   const { providerId } = await context.params;
   try {
     const provider = await getAiProvider(providerId);
-    if (!provider) throw new AiProviderError("AI API 不存在", "AI_PROVIDER_NOT_FOUND", 404);
+    if (!provider) throw new AiProviderError("KI-API existiert nicht", "AI_PROVIDER_NOT_FOUND", 404);
     const models = await discoverAiModels(storedProviderConnection(provider), await loadAiProviderCredential(providerId));
     return NextResponse.json({ ok: true, models });
   } catch (error) {

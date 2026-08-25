@@ -36,7 +36,7 @@ export const ImageElement = withHOC(
         <PlateElement {...props} className="py-2.5">
           <div className="editor-media-unavailable" contentEditable={false}>
             <ImageOff size={18} />
-            <span>图片未上传，原设备的临时文件已失效。请重新粘贴图片。</span>
+            <span>Das Bild wird nicht hochgeladen und die temporäre Datei des Originalgeräts ist deaktiviert. Bitte das Bild neu malen.</span>
           </div>
           {props.children}
         </PlateElement>

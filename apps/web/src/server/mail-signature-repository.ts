@@ -119,9 +119,9 @@ export async function createMailSignature(input: MailSignatureInput): Promise<Ma
 
 export async function updateMailSignature(id: string, input: MailSignatureInput): Promise<MailSignature> {
   const existing = await getMailSignature(id);
-  if (!existing) throw new MailSignatureError("SIGNATURE_NOT_FOUND", "签名版本不存在", 404);
+  if (!existing) throw new MailSignatureError("SIGNATURE_NOT_FOUND", "Die Signatur-Version existiert nicht", 404);
   if (existing.accountId !== input.accountId) {
-    throw new MailSignatureError("INVALID_SIGNATURE", "签名版本不能移动到其他邮箱账户", 400);
+    throw new MailSignatureError("INVALID_SIGNATURE", "eine Signatur-Version kann nicht auf ein anderes Postfach-Konto verschoben werden", 400);
   }
   const normalized = await validateInput(input);
   const database = await getDatabase();
@@ -147,7 +147,7 @@ export async function updateMailSignature(id: string, input: MailSignatureInput)
 
 export async function setDefaultMailSignature(id: string): Promise<MailSignature> {
   const signature = await getMailSignature(id);
-  if (!signature) throw new MailSignatureError("SIGNATURE_NOT_FOUND", "签名版本不存在", 404);
+  if (!signature) throw new MailSignatureError("SIGNATURE_NOT_FOUND", "Die Signatur-Version existiert nicht", 404);
   const database = await getDatabase();
   await database.transaction(async (transaction) => {
     await transaction.query("UPDATE mail_signatures SET is_default = false, updated_at = now() WHERE account_id = $1", [signature.accountId]);
@@ -206,26 +206,26 @@ export async function recommendMailSignatureVariant(
 
 async function validateInput(input: MailSignatureInput): Promise<MailSignatureInput> {
   if (!await getAccount(input.accountId)) {
-    throw new MailSignatureError("ACCOUNT_NOT_FOUND", "邮箱账户不存在", 404);
+    throw new MailSignatureError("ACCOUNT_NOT_FOUND", "Mailbox-Konten existieren nicht", 404);
   }
   const name = input.name.trim();
   const fullText = input.fullText.replace(/\r\n?/g, "\n").trim();
   const shortText = input.shortText.replace(/\r\n?/g, "\n").trim();
   if (!name || name.length > 100) {
-    throw new MailSignatureError("INVALID_SIGNATURE", "签名名称应为 1 到 100 个字符", 400);
+    throw new MailSignatureError("INVALID_SIGNATURE", "Unterschrift Name sollte 1 bis 100 Zeichen sein", 400);
   }
   if (!fullText || fullText.length > 20_000) {
-    throw new MailSignatureError("INVALID_SIGNATURE", "完整签名应为 1 到 20000 个字符", 400);
+    throw new MailSignatureError("INVALID_SIGNATURE", "Die vollständige Unterschrift sollte 1 bis 20000 Zeichen betragen.", 400);
   }
   if (!shortText || shortText.length > 10_000) {
-    throw new MailSignatureError("INVALID_SIGNATURE", "简短签名应为 1 到 10000 个字符", 400);
+    throw new MailSignatureError("INVALID_SIGNATURE", "kurze Signatur sollte 1 bis 10000 Zeichen sein", 400);
   }
   return { ...input, name, fullText, shortText };
 }
 
 function normalizeDatabaseError(error: unknown): MailSignatureError {
   if (error && typeof error === "object" && "code" in error && error.code === "23505") {
-    return new MailSignatureError("SIGNATURE_NAME_CONFLICT", "此邮箱账户已经存在同名签名版本", 409);
+    return new MailSignatureError("SIGNATURE_NAME_CONFLICT", "Dieses Postfach-Konto hat bereits eine signierte Version mit dem gleichen Namen", 409);
   }
   throw error;
 }

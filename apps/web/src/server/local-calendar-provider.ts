@@ -29,7 +29,7 @@ export class LocalCalendarProvider implements CalendarProvider {
 
   async deleteEvent(_context: ProviderContext, calendarId: string, eventId: string) {
     if (!await deleteStoredCalendarEvent(calendarId, eventId)) {
-      throw new CalendarRepositoryError("EVENT_NOT_FOUND", "日程不存在", 404);
+      throw new CalendarRepositoryError("EVENT_NOT_FOUND", "Das Kalenderereignis existiert nicht", 404);
     }
   }
 }
@@ -41,7 +41,7 @@ export const localCalendarContext: ProviderContext = {
     id: "local-calendar-account",
     providerId: "local-calendar",
     emailAddress: "local-calendar@device.invalid",
-    displayName: "本地日历",
+    displayName: "Lokaler Kalender",
     enabled: true,
   },
   session: { kind: "basic", username: "local-calendar", password: "local-only" },

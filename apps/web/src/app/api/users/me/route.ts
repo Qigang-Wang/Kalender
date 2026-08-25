@@ -13,7 +13,7 @@ interface UpdateProfileBody {
 export async function PATCH(request: Request) {
   try {
     const actor = await getCurrentAppUser();
-    if (!actor) throw new AuthError("请先登录", 401);
+    if (!actor) throw new AuthError("Bitte melden Sie sich zuerst an", 401);
     const body = await request.json().catch(() => null) as UpdateProfileBody | null;
     const user = await updateOwnProfile(actor, {
       displayName: optionalString(body?.displayName),
@@ -33,6 +33,6 @@ function optionalString(value: unknown): string | undefined {
 }
 
 function userErrorResponse(error: unknown) {
-  const normalized = error instanceof AuthError ? error : new AuthError("无法更新个人账号", 500);
+  const normalized = error instanceof AuthError ? error : new AuthError("persönliches Konto kann nicht aktualisiert werden", 500);
   return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
 }

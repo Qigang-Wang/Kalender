@@ -101,7 +101,7 @@ export async function saveWorkspaceSyncSettings(
   actor: AppUser,
   input: WorkspaceSyncSettingsInput,
 ): Promise<WorkspaceSyncSettings> {
-  if (actor.role !== "admin") throw new SyncSettingsError("只有管理员可以修改工作区同步设置", 403);
+  if (actor.role !== "admin") throw new SyncSettingsError("Nur Administratoren können die Workspace-Synchronisierung ändern", 403);
   const settings = validateWorkspaceSyncSettings(input);
   const database = await getDatabase();
   const result = await database.query<SyncSettingsRow>(
@@ -146,19 +146,19 @@ export function validateWorkspaceSyncSettings(input: WorkspaceSyncSettingsInput)
     mailSyncIntervalMs: allowedInterval(
       input.mailSyncIntervalMs,
       BACKGROUND_SYNC_INTERVAL_OPTIONS_MS,
-      "邮件同步频率",
+      "Häufigkeit der Synchronisierung von Mails",
     ),
     calendarSyncEnabled: input.calendarSyncEnabled === true,
     calendarSyncIntervalMs: allowedInterval(
       input.calendarSyncIntervalMs,
       BACKGROUND_SYNC_INTERVAL_OPTIONS_MS,
-      "日历同步频率",
+      "Kalender Synchronisationshäufigkeit",
     ),
     clientRefreshEnabled: input.clientRefreshEnabled === true,
     clientRefreshIntervalMs: allowedInterval(
       input.clientRefreshIntervalMs,
       CLIENT_REFRESH_INTERVAL_OPTIONS_MS,
-      "界面刷新频率",
+      "Frequenz des Schnittstellenauffrischers",
     ),
   };
 }
@@ -186,7 +186,7 @@ function configuredInterval(
 
 function allowedInterval(value: number, options: readonly number[], label: string): number {
   if (!Number.isInteger(value) || !options.includes(value)) {
-    throw new SyncSettingsError(`${label}不受支持`);
+    throw new SyncSettingsError(`${label}nicht unterstützt`);
   }
   return value;
 }

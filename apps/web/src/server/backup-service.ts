@@ -253,9 +253,9 @@ export async function saveAutomaticBackupSettings(actor: AppUser, input: {
   readonly retentionCount: number;
   readonly encryptAutomatic: boolean;
 }): Promise<AutomaticBackupSettings> {
-  if (actor.role !== "admin") throw new BackupError("需要管理员权限", 403);
+  if (actor.role !== "admin") throw new BackupError("Administrator-Rechte erfordern", 403);
   if (input.enabled && input.encryptAutomatic && !process.env.KALENDER_BACKUP_PASSWORD) {
-    throw new BackupError("自动加密备份需要先配置 KALENDER_BACKUP_PASSWORD", 400);
+    throw new BackupError("Automatische Verschlüsselungssicherung erfordert die Konfiguration von KALENDER_BANKUP_PASSWORD", 400);
   }
   const intervalHours = clampInteger(input.intervalHours, 1, 720);
   const retentionCount = clampInteger(input.retentionCount, 1, 365);
@@ -286,7 +286,7 @@ export async function saveAutomaticBackupSettings(actor: AppUser, input: {
 export async function exportWorkspaceBackup(): Promise<WorkspaceBackupResult> {
   const artifacts = await listBackupArtifacts({ limit: 1 });
   const latest = artifacts[0];
-  if (!latest) throw new BackupError("还没有可下载的备份，请先创建备份", 404);
+  if (!latest) throw new BackupError("Es steht kein Backup zum Download zur Verfügung. Bitte erstellen Sie zuerst ein Backup", 404);
   return {
     bytes: await readFile(artifactPath(latest.filename)),
     filename: latest.filename,
@@ -318,21 +318,21 @@ export async function createBackupJob(actor: AppUser, input: {
   readonly mailPolicy?: BackupMailPolicy;
   readonly password?: string;
 }): Promise<AppJob> {
-  if (actor.role !== "admin") throw new BackupError("需要管理员权限", 403);
-  if (input.encrypted && !input.password) throw new BackupError("加密备份需要备份密码");
+  if (actor.role !== "admin") throw new BackupError("Administrator-Rechte erfordern", 403);
+  if (input.encrypted && !input.password) throw new BackupError("Verschlüsselungssicherung erfordert Backup-Passwörter");
   const mailPolicy = normalizeBackupMailPolicy(input.mailPolicy);
   if (mailPolicy !== "lightweight") {
     throw new BackupError(
       mailPolicy === "configuration-only"
-        ? "仅配置备份需要独立恢复流程，当前版本暂未开放创建"
-        : "完整邮箱归档需要先支持全量邮件正文和附件预抓取，当前版本暂未开放创建",
+        ? "nur Konfigurationssicherung erfordert eine unabhängige Prozesswiederherstellung und die aktuelle Version ist nicht für die Erstellung geöffnet"
+        : "Das vollständige Postfach-Archiv muss durch den vollständigen Mail-Körper und Anhang Vorab-Capturing unterstützt werden. Die aktuelle Version ist nicht offen für die Erstellung",
       400,
     );
   }
   const job = await enqueueJob({
     kind: "backup.create",
     actor,
-    title: input.encrypted ? "创建加密轻量工作区备份" : "创建轻量工作区备份",
+    title: input.encrypted ? "Erstellen Sie eine verschlüsselte Light Workspace-Backup" : "Erstellen eines leichten Workspace-Backups",
     payload: { encrypted: input.encrypted, mailPolicy },
     maxAttempts: 1,
     deferStart: Boolean(input.password),
@@ -346,14 +346,14 @@ export async function createRestoreJob(actor: AppUser, input: {
   readonly artifactId: string;
   readonly password?: string;
 }): Promise<AppJob> {
-  if (actor.role !== "admin") throw new BackupError("需要管理员权限", 403);
+  if (actor.role !== "admin") throw new BackupError("Administrator-Rechte erfordern", 403);
   const artifact = await getBackupArtifact(input.artifactId);
-  if (!artifact) throw new BackupError("备份不存在", 404);
-  if (artifact.encrypted && !input.password) throw new BackupError("恢复加密备份需要备份密码");
+  if (!artifact) throw new BackupError("Sicherung existiert nicht", 404);
+  if (artifact.encrypted && !input.password) throw new BackupError("Backup-Passwort erforderlich, um Verschlüsselungssicherung wiederherzustellen");
   const job = await enqueueJob({
     kind: "backup.restore",
     actor,
-    title: `恢复备份 ${artifact.filename}`,
+    title: `Sicherung wiederherstellen ${artifact.filename}`,
     payload: { artifactId: artifact.id },
     maxAttempts: 1,
     deferStart: Boolean(input.password),
@@ -380,11 +380,11 @@ export async function getBackupArtifact(id: string): Promise<BackupArtifact | un
 }
 
 export async function deleteBackupArtifact(actor: AppUser, id: string): Promise<void> {
-  if (actor.role !== "admin") throw new BackupError("需要管理员权限", 403);
+  if (actor.role !== "admin") throw new BackupError("Administrator-Rechte erfordern", 403);
   const database = await getDatabase();
   const result = await database.query<BackupArtifactRow>("SELECT * FROM backup_artifacts WHERE id = $1 LIMIT 1", [id]);
   const row = result.rows[0];
-  if (!row) throw new BackupError("备份不存在", 404);
+  if (!row) throw new BackupError("Sicherung existiert nicht", 404);
   const restoreJobs = await database.query<{ readonly id: string }>(
     `SELECT id
        FROM app_jobs
@@ -394,14 +394,14 @@ export async function deleteBackupArtifact(actor: AppUser, id: string): Promise<
       LIMIT 1`,
     [id],
   );
-  if (restoreJobs.rows[0]) throw new BackupError("该备份正在恢复，暂时不能删除", 409);
+  if (restoreJobs.rows[0]) throw new BackupError("das Backup wird wiederhergestellt und kann vorerst nicht gelöscht werden", 409);
   await rm(artifactPath(row.filename), { force: true });
   await database.query("DELETE FROM backup_artifacts WHERE id = $1", [id]);
 }
 
 export async function readBackupArtifactFile(id: string): Promise<{ readonly artifact: BackupArtifact; readonly bytes: Buffer }> {
   const artifact = await getBackupArtifact(id);
-  if (!artifact) throw new BackupError("备份不存在", 404);
+  if (!artifact) throw new BackupError("Sicherung existiert nicht", 404);
   return { artifact, bytes: await readFile(artifactPath(artifact.filename)) };
 }
 
@@ -409,7 +409,7 @@ export async function saveUploadedBackup(
   input: Uint8Array,
   options: { readonly actor?: AppUser; readonly filename: string; readonly transient?: boolean },
 ): Promise<BackupArtifact> {
-  if (input.byteLength > MAX_BACKUP_BYTES) throw new BackupError("备份文件不能超过 512 MB", 413);
+  if (input.byteLength > MAX_BACKUP_BYTES) throw new BackupError("Sicherungsdatei darf 512 MB nicht überschreiten", 413);
   await mkdir(backupDirectory(), { recursive: true, mode: 0o700 });
   const safeName = normalizeBackupFilename(options.filename);
   const filename = `upload-${Date.now()}-${safeName}`;
@@ -453,10 +453,10 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
   const automatic = job.payload.automatic === true;
   const mailPolicy = normalizeBackupMailPolicy(typeof job.payload.mailPolicy === "string" ? job.payload.mailPolicy : undefined);
   const password = consumeJobSecret(job.id) ?? (automatic ? process.env.KALENDER_BACKUP_PASSWORD : undefined);
-  if (encrypted && !password) throw new BackupError("加密备份缺少密码");
+  if (encrypted && !password) throw new BackupError("Verschlüsselungssicherung fehlt Passwort");
   const tools = await readBackupToolStatus();
-  if (!tools.pgDump) throw new BackupError("服务器缺少 pg_dump，请安装 PostgreSQL client", 501);
-  if (!tools.tar) throw new BackupError("服务器缺少 tar", 501);
+  if (!tools.pgDump) throw new BackupError("der Server fehlt pg_dump, bitte installieren PostgreSQL Client", 501);
+  if (!tools.tar) throw new BackupError("Server fehlt Teer", 501);
 
   await mkdir(backupDirectory(), { recursive: true, mode: 0o700 });
   const workDir = await mkdtemp(path.join(tmpdir(), "qgw-backup-"));
@@ -471,11 +471,11 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
   const portableCredentialsPath = path.join(workDir, PORTABLE_CREDENTIALS_FILENAME);
   const sumsPath = path.join(workDir, "SHA256SUMS");
   try {
-    await appendJobLog(job.id, "正在导出 PostgreSQL 数据库");
+    await appendJobLog(job.id, "Exportieren von PostgreSQL-Datenbanken");
     await runCommand("pg_dump", buildDatabaseDumpArgs(mailPolicy, databaseDump, databaseUrl()));
     await updateJobProgress(job.id, 35);
 
-    await appendJobLog(job.id, "正在打包草稿附件");
+    await appendJobLog(job.id, "Anbringung von Verpackungs-Entwürfen");
     const attachmentRoot = path.join(root, "mail-draft-attachments");
     if (await pathExists(attachmentRoot)) {
       await runCommand("tar", ["-C", root, "-czf", attachments, "mail-draft-attachments"]);
@@ -486,7 +486,7 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
 
     let portableCredentialCount = 0;
     if (encrypted) {
-      await appendJobLog(job.id, "正在生成可迁移连接凭据");
+      await appendJobLog(job.id, "Erzeugung von migrationsfähigen Verbindungen");
       const portableCredentials = await exportPortableCredentialBundle(database);
       portableCredentialCount = portableCredentials.entries.length;
       await writeFile(portableCredentialsPath, JSON.stringify(portableCredentials), { mode: 0o600 });
@@ -555,7 +555,7 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
       );
       await pruneAutomaticBackups(database);
     }
-    await appendJobLog(job.id, `备份已创建：${finalName}`);
+    await appendJobLog(job.id, `Backup erstellt:${finalName}`);
     return { artifactId, filename: finalName, sizeBytes: finalStat.size, checksumSha256, encrypted };
   } finally {
     await rm(workDir, { recursive: true, force: true });
@@ -584,7 +584,7 @@ export async function scheduleDueAutomaticBackup(): Promise<AppJob | undefined> 
           AND enabled = true
           AND (next_run_at IS NULL OR next_run_at <= now())`,
     );
-    if (deferred.affectedRows) await appendSyntheticMaintenanceJob("自动加密备份需要配置 KALENDER_BACKUP_PASSWORD；未加密自动备份不需要密码");
+    if (deferred.affectedRows) await appendSyntheticMaintenanceJob("Auto-verschlüsselte Sicherung erfordert die Konfiguration von KALENDER_BANKUP_PASSWorld; unverschlüsselte automatische Sicherung erfordert kein Passwort");
     return undefined;
   }
   const result = await database.query<AutomaticBackupSettingsRow>(
@@ -602,12 +602,12 @@ export async function scheduleDueAutomaticBackup(): Promise<AppJob | undefined> 
   if (!row) return undefined;
   const encrypted = Boolean(row.encrypt_automatic);
   if (encrypted && !process.env.KALENDER_BACKUP_PASSWORD) {
-    await appendSyntheticMaintenanceJob("自动加密备份需要配置 KALENDER_BACKUP_PASSWORD；未加密自动备份不需要密码");
+    await appendSyntheticMaintenanceJob("Auto-verschlüsselte Sicherung erfordert die Konfiguration von KALENDER_BANKUP_PASSWorld; unverschlüsselte automatische Sicherung erfordert kein Passwort");
     return undefined;
   }
   const job = await enqueueJob({
     kind: "backup.create",
-    title: encrypted ? "自动创建加密工作区备份" : "自动创建工作区备份",
+    title: encrypted ? "automatische Erstellung eines verschlüsselten Workspace-Backups" : "automatisches Workspace-Backup erstellen",
     payload: { encrypted, automatic: true },
     idempotencyKey: `backup.auto:${new Date().toISOString().slice(0, 13)}`,
     maxAttempts: 2,
@@ -621,24 +621,24 @@ export async function runBackupRestoreJob(job: AppJob): Promise<Readonly<Record<
   const artifactId = typeof job.payload.artifactId === "string" ? job.payload.artifactId : "";
   const password = consumeJobSecret(job.id);
   const artifact = await getBackupArtifact(artifactId);
-  if (!artifact) throw new BackupError("备份不存在", 404);
-  if (artifact.encrypted && !password) throw new BackupError("恢复加密备份需要备份密码");
+  if (!artifact) throw new BackupError("Sicherung existiert nicht", 404);
+  if (artifact.encrypted && !password) throw new BackupError("Backup-Passwort erforderlich, um Verschlüsselungssicherung wiederherzustellen");
   const tools = await readBackupToolStatus();
-  if (!tools.pgRestore) throw new BackupError("服务器缺少 pg_restore，请安装 PostgreSQL client", 501);
-  if (!tools.tar) throw new BackupError("服务器缺少 tar", 501);
+  if (!tools.pgRestore) throw new BackupError("der Server fehlt pg_restore, bitte installieren PostgreSQL Client", 501);
+  if (!tools.tar) throw new BackupError("Server fehlt Teer", 501);
 
-  await appendJobLog(job.id, "正在创建恢复前安全备份");
+  await appendJobLog(job.id, "Erstellen einer sicheren Sicherung vor der Wiederherstellung");
   const safety = await runBackupCreateJob({
     ...job,
     id: `${job.id}-safety`,
-    title: "恢复前安全备份",
+    title: "Sichere Sicherung vor der Wiederherstellung",
     payload: { encrypted: false, mailPolicy: "full-archive" },
     kind: "backup.create",
   });
   await updateJobProgress(job.id, 20);
   const workDir = await mkdtemp(path.join(tmpdir(), "qgw-restore-"));
   try {
-    await appendJobLog(job.id, "正在停止邮件和日历同步");
+    await appendJobLog(job.id, "Stoppen Sie die Synchronisierung von Mail und Kalender");
     await Promise.all([stopMailSyncScheduler(), stopCalendarSyncScheduler()]);
     const packagePath = artifactPath(artifact.filename);
     const plainPackage = artifact.encrypted ? path.join(workDir, "decrypted.backup") : packagePath;
@@ -647,28 +647,28 @@ export async function runBackupRestoreJob(job: AppJob): Promise<Readonly<Record<
     await verifyExtractedBackup(workDir);
     await updateJobProgress(job.id, 45);
 
-    await appendJobLog(job.id, "正在关闭数据库连接并恢复 PostgreSQL");
+    await appendJobLog(job.id, "Schließen von Datenbankverbindungen und Wiederherstellung von PostgreSQL");
     await closeDatabaseForRestore();
     await runCommand("pg_restore", ["--clean", "--if-exists", "--no-owner", "--no-acl", `--dbname=${databaseUrl()}`, path.join(workDir, "database.dump")]);
     await updateJobProgress(job.id, 80);
 
-    await appendJobLog(job.id, "正在恢复草稿附件");
+    await appendJobLog(job.id, "Wiederherstellung des Entwurfs von Anhängen");
     await runCommand("tar", ["-C", dataRoot(), "-xzf", path.join(workDir, "mail-draft-attachments.tgz")]);
     const database = await getDatabase();
     const portableCredentialsFile = path.join(workDir, PORTABLE_CREDENTIALS_FILENAME);
     if (await pathExists(portableCredentialsFile)) {
-      if (!artifact.encrypted) throw new BackupError("可迁移凭据只允许存在于加密备份中", 400);
-      await appendJobLog(job.id, "正在使用当前服务器主密钥重新加密连接凭据");
+      if (!artifact.encrypted) throw new BackupError("Migrationsdokumente sind nur im Verschlüsselungs-Backup erlaubt", 400);
+      await appendJobLog(job.id, "Verschlüsselung von Verbindungsdateien mit dem aktuellen Server-Hauptschlüssel");
       const portableCredentials = parsePortableCredentialBundle(
         JSON.parse(await readFile(portableCredentialsFile, "utf8")) as unknown,
       );
       const restoredCredentialCount = await restorePortableCredentialBundle(database, portableCredentials);
-      await appendJobLog(job.id, `已迁移 ${restoredCredentialCount} 项连接凭据`);
+      await appendJobLog(job.id, `migriert ${restoredCredentialCount} Unterstützung für die Verbindung`);
     } else {
-      await appendJobLog(job.id, "该备份不含可迁移凭据；账户连接可能仍需要原主密钥或重新输入密码");
+      await appendJobLog(job.id, "das Backup enthält keine abnehmbaren Dokumente; die Kontoverbindung kann noch den ursprünglichen Primärschlüssel oder das Passwort für den Wiedereintritt erfordern");
     }
     await database.query("UPDATE backup_artifacts SET restored_at = now() WHERE id = $1", [artifact.id]).catch(() => undefined);
-    await appendJobLog(job.id, "恢复完成");
+    await appendJobLog(job.id, "Abschluss wieder aufnehmen");
     return { artifactId: artifact.id, safetyBackup: safety.filename, restoredAt: new Date().toISOString() };
   } finally {
     await rm(workDir, { recursive: true, force: true });
@@ -699,7 +699,7 @@ export async function restorePortableCredentialBundle(
   let restored = 0;
   for (const entry of bundle.entries) {
     const store = PORTABLE_CREDENTIAL_STORES.find((candidate) => candidate.id === entry.store);
-    if (!store) throw new BackupError("可迁移凭据包含未知存储类型", 400);
+    if (!store) throw new BackupError("Abnehmbare Dokumente enthalten unbekannte Speichertypen", 400);
     const encryptedPayload = await encryptCredential(entry.key, entry.value);
     const result = await database.query(
       `UPDATE ${store.table}
@@ -707,22 +707,22 @@ export async function restorePortableCredentialBundle(
         WHERE ${store.keyColumn} = $1`,
       [entry.key, encryptedPayload],
     );
-    if (result.affectedRows !== 1) throw new BackupError(`无法恢复连接凭据：${entry.store}/${entry.key}`, 400);
+    if (result.affectedRows !== 1) throw new BackupError(`Temporärer Ordner kann nicht geschlossen werden: %s${entry.store}/${entry.key}`, 400);
     restored += 1;
   }
   return restored;
 }
 
 export function parsePortableCredentialBundle(value: unknown): PortableCredentialBundle {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new BackupError("可迁移凭据格式无效", 400);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new BackupError("kann in ungültiges Zertifikatsformat migriert werden", 400);
   const input = value as { readonly version?: unknown; readonly entries?: unknown };
-  if (input.version !== 1 || !Array.isArray(input.entries)) throw new BackupError("可迁移凭据版本无效", 400);
+  if (input.version !== 1 || !Array.isArray(input.entries)) throw new BackupError("Migration Dokument Version ungültig", 400);
   const validStores = new Set<string>(PORTABLE_CREDENTIAL_STORES.map((store) => store.id));
   const entries = input.entries.map((entry): PortableCredentialEntry => {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new BackupError("可迁移凭据条目无效", 400);
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new BackupError("Deaktivieren von gültigen Zertifikatseinträgen", 400);
     const candidate = entry as { readonly store?: unknown; readonly key?: unknown; readonly value?: unknown };
-    if (typeof candidate.store !== "string" || !validStores.has(candidate.store)) throw new BackupError("可迁移凭据存储类型无效", 400);
-    if (typeof candidate.key !== "string" || !candidate.key.trim()) throw new BackupError("可迁移凭据标识无效", 400);
+    if (typeof candidate.store !== "string" || !validStores.has(candidate.store)) throw new BackupError("Ungültiger Repository-Typ Abnehmbar", 400);
+    if (typeof candidate.key !== "string" || !candidate.key.trim()) throw new BackupError("Ermöglichte Migration von ungültigen Zertifikat-Identifikatoren", 400);
     return { store: candidate.store as PortableCredentialStoreId, key: candidate.key, value: candidate.value };
   });
   return { version: 1, entries };
@@ -853,84 +853,84 @@ function buildBackupStrategy(root: string, tools: BackupToolStatus, mailCache: B
   const lightweightCoverage: readonly BackupCoverageItem[] = [
     {
       id: "database",
-      label: "PostgreSQL 数据库",
-      description: "包含用户、邮箱/日历连接、邮件索引、项目、笔记、任务、AI 配置、审计记录和同步状态。",
+      label: "PostgreSQL-Datenbank",
+      description: "enthält Benutzer, Mailbox/Kalenderverbindungen, E-Mail-Indizes, Projekte, Notizen, Aufgaben, KI-Konfiguration, Audit-Datensätze und Synchronisierung.",
       included: true,
     },
     {
       id: "draft-attachments",
-      label: "邮件草稿附件",
-      description: "包含本地保存的草稿附件文件；这些字节不在 PostgreSQL 里。",
+      label: "Entwurfs-Mail-Anhänger",
+      description: "enthält lokal gespeicherte Draft-Anhängedateien; diese Bytes befinden sich nicht in PostgreSQL.",
       included: true,
     },
     {
       id: "mail-bodies",
-      label: "邮件正文缓存",
-      description: `${mailCache.cachedBodies}/${mailCache.totalMessages} 封、${formatBytes(mailCache.cachedBodyBytes)} 的正文缓存不进入轻量备份；恢复后查看邮件时按需重新下载。`,
+      label: "E-Mail-Körper-Cache",
+      description: `${mailCache.cachedBodies}/${mailCache.totalMessages} Versiegelung,${formatBytes(mailCache.cachedBodyBytes)} Der Body-Cache gibt kein Licht-Backup ein; Re-Downloads nach Bedarf beim Überprüfen von E-Mails, wenn wiederhergestellt.`,
       included: false,
     },
     {
       id: "mail-archive",
-      label: "完整邮箱归档",
-      description: "不主动下载远端邮箱的全部正文和附件；恢复后通过 IMAP/Exchange 继续同步。",
+      label: "vollständiges Postfach-Archiv",
+      description: "laden Sie nicht aktiv alle Texte und Anhänge in das Remote-Postfach herunter; synchronisieren Sie weiter über IMAP/Exchange nach der Wiederherstellung.",
       included: false,
     },
     {
       id: "master-key",
-      label: "可迁移连接凭据",
-      description: "加密备份会使用备份密码保护邮箱、日历和 AI 凭据；恢复时不需要原服务器主密钥。",
+      label: "Unterstützung der Migration",
+      description: "Verschlüsselungs-Backup verwendet Backup-Passwörter zum Schutz von Postfächern, Kalendern und AI-Dokumenten; der ursprüngliche Server-Hauptschlüssel ist für die Wiederherstellung nicht erforderlich.",
       included: true,
     },
   ];
   const configurationCoverage: readonly BackupCoverageItem[] = [
     {
       id: "configuration",
-      label: "账户与系统配置",
-      description: "计划用于账户连接、AI Provider、用户偏好和自动化策略等配置迁移。",
+      label: "Konto- und Systemkonfiguration",
+      description: "Die Konfigurationsmigration ist für Kontoverbindungen, KI-Anbieter, Benutzerpräferenzen und Automatisierungsstrategien geplant.",
       included: true,
     },
     {
       id: "workspace-data",
-      label: "业务数据",
-      description: "不包含邮件、日程、任务、项目和笔记正文，避免覆盖日常工作数据。",
+      label: "Unternehmensdaten",
+      description: "enthält keine E-Mail, Kalenderereignisse, Aufgaben, Projekte und Notizen und vermeidet die Erfassung routinemäßiger Aufgabendaten.",
       included: false,
     },
     {
       id: "local-files",
-      label: "本地附件文件",
-      description: "不包含草稿附件或邮件附件文件。",
+      label: "lokale Anhängedatei",
+      description: "enthält keine Entwürfe von Anhängen oder Mail-Anhangdateien.",
       included: false,
     },
     {
       id: "master-key",
-      label: "可迁移连接凭据",
-      description: "仅加密备份可以安全迁移连接凭据。",
+      label: "Unterstützung der Migration",
+      description: "Verschlüsselungssicherung ermöglicht nur die sichere Migration von Verbindungsdokumenten.",
       included: false,
     },
   ];
   const fullArchiveCoverage: readonly BackupCoverageItem[] = [
     {
       id: "database",
-      label: "PostgreSQL 数据库",
-      description: "包含工作区数据、同步索引和已经缓存到数据库的邮件正文。",
+      label: "PostgreSQL-Datenbank",
+      description: "enthält Workspace-Daten, synchronisierte Indizes und Mail-Text, der in die Datenbank gecached wurde.",
       included: true,
     },
     {
       id: "draft-attachments",
-      label: "邮件草稿附件",
-      description: "包含本地保存的草稿附件文件。",
+      label: "Entwurfs-Mail-Anhänger",
+      description: "enthält lokal gespeicherte Draft-Anhängedateien.",
       included: true,
     },
     {
       id: "mail-bodies",
-      label: "全部邮件正文缓存",
-      description: `${mailCache.cachedBodies}/${mailCache.totalMessages} 封邮件已有本地正文缓存；完整归档需要先补齐缺失正文。`,
+      label: "Alle E-Mail Body Caches",
+      description: `${mailCache.cachedBodies}/${mailCache.totalMessages}Eine E-Mail hat einen lokalen Text-Cache; ein komplettes Archiv muss mit dem fehlenden Text abgeschlossen werden.`,
       included: mailCache.totalMessages > 0 && mailCache.cachedBodies === mailCache.totalMessages,
     },
     {
       id: "remote-attachments",
-      label: "远端邮件附件",
-      description: "当前附件仍按需从邮件服务器读取，还没有全量预抓取和本地归档流程。",
+      label: "Remote-Mail-Anhänger",
+      description: "Der aktuelle Anhang wird vom Mailserver nach Bedarf immer noch gelesen, und es gibt keinen vollständigen Vor-Retrieval- und lokalen Archivierungsprozess.",
       included: false,
     },
   ];
@@ -944,85 +944,85 @@ function buildBackupStrategy(root: string, tools: BackupToolStatus, mailCache: B
     options: [
       {
         policy: "lightweight",
-        label: "轻量工作区快照",
-        description: "当前推荐。备份工作区数据、邮件索引和草稿附件，不备份可从邮件服务器重新获取的正文缓存。",
+        label: "leichter Arbeitsraum-Snapshot",
+        description: "UI-Text: Derzeit empfohlen. Backup Workspace-Daten, Mail-Indizes und Entwurf von Anhängen, ohne Backup von Text-Caches, die vom Mail-Server abgerufen werden können.",
         recommended: true,
         available: true,
         coverage: lightweightCoverage,
       },
       {
         policy: "configuration-only",
-        label: "仅配置迁移",
-        description: "用于迁移账户连接、AI 设置和用户偏好，不携带日常工作数据。",
+        label: "Nur Migration konfigurieren",
+        description: "verwendet, um Kontoverbindungen, AI-Einstellungen und Benutzereinstellungen zu migrieren und keine Routinearbeitsdaten mitzuführen.",
         recommended: false,
         available: false,
-        disabledReason: "需要专门的部分恢复流程，避免覆盖现有任务、笔记和日程。",
+        disabledReason: "Spezialisierte Teile sind erforderlich, um den Prozess wiederherzustellen und zu vermeiden, bestehende Aufgaben, Notizen und Kalenderereignisse abzudecken.",
         coverage: configurationCoverage,
       },
       {
         policy: "full-archive",
-        label: "完整本地邮件归档",
-        description: "目标是把所有已同步邮件正文和附件都纳入备份，适合离线长期保存。",
+        label: "lokales Mail-Archiv komplettieren",
+        description: "Ziel ist es, alle synchronisierten Mail-Texte und Anhänge in das Backup zu integrieren und ist für die langfristige Offline-Konservierung geeignet.",
         recommended: false,
         available: false,
         disabledReason: mailCache.totalMessages === 0
-          ? "当前没有已同步邮件；开启邮箱同步后才能评估完整归档。"
-          : "还缺少全量邮件正文和远端附件预抓取流程，当前不能保证完整归档。",
+          ? "Derzeit ist keine synchronisierte E-Mail verfügbar; das vollständige Archiv kann erst nach dem Öffnen der Mailbox ausgewertet werden."
+          : "Es fehlt auch an Vollmailtext und Remote-Anhänger-Vorab-Capturing-Prozess, und das komplette Archiv kann zu diesem Zeitpunkt nicht garantiert werden.",
         coverage: fullArchiveCoverage,
       },
     ],
     backupCommands: [
       {
         id: "prepare",
-        title: "准备备份目录",
-        description: "每次备份使用独立时间戳目录，方便保留和回滚。",
+        title: "Erstellung des Backup-Verzeichnisses",
+        description: "Für jedes Backup wird ein eigenständiges Zeitstempelverzeichnis verwendet, um die Aufbewahrung und den Rollback zu erleichtern.",
         command: `BACKUP_ROOT=${quotedBackupBase}\nBACKUP_DIR="$BACKUP_ROOT/kalender-$(date +%Y%m%d-%H%M%S)"\nmkdir -p "$BACKUP_DIR"`,
       },
       {
         id: "database",
-        title: "导出 PostgreSQL",
-        description: "使用 PostgreSQL custom format，并跳过可重新下载的邮件正文缓存。",
+        title: "PostgreSQL exportieren",
+        description: "verwendet das PostgreSQLcustom-Format und überspringt den Haupt-Mail-Cache, der erneut heruntergeladen werden kann.",
         command: `pg_dump --format=custom --no-owner --no-acl --exclude-table-data=mail_message_bodies --file="$BACKUP_DIR/database.dump" "$DATABASE_URL"`,
       },
       {
         id: "attachments",
-        title: "打包草稿附件",
-        description: "附件目录不存在时也会生成一个空占位，恢复脚本可以保持统一。",
+        title: "Anhang-Paketentwurf",
+        description: "Das Anhängeverzeichnis erzeugt auch einen leeren Ort, wenn es nicht existiert und stellt das Skript wieder her, um die Einheitlichkeit zu erhalten.",
         command: `[ -d ${quotedAttachmentDirectory} ] && tar -C ${quotedRoot} -czf "$BACKUP_DIR/mail-draft-attachments.tgz" mail-draft-attachments || tar -czf "$BACKUP_DIR/mail-draft-attachments.tgz" --files-from /dev/null`,
       },
       {
         id: "manifest",
-        title: "写入备份说明",
-        description: "记录创建时间和密钥要求；真正的密钥请放在密码管理器里。",
+        title: "Anweisungen zur Erstellung von Backup-Anweisungen",
+        description: "die Zeit der Erstellung des Datensatzes und der Schlüsselanforderungen; der wahre Schlüssel wird im Passwort-Manager platziert.",
         command: `printf 'created_at=%s\\nrequires_KALENDER_MASTER_KEY=true\\nmail_policy=lightweight\\n' "$(date -Iseconds)" > "$BACKUP_DIR/manifest.txt"\nsha256sum "$BACKUP_DIR/database.dump" "$BACKUP_DIR/mail-draft-attachments.tgz" > "$BACKUP_DIR/SHA256SUMS"`,
       },
     ],
     restoreCommands: [
       {
         id: "verify",
-        title: "校验备份文件",
-        description: "恢复前先确认文件没有损坏。",
+        title: "Sicherungsdateien validieren",
+        description: "Bestätigung, dass das Dokument vor der Restaurierung intakt ist.",
         command: `cd "$BACKUP_DIR"\nsha256sum -c SHA256SUMS`,
       },
       {
         id: "database",
-        title: "恢复 PostgreSQL",
-        description: "会清理目标库中已存在对象；先确认目标 DATABASE_URL 指向正确数据库。",
+        title: "PostgreSQL wiederherstellen",
+        description: "Das Objekt, das bereits in der Zielbibliothek existiert, wird gelöscht; das Ziel DATABASE_URL wird zuerst identifiziert und zeigt auf die richtige Datenbank.",
         command: `pg_restore --clean --if-exists --no-owner --no-acl --dbname="$DATABASE_URL" "$BACKUP_DIR/database.dump"`,
       },
       {
         id: "attachments",
-        title: "恢复草稿附件",
-        description: "把附件解回 KALENDER_DATA_DIR；恢复前建议先备份现有目录。",
+        title: "Entwurf von Anhängen wiederherzustellen",
+        description: "Entfernen von Anhängen aus KARENDER_DATA_DIR; es wird empfohlen, vorhandene Verzeichnisse vor der Wiederherstellung zu sichern.",
         command: `mkdir -p ${quotedRoot}\ntar -C ${quotedRoot} -xzf "$BACKUP_DIR/mail-draft-attachments.tgz"`,
       },
     ],
     warnings: [
-      "不要把完整 DATABASE_URL 或数据库密码写进备份包。",
-      "加密备份可使用备份密码迁移邮箱、日历和 AI 凭据，不需要原服务器的 KALENDER_MASTER_KEY。",
-      "未加密备份不包含可迁移凭据；跨服务器恢复后需要原主密钥或重新配置连接。",
-      "默认邮件策略不会主动抓取远端邮箱的所有历史附件，恢复后需要重新同步邮箱。",
-      "恢复前应停止应用写入和邮件同步，避免恢复过程中产生新数据。",
+      "Schreiben Sie das vollständige DATABASE_URL- oder Datenbankpasswort nicht in das Back-up-Paket.",
+      "Die Verschlüsselungssicherung ermöglicht die Migration von Postfächern, Kalendern und AI-Dokumenten mit Back-up-Passwörtern, ohne dass dies vom ursprünglichen Server aus für KARENDER_MASTER_KEY erforderlich ist.",
+      "Das unverschlüsselte Backup enthält keine abnehmbaren Dokumente; die Sicherung des Servers erfordert den ursprünglichen Primärschlüssel oder stellt die Verbindung neu ein.",
+      "Die Standard-Mail-Richtlinie erfasst nicht proaktiv alle historischen Anhänge zum Remote-Postfach und erfordert eine Neusynchronisierung des Postfachs nach der Wiederherstellung.",
+      "Application Schreiben und E-Mail-Synchronisation sollte vor der Wiederherstellung eingestellt werden, um zu vermeiden, neue Daten während der Wiederherstellung zu generieren.",
     ],
   };
 }
@@ -1134,7 +1134,7 @@ async function appendSyntheticMaintenanceJob(message: string): Promise<void> {
      ) VALUES ($1, 'backup.create', 'failed', $2, 100, $3::jsonb, $4, $5::jsonb, 1, 1, now())`,
     [
       randomUUID(),
-      "自动备份未执行",
+      "automatische Sicherung nicht implementiert",
       JSON.stringify({ automatic: true, encrypted: true }),
       message,
       JSON.stringify([message]),
@@ -1228,7 +1228,7 @@ async function migrateLegacyBackupFilenames(database: DatabaseExecutor): Promise
 
 function databaseUrl(): string {
   const url = process.env.DATABASE_URL?.trim();
-  if (!url) throw new BackupError("缺少 DATABASE_URL", 500);
+  if (!url) throw new BackupError("Fehlende DADABASE_URL", 500);
   return url;
 }
 
@@ -1241,7 +1241,7 @@ async function runCommand(command: string, args: readonly string[]): Promise<voi
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) resolve();
-      else reject(new BackupError(`${command} 执行失败：${Buffer.concat(errors).toString("utf8").slice(0, 600)}`, 500));
+      else reject(new BackupError(`${command} Ausführung fehlgeschlagen:${Buffer.concat(errors).toString("utf8").slice(0, 600)}`, 500));
     });
   });
 }
@@ -1274,15 +1274,15 @@ async function inspectBackupFile(filePath: string, password: string | undefined)
 
 async function verifyExtractedBackup(directory: string): Promise<void> {
   for (const file of ["database.dump", "mail-draft-attachments.tgz", "manifest.json", "SHA256SUMS"]) {
-    if (!await pathExists(path.join(directory, file))) throw new BackupError(`备份缺少 ${file}`, 400);
+    if (!await pathExists(path.join(directory, file))) throw new BackupError(`Sicherung fehlt ${file}`, 400);
   }
   const sums = (await readFile(path.join(directory, "SHA256SUMS"), "utf8")).trim().split(/\n+/);
   for (const line of sums) {
     const match = line.match(/^([a-f0-9]{64})\s+(.+)$/i);
-    if (!match) throw new BackupError("备份校验文件格式无效", 400);
+    if (!match) throw new BackupError("Sicherungs-Check-Dateiformat ist ungültig", 400);
     const [, expected, file] = match;
     const actual = await sha256File(path.join(directory, file));
-    if (actual !== expected) throw new BackupError(`备份校验失败：${file}`, 400);
+    if (actual !== expected) throw new BackupError(`Sicherungsüberprüfung fehlgeschlagen:${file}`, 400);
   }
 }
 
@@ -1310,16 +1310,16 @@ async function decryptFile(input: string, output: string, password: string): Pro
   const bytes = await readFile(input);
   const firstBreak = bytes.indexOf(10);
   if (firstBreak < 0 || bytes.subarray(0, firstBreak).toString("utf8") !== "QGWBACKUP-ENC-v1") {
-    throw new BackupError("加密备份格式无效", 400);
+    throw new BackupError("Ungültiges Verschlüsselungs-Backup-Format", 400);
   }
   const secondBreak = bytes.indexOf(10, firstBreak + 1);
-  if (secondBreak < 0) throw new BackupError("加密备份头无效", 400);
+  if (secondBreak < 0) throw new BackupError("Ungültige Verschlüsselungs-Backup-Header", 400);
   const header = JSON.parse(bytes.subarray(firstBreak + 1, secondBreak).toString("utf8")) as {
     readonly salt?: string;
     readonly iv?: string;
     readonly tag?: string;
   };
-  if (!header.salt || !header.iv || !header.tag) throw new BackupError("加密备份头缺少字段", 400);
+  if (!header.salt || !header.iv || !header.tag) throw new BackupError("Verschlüsselungs-Backup-Header fehlt Feld", 400);
   const key = await scrypt(password, Buffer.from(header.salt, "base64url"), 32) as Buffer;
   const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(header.iv, "base64url"));
   decipher.setAuthTag(Buffer.from(header.tag, "base64url"));

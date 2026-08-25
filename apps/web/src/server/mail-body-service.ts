@@ -50,7 +50,7 @@ export interface DownloadedMailAttachment {
 }
 
 export class MailBodyNotFoundError extends Error {
-  constructor(message = "邮件不存在或已被移动") {
+  constructor(message = "E-Mail existiert nicht oder wurde verschoben") {
     super(message);
     this.name = "MailBodyNotFoundError";
   }
@@ -91,17 +91,17 @@ export async function getMailBody(
 }
 
 export async function getMailAttachment(messageId: string, attachmentIndex: number): Promise<DownloadedMailAttachment> {
-  if (!Number.isInteger(attachmentIndex) || attachmentIndex < 0 || attachmentIndex > 99) throw new MailBodyNotFoundError("附件不存在");
+  if (!Number.isInteger(attachmentIndex) || attachmentIndex < 0 || attachmentIndex > 99) throw new MailBodyNotFoundError("Anhang existiert nicht");
   const stored = await getStoredMessageBody(messageId);
   if (!stored) throw new MailBodyNotFoundError();
   const account = await getAccount(stored.accountId);
   if (account?.providerId === "exchange-ews") {
     const remote = await getStoredMessageRemote(messageId);
     const metadata = remote?.attachments[attachmentIndex];
-    if (!metadata?.id) throw new MailBodyNotFoundError("附件不存在");
+    if (!metadata?.id) throw new MailBodyNotFoundError("Anhang existiert nicht");
     const credential = await loadExchangeMailCredential(stored.accountId);
     const attachment = await getExchangeAttachment(credential, metadata.id, AbortSignal.timeout(30_000));
-    if (attachment.content.byteLength > MAX_MESSAGE_BYTES) throw new Error("附件超过 25 MB 安全上限");
+    if (attachment.content.byteLength > MAX_MESSAGE_BYTES) throw new Error("Anlagen über 25 MB Sicherheitsobergrenzen");
     return {
       filename: safeAttachmentFilename(attachment.filename || metadata.filename || `attachment-${attachmentIndex + 1}`),
       contentType: attachment.contentType || metadata.contentType || "application/octet-stream",
@@ -111,10 +111,10 @@ export async function getMailAttachment(messageId: string, attachmentIndex: numb
   }
   const parsed = await fetchParsedMessage(stored);
   const attachment = parsed.attachments[attachmentIndex];
-  if (!attachment) throw new MailBodyNotFoundError("附件不存在");
+  if (!attachment) throw new MailBodyNotFoundError("Anhang existiert nicht");
   const content = attachmentBytes(attachment);
-  if (!content) throw new MailBodyNotFoundError("附件内容不可用");
-  if (content.byteLength > MAX_MESSAGE_BYTES) throw new Error("附件超过 25 MB 安全上限");
+  if (!content) throw new MailBodyNotFoundError("Anhänge sind nicht verfügbar");
+  if (content.byteLength > MAX_MESSAGE_BYTES) throw new Error("Anlagen über 25 MB Sicherheitsobergrenzen");
   return {
     filename: safeAttachmentFilename(attachment.filename ?? `attachment-${attachmentIndex + 1}`),
     contentType: attachment.mimeType || "application/octet-stream",
@@ -234,9 +234,9 @@ async function fetchAndCacheBody(stored: StoredMessageBody): Promise<MailBodyRes
   const parsed = await fetchParsedMessage(stored);
   const text = cleanText(parsed.text);
   const html = parsed.html ? sanitizeEmailHtml(resolveCidImages(parsed.html, parsed.attachments)) : undefined;
-  const snippet = createSnippet(text || htmlToText(html) || "（邮件正文为空）");
+  const snippet = createSnippet(text || htmlToText(html) || "(E-Mail-Stelle leer)");
   const saved = await saveMessageBody(stored.id, text || undefined, html || undefined, snippet);
-  if (!saved?.loadedAt) throw new Error("无法缓存邮件正文");
+  if (!saved?.loadedAt) throw new Error("E-Mail-Körper kann nicht zwischengespeichert werden");
   return toResult(saved, false);
 }
 
@@ -280,15 +280,15 @@ async function fetchAndCacheExchangeBody(stored: StoredMessageBody): Promise<Mai
     }
   }
   const html = resolvedHtml ? sanitizeEmailHtml(resolvedHtml) : undefined;
-  const snippet = createSnippet(text || htmlToText(html) || "（邮件正文为空）");
+  const snippet = createSnippet(text || htmlToText(html) || "(E-Mail-Stelle leer)");
   const saved = await saveMessageBody(stored.id, text || undefined, html || undefined, snippet);
-  if (!saved?.loadedAt) throw new Error("无法缓存 Exchange 邮件正文");
+  if (!saved?.loadedAt) throw new Error("Exchange Mail Body kann nicht angelegt werden");
   return toResult(saved, false);
 }
 
 async function fetchParsedMessage(stored: StoredMessageBody) {
   const account = await getAccount(stored.accountId);
-  if (!account || account.syncStatus === "paused") throw new MailBodyNotFoundError("邮箱账户不可用");
+  if (!account || account.syncStatus === "paused") throw new MailBodyNotFoundError("Mailbox-Konten sind nicht verfügbar");
   const credential = await loadImapSmtpCredential(stored.accountId);
   const client = new ImapFlow({
     host: credential.imap.host,
@@ -314,7 +314,7 @@ async function fetchParsedMessage(stored: StoredMessageBody) {
       { uid: true },
     );
     if (!message || !message.source) throw new MailBodyNotFoundError();
-    if (message.source.length > MAX_MESSAGE_BYTES) throw new Error("邮件正文超过 25 MB 安全上限");
+    if (message.source.length > MAX_MESSAGE_BYTES) throw new Error("E-Mail-Text übersteigt 25 MB Sicherheitsgrenzen");
 
     return await PostalMime.parse(message.source, {
       maxHeadersSize: 256 * 1024,

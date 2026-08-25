@@ -35,7 +35,7 @@ export async function PUT(request: Request) {
   try {
     const actor = await requireActor();
     const body = await request.json().catch(() => null) as Partial<WorkspaceSyncSettingsInput> | null;
-    if (!body) throw new SyncSettingsError("同步设置格式无效");
+    if (!body) throw new SyncSettingsError("HotSync-Einstellungen sind nicht gültig");
     const settings = await saveWorkspaceSyncSettings(actor, {
       mailSyncEnabled: body.mailSyncEnabled === true,
       mailSyncIntervalMs: Number(body.mailSyncIntervalMs),
@@ -61,13 +61,13 @@ export async function PUT(request: Request) {
 
 async function requireActor() {
   const actor = await getCurrentAppUser();
-  if (!actor) throw new AuthError("请先登录", 401);
+  if (!actor) throw new AuthError("Bitte melden Sie sich zuerst an", 401);
   return actor;
 }
 
 function syncSettingsErrorResponse(error: unknown) {
   const normalized = error instanceof AuthError || error instanceof SyncSettingsError
     ? error
-    : new SyncSettingsError("无法保存同步设置", 500);
+    : new SyncSettingsError("Sync-Einstellungen können nicht gespeichert werden", 500);
   return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
 }

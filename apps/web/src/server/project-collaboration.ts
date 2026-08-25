@@ -118,11 +118,11 @@ export async function ensureProjectAccess(
     [projectId, actor.id],
   );
   const row = result.rows[0];
-  if (!row) throw new AuthError("项目不存在", 404);
+  if (!row) throw new AuthError("Projekt existiert nicht", 404);
   if (row.owner) return;
   if (row.access_level === "editor") return;
   if (minimum === "viewer" && row.access_level === "viewer") return;
-  throw new AuthError("没有该项目的访问权限", 403);
+  throw new AuthError("kein Zugang zum Projekt", 403);
 }
 
 export async function ensureProjectOwner(projectId: string, actorInput?: AppUser): Promise<void> {
@@ -133,8 +133,8 @@ export async function ensureProjectOwner(projectId: string, actorInput?: AppUser
     `SELECT user_id = $2 AS owner FROM projects WHERE id = $1 LIMIT 1`,
     [projectId, actor.id],
   );
-  if (!result.rows[0]) throw new AuthError("项目不存在", 404);
-  if (!result.rows[0].owner) throw new AuthError("只有项目所有者可以管理共享", 403);
+  if (!result.rows[0]) throw new AuthError("Projekt existiert nicht", 404);
+  if (!result.rows[0].owner) throw new AuthError("Nur Projektinhaber können das Teilen verwalten", 403);
 }
 
 export async function visibleProjectWhere(alias: string, parameters: readonly unknown[] = []): Promise<{
@@ -153,7 +153,7 @@ export async function visibleProjectWhere(alias: string, parameters: readonly un
 
 async function requireUser(): Promise<AppUser> {
   const actor = await getOptionalUser();
-  if (!actor) throw new AuthError("请先登录", 401);
+  if (!actor) throw new AuthError("Bitte melden Sie sich zuerst an", 401);
   return actor;
 }
 

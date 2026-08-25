@@ -30,21 +30,21 @@ export async function addMailDraftAttachments(
   options: { readonly inline?: boolean } = {},
 ): Promise<readonly StoredMailAttachment[]> {
   const draft = await getMailDraft(draftId);
-  if (!draft) throw new MailDraftAttachmentError("草稿不存在", 404);
+  if (!draft) throw new MailDraftAttachmentError("Entwurf existiert nicht", 404);
   if (draft.status === "sending" || draft.status === "sent") {
-    throw new MailDraftAttachmentError("邮件发送期间不能修改附件", 409);
+    throw new MailDraftAttachmentError("Anhänge können während des E-Mail-Versands nicht geändert werden", 409);
   }
-  if (files.length === 0) throw new MailDraftAttachmentError("请选择附件");
+  if (files.length === 0) throw new MailDraftAttachmentError("Bitte wählen Sie einen Anhang");
 
   const existing = await listMailDraftAttachmentRecords(draftId);
   if (existing.length + files.length > MAX_MAIL_ATTACHMENTS) {
-    throw new MailDraftAttachmentError(`每封邮件最多添加 ${MAX_MAIL_ATTACHMENTS} 个附件`);
+    throw new MailDraftAttachmentError(`Fügen Sie ein Maximum von jeder E-Mail${MAX_MAIL_ATTACHMENTS} eine Anlage`);
   }
   const normalized = files.map((file) => normalizeFile(file, Boolean(options.inline)));
   const totalBytes = existing.reduce((total, item) => total + item.sizeBytes, 0)
     + normalized.reduce((total, item) => total + item.file.size, 0);
   if (totalBytes > MAX_MAIL_ATTACHMENTS_TOTAL_BYTES) {
-    throw new MailDraftAttachmentError("附件总大小不能超过 25 MB");
+    throw new MailDraftAttachmentError("die Gesamtgröße der Anhänge sollte 25 MB nicht überschreiten");
   }
 
   const directory = attachmentDirectory(draftId);
@@ -82,9 +82,9 @@ export async function addMailDraftAttachments(
 
 export async function removeMailDraftAttachment(draftId: string, attachmentId: string): Promise<boolean> {
   const draft = await getMailDraft(draftId);
-  if (!draft) throw new MailDraftAttachmentError("草稿不存在", 404);
+  if (!draft) throw new MailDraftAttachmentError("Entwurf existiert nicht", 404);
   if (draft.status === "sending" || draft.status === "sent") {
-    throw new MailDraftAttachmentError("邮件发送期间不能修改附件", 409);
+    throw new MailDraftAttachmentError("Anhänge können während des E-Mail-Versands nicht geändert werden", 409);
   }
   const record = (await listMailDraftAttachmentRecords(draftId)).find((item) => item.id === attachmentId);
   if (!record) return false;
@@ -104,18 +104,18 @@ export function mailDraftAttachmentPath(record: MailDraftAttachmentRecord): stri
 }
 
 function attachmentDirectory(draftId: string): string {
-  if (!/^[a-zA-Z0-9-]{8,80}$/.test(draftId)) throw new MailDraftAttachmentError("草稿标识无效");
+  if (!/^[a-zA-Z0-9-]{8,80}$/.test(draftId)) throw new MailDraftAttachmentError("der Entwurf der ID ist ungültig");
   return path.join(dataRoot(), "mail-draft-attachments", draftId);
 }
 
 function normalizeFile(file: File, inline: boolean): { readonly file: File; readonly filename: string } {
-  if (!(file instanceof File)) throw new MailDraftAttachmentError("附件格式无效");
-  if (file.size <= 0) throw new MailDraftAttachmentError(`附件“${file.name || "未命名文件"}”为空`);
-  if (file.size > MAX_MAIL_ATTACHMENT_BYTES) throw new MailDraftAttachmentError(`附件“${file.name}”不能超过 15 MB`);
+  if (!(file instanceof File)) throw new MailDraftAttachmentError("das Anhängeformat ist nicht gültig");
+  if (file.size <= 0) throw new MailDraftAttachmentError(`Anlage "${file.name || "unbenannte Datei"}"Frei"`);
+  if (file.size > MAX_MAIL_ATTACHMENT_BYTES) throw new MailDraftAttachmentError(`Anlage "${file.name}"kann 15 MB nicht überschreiten"`);
   if (inline && !/^image\/(?:png|jpe?g|gif|webp)$/i.test(file.type)) {
-    throw new MailDraftAttachmentError("正文内只能粘贴 PNG、JPEG、GIF 或 WebP 图片");
+    throw new MailDraftAttachmentError("Nur PNG-, JPEG-, GIF- oder WebP-Bilder können in Text eingefügt werden");
   }
   const filename = file.name.normalize("NFC").replace(/[\u0000-\u001f\u007f]/g, "").trim();
-  if (!filename || filename.length > 240) throw new MailDraftAttachmentError("附件名称无效或过长");
+  if (!filename || filename.length > 240) throw new MailDraftAttachmentError("Anhängename ungültig oder zu lang");
   return { file, filename };
 }

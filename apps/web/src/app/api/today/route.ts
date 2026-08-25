@@ -11,6 +11,6 @@ export async function GET(request: Request) {
   } catch (error) {
     if (error instanceof TodayRangeError) return NextResponse.json({ ok: false, message: error.message }, { status: error.status });
     console.error("Today snapshot failed", error);
-    return NextResponse.json({ ok: false, message: "无法读取 Today 数据" }, { status: 500 });
+    return NextResponse.json({ ok: false, message: "Daten können heute nicht gelesen werden" }, { status: 500 });
   }
 }

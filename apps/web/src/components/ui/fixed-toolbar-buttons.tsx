@@ -47,25 +47,25 @@ export function FixedToolbarButtons() {
           </ToolbarGroup>
 
           <ToolbarGroup>
-            <MarkToolbarButton nodeType={KEYS.bold} tooltip="加粗 (⌘+B)">
+            <MarkToolbarButton nodeType={KEYS.bold} tooltip="dicker (B)">
               <BoldIcon />
             </MarkToolbarButton>
-            <MarkToolbarButton nodeType={KEYS.italic} tooltip="斜体 (⌘+I)">
+            <MarkToolbarButton nodeType={KEYS.italic} tooltip="kursiv (I)">
               <ItalicIcon />
             </MarkToolbarButton>
-            <MarkToolbarButton nodeType={KEYS.underline} tooltip="下划线 (⌘+U)">
+            <MarkToolbarButton nodeType={KEYS.underline} tooltip="Unterstrichen ()">
               <UnderlineIcon />
             </MarkToolbarButton>
-            <MarkToolbarButton nodeType={KEYS.highlight} tooltip="高亮">
+            <MarkToolbarButton nodeType={KEYS.highlight} tooltip="Hervorhebung">
               <HighlighterIcon />
             </MarkToolbarButton>
-            <MarkToolbarButton nodeType={KEYS.strikethrough} tooltip="删除线">
+            <MarkToolbarButton nodeType={KEYS.strikethrough} tooltip="Streik">
               <StrikethroughIcon />
             </MarkToolbarButton>
-            <FontColorToolbarButton nodeType={KEYS.color} tooltip="文字颜色">
+            <FontColorToolbarButton nodeType={KEYS.color} tooltip="Farbe des Textes">
               <BaselineIcon />
             </FontColorToolbarButton>
-            <FontColorToolbarButton nodeType={KEYS.backgroundColor} tooltip="背景颜色">
+            <FontColorToolbarButton nodeType={KEYS.backgroundColor} tooltip="Hintergrundfarbe">
               <PaintBucketIcon />
             </FontColorToolbarButton>
           </ToolbarGroup>

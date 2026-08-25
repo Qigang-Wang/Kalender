@@ -56,18 +56,18 @@ interface TimeBlockRow {
 
 export function parseTaskScheduleInput(body: TaskScheduleRequestBody | null): TaskScheduleInput {
   if (!body || typeof body.calendarId !== "string" || !body.calendarId.trim()) {
-    throw new TaskRepositoryError("CALENDAR_REQUIRED", "请选择日历", 400);
+    throw new TaskRepositoryError("CALENDAR_REQUIRED", "Bitte wählen Sie einen Kalender", 400);
   }
-  const start = parseScheduleDate(body.start, "开始时间");
-  const end = parseScheduleDate(body.end, "结束时间");
+  const start = parseScheduleDate(body.start, "Startzeit");
+  const end = parseScheduleDate(body.end, "Endzeit");
   const duration = end.getTime() - start.getTime();
-  if (duration <= 0) throw new TaskRepositoryError("INVALID_TIME_RANGE", "结束时间必须晚于开始时间", 400);
-  if (duration > 24 * 60 * 60 * 1000) throw new TaskRepositoryError("TIME_BLOCK_TOO_LONG", "单个任务时间块不能超过 24 小时", 400);
+  if (duration <= 0) throw new TaskRepositoryError("INVALID_TIME_RANGE", "Die Endzeit muss später als die Startzeit sein.", 400);
+  if (duration > 24 * 60 * 60 * 1000) throw new TaskRepositoryError("TIME_BLOCK_TOO_LONG", "ein einzelner Taskblock sollte 24 Stunden nicht überschreiten", 400);
   const timeZone = typeof body.timeZone === "string" && body.timeZone.trim() ? body.timeZone.trim() : "Europe/Berlin";
   try {
     new Intl.DateTimeFormat("en", { timeZone }).format(start);
   } catch {
-    throw new TaskRepositoryError("INVALID_TIME_ZONE", "时区无效", 400);
+    throw new TaskRepositoryError("INVALID_TIME_ZONE", "Zeitzone ungültig", 400);
   }
   return {
     calendarId: body.calendarId.trim(),
@@ -86,17 +86,17 @@ export async function scheduleStoredTask(taskId: string, input: TaskScheduleInpu
       [taskId],
     );
     const task = taskResult.rows[0];
-    if (!task) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404);
+    if (!task) throw new TaskRepositoryError("TASK_NOT_FOUND", "Aufgabe existiert nicht", 404);
 
     const calendarResult = await transaction.query<{ id: string; read_only: boolean; provider_id: string }>(
       "SELECT id, read_only, provider_id FROM calendars WHERE id = $1 LIMIT 1",
       [input.calendarId],
     );
     const calendar = calendarResult.rows[0];
-    if (!calendar) throw new TaskRepositoryError("CALENDAR_NOT_FOUND", "日历不存在", 404);
-    if (calendar.read_only) throw new TaskRepositoryError("CALENDAR_READ_ONLY", "该日历为只读", 409);
+    if (!calendar) throw new TaskRepositoryError("CALENDAR_NOT_FOUND", "Kalender existiert nicht", 404);
+    if (calendar.read_only) throw new TaskRepositoryError("CALENDAR_READ_ONLY", "Dieser Kalender ist nur lesbar", 409);
     if (calendar.provider_id !== "local-calendar") {
-      throw new TaskRepositoryError("CALENDAR_NOT_LOCAL", "当前阶段只能把任务安排到本地日历", 409);
+      throw new TaskRepositoryError("CALENDAR_NOT_LOCAL", "nur lokale Kalender können in dieser Phase geplant werden", 409);
     }
 
     const existing = await transaction.query<TimeBlockRow>(
@@ -130,7 +130,7 @@ export async function scheduleStoredTask(taskId: string, input: TaskScheduleInpu
          idempotency_key, updated_at
        ) VALUES ($1,$2,$1,$3,$4,NULL,$5,$6,$7,false,'[]'::jsonb,'confirmed',$8,now())
        RETURNING id, title, starts_at, ends_at`,
-      [eventId, input.calendarId, task.title, "由任务安排的专注时间块", input.start, input.end, input.timeZone, `task-time-block:${taskId}:${eventId}`],
+      [eventId, input.calendarId, task.title, "aufgabenorientierter Fokusblock", input.start, input.end, input.timeZone, `task-time-block:${taskId}:${eventId}`],
     );
     await transaction.query(
       "INSERT INTO task_time_blocks (task_id, calendar_event_id) VALUES ($1, $2)",
@@ -146,7 +146,7 @@ export async function scheduleStoredTask(taskId: string, input: TaskScheduleInpu
   });
 
   const task = await getStoredTask(taskId);
-  if (!task) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404);
+  if (!task) throw new TaskRepositoryError("TASK_NOT_FOUND", "Aufgabe existiert nicht", 404);
   return { task, event };
 }
 
@@ -158,22 +158,22 @@ export async function updateStoredTaskSchedule(taskId: string, eventId: string, 
       [taskId],
     );
     const task = taskResult.rows[0];
-    if (!task) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404);
+    if (!task) throw new TaskRepositoryError("TASK_NOT_FOUND", "Aufgabe existiert nicht", 404);
 
     const blockResult = await transaction.query<{ calendar_event_id: string }>(
       "SELECT calendar_event_id FROM task_time_blocks WHERE task_id = $1 AND calendar_event_id = $2 LIMIT 1",
       [taskId, eventId],
     );
-    if (!blockResult.rows[0]) throw new TaskRepositoryError("TIME_BLOCK_NOT_FOUND", "任务时间块不存在", 404);
+    if (!blockResult.rows[0]) throw new TaskRepositoryError("TIME_BLOCK_NOT_FOUND", "Aufgaben-Zeitblock existiert nicht", 404);
 
     const calendarResult = await transaction.query<{ id: string; read_only: boolean; provider_id: string }>(
       "SELECT id, read_only, provider_id FROM calendars WHERE id = $1 LIMIT 1",
       [input.calendarId],
     );
     const calendar = calendarResult.rows[0];
-    if (!calendar) throw new TaskRepositoryError("CALENDAR_NOT_FOUND", "日历不存在", 404);
+    if (!calendar) throw new TaskRepositoryError("CALENDAR_NOT_FOUND", "Kalender existiert nicht", 404);
     if (calendar.read_only || calendar.provider_id !== "local-calendar") {
-      throw new TaskRepositoryError("CALENDAR_NOT_WRITABLE", "当前阶段只能调整到可写的本地日历", 409);
+      throw new TaskRepositoryError("CALENDAR_NOT_WRITABLE", "die aktuelle Stufe kann nur an einen beschreibbaren lokalen Kalender angepasst werden", 409);
     }
 
     const conflicts = await transaction.query<TimeBlockRow>(
@@ -197,12 +197,12 @@ export async function updateStoredTaskSchedule(taskId: string, eventId: string, 
       [input.calendarId, task.title, input.start, input.end, input.timeZone, eventId],
     );
     const row = updated.rows[0];
-    if (!row) throw new TaskRepositoryError("TIME_BLOCK_SAVE_FAILED", "无法更新时间块", 500);
+    if (!row) throw new TaskRepositoryError("TIME_BLOCK_SAVE_FAILED", "Zeitblock kann nicht aktualisiert werden", 500);
     return mapScheduledEvent(row, input.calendarId, input.timeZone, task);
   });
 
   const task = await getStoredTask(taskId);
-  if (!task) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404);
+  if (!task) throw new TaskRepositoryError("TASK_NOT_FOUND", "Aufgabe existiert nicht", 404);
   return { task, event };
 }
 
@@ -213,7 +213,7 @@ export async function deleteStoredTaskSchedule(taskId: string, eventId: string):
       "SELECT calendar_event_id FROM task_time_blocks WHERE task_id = $1 AND calendar_event_id = $2 LIMIT 1",
       [taskId, eventId],
     );
-    if (!blockResult.rows[0]) throw new TaskRepositoryError("TIME_BLOCK_NOT_FOUND", "任务时间块不存在", 404);
+    if (!blockResult.rows[0]) throw new TaskRepositoryError("TIME_BLOCK_NOT_FOUND", "Aufgaben-Zeitblock existiert nicht", 404);
     await transaction.query(
       "DELETE FROM entity_links WHERE source_kind = 'task' AND source_id = $1 AND target_kind = 'calendar' AND target_id = $2 AND relation = 'scheduled'",
       [taskId, eventId],
@@ -221,7 +221,7 @@ export async function deleteStoredTaskSchedule(taskId: string, eventId: string):
     await transaction.query("DELETE FROM calendar_events WHERE id = $1", [eventId]);
   });
   const task = await getStoredTask(taskId);
-  if (!task) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404);
+  if (!task) throw new TaskRepositoryError("TASK_NOT_FOUND", "Aufgabe existiert nicht", 404);
   return task;
 }
 
@@ -244,15 +244,15 @@ export async function listCalendarTaskLinks(eventIds: readonly string[]): Promis
 
 export class TaskScheduleConflictError extends TaskRepositoryError {
   constructor(readonly conflicts: readonly TaskScheduleConflict[]) {
-    super("SCHEDULE_CONFLICT", "所选时间与现有日程冲突", 409);
+    super("SCHEDULE_CONFLICT", "die ausgewählten Zeitkonflikte mit dem bestehenden Kalenderereignis", 409);
     this.name = "TaskScheduleConflictError";
   }
 }
 
 function parseScheduleDate(value: unknown, label: string): Date {
-  if (typeof value !== "string" || !value) throw new TaskRepositoryError("INVALID_DATE", `请填写${label}`, 400);
+  if (typeof value !== "string" || !value) throw new TaskRepositoryError("INVALID_DATE", `bitte ausfüllen${label}`, 400);
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) throw new TaskRepositoryError("INVALID_DATE", `${label}无效`, 400);
+  if (Number.isNaN(date.getTime())) throw new TaskRepositoryError("INVALID_DATE", `${label}ungültig`, 400);
   return date;
 }
 

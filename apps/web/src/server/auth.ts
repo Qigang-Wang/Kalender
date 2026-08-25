@@ -158,7 +158,7 @@ export async function createInitialAdmin(input: {
 
   return database.transaction(async (transaction) => {
     if (await hasAnyAppUser(transaction)) {
-      throw new AuthError("系统已经初始化，请使用已有账号登录", 409);
+      throw new AuthError("das System wurde initialisiert, bitte melden Sie sich mit einer Kontonummer an", 409);
     }
     const user = {
       id: randomUUID(),
@@ -184,7 +184,7 @@ export async function authenticateAppUser(
   context: AuthRequestContext = {},
 ): Promise<AppUser> {
   const email = normalizeEmail(emailInput);
-  if (!password) throw new AuthError("请输入密码", 400);
+  if (!password) throw new AuthError("Passwort eingeben", 400);
   const database = await getDatabase();
   await enforceLoginThrottle(database, email, context.ipAddress);
   const result = await database.query<PasswordUserRow>(
@@ -198,11 +198,11 @@ export async function authenticateAppUser(
   const row = result.rows[0];
   if (!row || row.disabled_at) {
     await recordLoginAttempt(database, email, false, context);
-    throw new AuthError("邮箱或密码不正确", 401);
+    throw new AuthError("falsches Postfach oder Passwort", 401);
   }
   if (!(await verifyPassword(password, row.password_hash))) {
     await recordLoginAttempt(database, email, false, context);
-    throw new AuthError("邮箱或密码不正确", 401);
+    throw new AuthError("falsches Postfach oder Passwort", 401);
   }
   await database.query(
     `UPDATE app_users SET last_login_at = now(), updated_at = now() WHERE id = $1`,
@@ -313,7 +313,7 @@ export async function revokeAppInvitation(actor: AppUser, invitationId: string):
     [invitationId],
   );
   const invitation = result.rows[0];
-  if (!invitation) throw new AuthError("邀请不存在或已被接受", 404);
+  if (!invitation) throw new AuthError("Einladung existiert nicht oder wurde angenommen", 404);
   await recordAuditEvent({
     actorUserId: actor.id,
     action: "invitation.revoke",
@@ -345,8 +345,8 @@ export async function acceptAppInvitation(token: string, input: {
   readonly password: string;
 }): Promise<AppUser> {
   const invitation = await getAppInvitationByToken(token);
-  if (!invitation) throw new AuthError("邀请链接无效或已过期", 404);
-  const displayName = normalizeDisplayName(input.displayName || invitation.displayName || invitation.email.split("@")[0] || "新用户");
+  if (!invitation) throw new AuthError("Einladungslink ungültig oder abgelaufen", 404);
+  const displayName = normalizeDisplayName(input.displayName || invitation.displayName || invitation.email.split("@")[0] || "Neuer Benutzer");
   validatePassword(input.password);
   const passwordHash = await hashPassword(input.password);
   const database = await getDatabase();
@@ -373,7 +373,7 @@ export async function acceptAppInvitation(token: string, input: {
     return user;
   }).catch((error) => {
     if (error instanceof Error && /unique|duplicate/i.test(error.message)) {
-      throw new AuthError("这个邮箱已经有账号，请直接登录", 409);
+      throw new AuthError("Dieses Postfach hat bereits eine Kontonummer, bitte melden Sie sich direkt an", 409);
     }
     throw error;
   });
@@ -410,7 +410,7 @@ export async function createManagedAppUser(actor: AppUser, input: {
     return user;
   } catch (error) {
     if (error instanceof Error && /unique|duplicate/i.test(error.message)) {
-      throw new AuthError("这个邮箱已经有账号", 409);
+      throw new AuthError("dieses Postfach hat bereits eine Kontonummer", 409);
     }
     throw error;
   }
@@ -425,7 +425,7 @@ export async function updateManagedAppUser(actor: AppUser, userId: string, input
   readonly mustChangePassword?: boolean;
 }): Promise<ManagedAppUser> {
   requireAdmin(actor);
-  if (!userId.trim()) throw new AuthError("用户不存在", 404);
+  if (!userId.trim()) throw new AuthError("Der Benutzer existiert nicht", 404);
   const database = await getDatabase();
   const existing = await database.query<ManagedAppUserRow>(
       `SELECT id, display_name, email, role, session_version, must_change_password, disabled_at, last_login_at, created_at, updated_at
@@ -433,11 +433,11 @@ export async function updateManagedAppUser(actor: AppUser, userId: string, input
     [userId],
   );
   const current = existing.rows[0];
-  if (!current) throw new AuthError("用户不存在", 404);
+  if (!current) throw new AuthError("Der Benutzer existiert nicht", 404);
 
   const nextRole = input.role ? normalizeRole(input.role) : current.role;
   const nextDisabled = input.disabled ?? Boolean(current.disabled_at);
-  if (actor.id === userId && nextDisabled) throw new AuthError("不能禁用当前登录的管理员账号", 400);
+  if (actor.id === userId && nextDisabled) throw new AuthError("das aktuell eingegebene Administratorkonto kann nicht deaktiviert werden", 400);
   if ((current.role === "admin" && nextRole !== "admin") || (current.role === "admin" && nextDisabled && !current.disabled_at)) {
     await ensureAnotherActiveAdmin(userId);
   }
@@ -489,7 +489,7 @@ export async function updateManagedAppUser(actor: AppUser, userId: string, input
     return user;
   } catch (error) {
     if (error instanceof Error && /unique|duplicate/i.test(error.message)) {
-      throw new AuthError("这个邮箱已经有账号", 409);
+      throw new AuthError("dieses Postfach hat bereits eine Kontonummer", 409);
     }
     throw error;
   }
@@ -497,8 +497,8 @@ export async function updateManagedAppUser(actor: AppUser, userId: string, input
 
 export async function deleteManagedAppUser(actor: AppUser, userId: string): Promise<ManagedAppUser> {
   requireAdmin(actor);
-  if (!userId.trim()) throw new AuthError("用户不存在", 404);
-  if (actor.id === userId) throw new AuthError("不能删除当前登录的管理员账号", 400);
+  if (!userId.trim()) throw new AuthError("Der Benutzer existiert nicht", 404);
+  if (actor.id === userId) throw new AuthError("das Administratorkonto kann nicht aus dem aktuellen Login gelöscht werden", 400);
 
   const database = await getDatabase();
   return database.transaction(async (transaction) => {
@@ -512,7 +512,7 @@ export async function deleteManagedAppUser(actor: AppUser, userId: string): Prom
       [userId],
     );
     const current = existing.rows[0];
-    if (!current) throw new AuthError("用户不存在", 404);
+    if (!current) throw new AuthError("Der Benutzer existiert nicht", 404);
     if (current.role === "admin" && !current.disabled_at) {
       const activeAdmins = await transaction.query<{ count: number | string }>(
         `SELECT count(*) AS count
@@ -521,7 +521,7 @@ export async function deleteManagedAppUser(actor: AppUser, userId: string): Prom
         [userId],
       );
       if (Number(activeAdmins.rows[0]?.count ?? 0) < 1) {
-        throw new AuthError("至少需要保留一个可用管理员", 400);
+        throw new AuthError("mindestens ein verfügbarer Administrator muss beibehalten werden", 400);
       }
     }
 
@@ -553,12 +553,12 @@ export async function updateOwnProfile(actor: AppUser, input: {
     [actor.id],
   );
   const current = result.rows[0];
-  if (!current || current.disabled_at) throw new AuthError("请重新登录", 401);
+  if (!current || current.disabled_at) throw new AuthError("Bitte erneut eingeben", 401);
   const displayName = input.displayName === undefined ? current.display_name : normalizeDisplayName(input.displayName);
   let passwordHash: string | undefined;
   if (input.newPassword) {
     if (!input.currentPassword || !await verifyPassword(input.currentPassword, current.password_hash)) {
-      throw new AuthError("当前密码不正确", 401);
+      throw new AuthError("das aktuelle Passwort ist falsch", 401);
     }
     validatePassword(input.newPassword);
     passwordHash = await hashPassword(input.newPassword);
@@ -704,21 +704,21 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
 function normalizeEmail(value: string): string {
   const email = value.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new AuthError("请输入有效的邮箱地址", 400);
+    throw new AuthError("Bitte geben Sie eine gültige Postfachadresse ein", 400);
   }
   return email;
 }
 
 function normalizeDisplayName(value: string): string {
   const displayName = value.trim();
-  if (displayName.length < 2) throw new AuthError("昵称至少需要 2 个字符", 400);
-  if (displayName.length > 80) throw new AuthError("昵称不能超过 80 个字符", 400);
+  if (displayName.length < 2) throw new AuthError("Nickname benötigt mindestens 2 Zeichen", 400);
+  if (displayName.length > 80) throw new AuthError("Nicknamen dürfen 80 Zeichen nicht überschreiten", 400);
   return displayName;
 }
 
 function validatePassword(password: string): void {
-  if (password.length < 8) throw new AuthError("密码至少需要 8 个字符", 400);
-  if (password.length > 256) throw new AuthError("密码不能超过 256 个字符", 400);
+  if (password.length < 8) throw new AuthError("Passwort erfordert mindestens 8 Zeichen", 400);
+  if (password.length > 256) throw new AuthError("Passwort darf 256 Zeichen nicht überschreiten", 400);
 }
 
 function normalizeRole(value: AppUserRole | undefined): AppUserRole {
@@ -726,7 +726,7 @@ function normalizeRole(value: AppUserRole | undefined): AppUserRole {
 }
 
 function requireAdmin(actor: AppUser): void {
-  if (actor.role !== "admin") throw new AuthError("需要管理员权限", 403);
+  if (actor.role !== "admin") throw new AuthError("Administrator-Rechte erfordern", 403);
 }
 
 async function ensureAnotherActiveAdmin(userId: string): Promise<void> {
@@ -738,7 +738,7 @@ async function ensureAnotherActiveAdmin(userId: string): Promise<void> {
     [userId],
   );
   if (Number(result.rows[0]?.count ?? 0) < 1) {
-    throw new AuthError("至少需要保留一个可用管理员", 400);
+    throw new AuthError("mindestens ein verfügbarer Administrator muss beibehalten werden", 400);
   }
 }
 
@@ -829,7 +829,7 @@ async function enforceLoginThrottle(database: DatabaseExecutor, email: string, i
     [`${LOGIN_THROTTLE_WINDOW_MINUTES} minutes`, email, ipAddress ?? null],
   );
   if (Number(result.rows[0]?.count ?? 0) >= LOGIN_THROTTLE_MAX_FAILURES) {
-    throw new AuthError(`登录尝试过多，请 ${LOGIN_THROTTLE_WINDOW_MINUTES} 分钟后再试`, 429);
+    throw new AuthError(`Zu viele Versuche, sich einzuloggen, bitte. ${LOGIN_THROTTLE_WINDOW_MINUTES} Versuchen Sie es erneut in Minuten`, 429);
   }
 }
 

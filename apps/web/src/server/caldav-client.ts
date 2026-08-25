@@ -44,7 +44,7 @@ export class CalDavCalendarProvider implements CalendarProvider {
       checks: [{
         name: "calendar_read",
         status: "passed",
-        message: `发现 ${calendars.length} 个日历`,
+        message: `gefunden ${calendars.length} einen Kalender`,
       }],
     };
   }
@@ -79,33 +79,33 @@ export class CalDavCalendarProvider implements CalendarProvider {
   }
 
   async upsertEvent(_context: ProviderContext, _input: UpsertCalendarEventInput): Promise<CalendarEvent> {
-    throw new CalDavError("READ_ONLY_PHASE", "CalDAV 写入将在只读同步稳定后启用", 501);
+    throw new CalDavError("READ_ONLY_PHASE", "CalDAV-Schreiben wird nach schreibgeschützter Synchronisierung aktiviert", 501);
   }
 
   async deleteEvent(_context: ProviderContext, _calendarId: string, _eventId: string): Promise<void> {
-    throw new CalDavError("READ_ONLY_PHASE", "CalDAV 写入将在只读同步稳定后启用", 501);
+    throw new CalDavError("READ_ONLY_PHASE", "CalDAV-Schreiben wird nach schreibgeschützter Synchronisierung aktiviert", 501);
   }
 }
 
 export function parseCalDavCredential(input: unknown): CalDavCredential {
   if (!input || typeof input !== "object") {
-    throw new PublicConnectionError("INVALID_REQUEST", "请完整填写 CalDAV 服务器、用户名和密码", 400);
+    throw new PublicConnectionError("INVALID_REQUEST", "Bitte füllen Sie CalDAV-Server, Benutzername und Passwort aus", 400);
   }
   const value = input as Record<string, unknown>;
   if (typeof value.serverUrl !== "string" || typeof value.username !== "string" || typeof value.password !== "string") {
-    throw new PublicConnectionError("INVALID_REQUEST", "请完整填写 CalDAV 服务器、用户名和密码", 400);
+    throw new PublicConnectionError("INVALID_REQUEST", "Bitte füllen Sie CalDAV-Server, Benutzername und Passwort aus", 400);
   }
   let url: URL;
   try {
     url = new URL(value.serverUrl.trim());
   } catch {
-    throw new PublicConnectionError("INVALID_URL", "CalDAV 服务器地址无效", 400);
+    throw new PublicConnectionError("INVALID_URL", "CalDAV-Serveradresse ist nicht gültig", 400);
   }
   if (url.protocol !== "https:" && process.env.KALENDER_ALLOW_INSECURE_CALDAV !== "1") {
-    throw new PublicConnectionError("HTTPS_REQUIRED", "CalDAV 服务器必须使用 HTTPS", 400);
+    throw new PublicConnectionError("HTTPS_REQUIRED", "CalDAV-Server muss HTTPS verwenden", 400);
   }
   if (!value.username.trim() || !value.password) {
-    throw new PublicConnectionError("INVALID_REQUEST", "请完整填写 CalDAV 用户名和密码", 400);
+    throw new PublicConnectionError("INVALID_REQUEST", "Bitte füllen Sie CalDAV Benutzername und Passwort aus", 400);
   }
   url.hash = "";
   return { kind: "caldav", serverUrl: url.toString(), username: value.username.trim(), password: value.password };
@@ -129,7 +129,7 @@ export async function discoverCalDavCalendars(
   const calendarsXml = await propfind(credential, calendarHome, "1", calendarProperties, signal);
   const calendars = parseCalendarDiscoveryResponse(calendarsXml, calendarHome);
   if (!calendars.length) {
-    throw new CalDavError("NO_CALENDARS", "连接成功，但账户中没有发现可读取的 CalDAV 日历", 409);
+    throw new CalDavError("NO_CALENDARS", "Erfolgreich verbunden, aber kein lesbarer CalDAV-Kalender wurde im Konto gefunden", 409);
   }
   return calendars;
 }
@@ -169,7 +169,7 @@ export function parseCalendarDiscoveryResponse(xml: string, baseUrl: string): re
     const readOnly = /403|404/.test(status) || !/<(?:[\w-]+:)?write(?:\s|\/|>)/i.test(tagContent(response, "current-user-privilege-set") ?? "");
     return [{
       url: new URL(href, baseUrl).toString(),
-      name: xmlText(response, "displayname") || "未命名日历",
+      name: xmlText(response, "displayname") || "unbenannter Kalender",
       color: normalizeCalendarColor(xmlText(response, "calendar-color")),
       readOnly,
     }];
@@ -210,7 +210,7 @@ export function parseIcsEvents(ics: string, sourceUrl: string, etag?: string): r
       id: `${sourceUrl}#${uid}${recurrenceId ? `:${recurrenceId}` : ""}`,
       providerEventId: `${sourceUrl}#${uid}${recurrenceId ? `:${recurrenceId}` : ""}`,
       calendarId: calendarUrlFromEventSource(sourceUrl),
-      title: propertyValue(properties, "SUMMARY") || "（无标题）",
+      title: propertyValue(properties, "SUMMARY") || "Kein Titel",
       description: optionalPropertyValue(properties, "DESCRIPTION"),
       location: optionalPropertyValue(properties, "LOCATION"),
       start: start.toISOString(),
@@ -240,9 +240,9 @@ export function toCalDavPublicError(error: unknown): { readonly code: string; re
     return { code: error.code, message: error.message, status: error.status };
   }
   if (error instanceof Error && error.name === "AbortError") {
-    return { code: "TIMEOUT", message: "CalDAV 连接或同步超时", status: 504 };
+    return { code: "TIMEOUT", message: "CalDAV-Verbindung oder Synchronisations-Timeout", status: 504 };
   }
-  return { code: "CALDAV_ERROR", message: "无法连接 CalDAV 服务器", status: 502 };
+  return { code: "CALDAV_ERROR", message: "CalDAV-Server kann nicht angeschlossen werden", status: 502 };
 }
 
 const discoveryProperties = `
@@ -279,7 +279,7 @@ async function calDavFetch(
   let url = new URL(initialUrl);
   for (let redirects = 0; redirects <= 3; redirects += 1) {
     if (url.protocol !== "https:" && process.env.KALENDER_ALLOW_INSECURE_CALDAV !== "1") {
-      throw new CalDavError("HTTPS_REQUIRED", "CalDAV 服务器必须使用 HTTPS", 400);
+      throw new CalDavError("HTTPS_REQUIRED", "CalDAV-Server muss HTTPS verwenden", 400);
     }
     await assertPublicMailHost(url.hostname);
     const response = await fetch(url, {
@@ -292,23 +292,23 @@ async function calDavFetch(
     });
     if ([301, 302, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
-      if (!location) throw new CalDavError("INVALID_REDIRECT", "CalDAV 服务器返回了无效跳转", 502);
+      if (!location) throw new CalDavError("INVALID_REDIRECT", "CalDAV Server gab ungültigen Sprung", 502);
       url = new URL(location, url);
       continue;
     }
     if (response.status === 401 || response.status === 403) {
-      throw new CalDavError("AUTH_REQUIRED", "CalDAV 服务器拒绝了用户名或应用专用密码", 401);
+      throw new CalDavError("AUTH_REQUIRED", "CalDAV Server abgelehnt Benutzername oder Anwendung eines speziellen Passworts", 401);
     }
     if (!response.ok && response.status !== 207) {
-      throw new CalDavError("REMOTE_ERROR", `CalDAV 服务器返回 HTTP ${response.status}`, 502);
+      throw new CalDavError("REMOTE_ERROR", `CalDAV Server gibt HTTP zurück ${response.status}`, 502);
     }
     return response;
   }
-  throw new CalDavError("TOO_MANY_REDIRECTS", "CalDAV 服务器跳转次数过多", 502);
+  throw new CalDavError("TOO_MANY_REDIRECTS", "CalDAV Server springt zu oft", 502);
 }
 
 function credentialFromContext(context: ProviderContext, serverUrl: string): CalDavCredential {
-  if (context.session.kind !== "basic") throw new CalDavError("AUTH_REQUIRED", "CalDAV 需要用户名和密码", 401);
+  if (context.session.kind !== "basic") throw new CalDavError("AUTH_REQUIRED", "CalDAV benötigt Benutzername und Passwort", 401);
   return { kind: "caldav", serverUrl, username: context.session.username, password: context.session.password };
 }
 
@@ -377,7 +377,7 @@ function unescapeIcs(value: string): string {
 
 function parseIcsDate(value: string, timeZone?: string): Date {
   const match = value.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$/);
-  if (!match) throw new CalDavError("INVALID_EVENT", "CalDAV 日程包含无法识别的日期", 502);
+  if (!match) throw new CalDavError("INVALID_EVENT", "CalDAV-Kalenderveranstaltung enthält unerkennbare Termine", 502);
   const parts = match.slice(1, 7).map((part) => Number(part ?? 0));
   const [year = 0, month = 1, day = 1, hour = 0, minute = 0, second = 0] = parts;
   if (match[7] === "Z" || !timeZone) return new Date(Date.UTC(year, month - 1, day, hour, minute, second));

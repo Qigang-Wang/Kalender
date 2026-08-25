@@ -64,13 +64,13 @@ export function SyncSettingsProvider({ children }: { readonly children: ReactNod
         readonly message?: string;
       };
       if (!response.ok || !payload.ok || !payload.settings) {
-        throw new Error(payload.message || "无法读取同步设置");
+        throw new Error(payload.message || "Sync-Einstellungen können nicht gelesen werden");
       }
       setSettings(payload.settings);
       setCanEdit(payload.canEdit === true);
       setError(undefined);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "无法读取同步设置");
+      setError(loadError instanceof Error ? loadError.message : "Sync-Einstellungen können nicht gelesen werden");
     } finally {
       setLoading(false);
     }
@@ -92,7 +92,7 @@ export function SyncSettingsProvider({ children }: { readonly children: ReactNod
       readonly message?: string;
     };
     if (!response.ok || !payload.ok || !payload.settings) {
-      throw new Error(payload.message || "无法保存同步设置");
+      throw new Error(payload.message || "Sync-Einstellungen können nicht gespeichert werden");
     }
     setSettings(payload.settings);
     setCanEdit(payload.canEdit === true);

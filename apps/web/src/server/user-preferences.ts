@@ -38,8 +38,8 @@ export async function saveUserPreference(
   value: unknown,
 ): Promise<UserPreference> {
   const [normalizedKey] = normalizePreferenceKeys([key]);
-  if (!normalizedKey) throw new UserPreferenceError("偏好键无效");
-  if (!isJsonObject(value)) throw new UserPreferenceError("偏好内容无效");
+  if (!normalizedKey) throw new UserPreferenceError("bevorzugter Schlüssel ungültig");
+  if (!isJsonObject(value)) throw new UserPreferenceError("bevorzugter Inhalt ist ungültig");
   const database = await getDatabase();
   const id = preferenceId(userId, normalizedKey);
   const result = await database.query<UserPreferenceRow>(
@@ -52,7 +52,7 @@ export async function saveUserPreference(
     [id, userId, normalizedKey, JSON.stringify(value)],
   );
   const row = result.rows[0];
-  if (!row) throw new UserPreferenceError("无法保存偏好", 500);
+  if (!row) throw new UserPreferenceError("nicht in der Lage, Präferenzen zu speichern", 500);
   return {
     key: row.preference_key,
     value: row.preference_value,

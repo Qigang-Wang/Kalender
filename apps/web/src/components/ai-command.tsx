@@ -174,9 +174,9 @@ export function AiCommand() {
 
   const deleteConversation = async (conversation: ConversationView) => {
     if (!await appConfirm({
-      title: `删除对话“${conversation.title}”？`,
-      description: "对话记录将被永久删除。",
-      confirmLabel: "删除对话",
+      title: `Unterhaltung „${conversation.title}“ löschen?`,
+      description: "Dialogaufzeichnungen werden dauerhaft gelöscht.",
+      confirmLabel: "Dialog löschen",
       tone: "danger",
     })) return;
     try {
@@ -197,43 +197,43 @@ export function AiCommand() {
   return (
     <section className="ai-command-shell panel">
       <aside className={`ai-command-history ${sidebarOpen ? "open" : ""}`}>
-        <header><strong>对话</strong><button title="新对话" onClick={() => void newConversation()}><MessageSquarePlus size={15} /></button></header>
+        <header><strong>Dialog</strong><button title="Neuer Dialog" onClick={() => void newConversation()}><MessageSquarePlus size={15} /></button></header>
         <div className="ai-conversation-list">
-          {conversations.length === 0 ? <p>发送第一条消息后，对话会保存在本地。</p> : conversations.map((conversation) => <div className={`ai-conversation-item ${conversation.id === conversationId ? "active" : ""}`} key={conversation.id}>
-            <button onClick={() => void openConversation(conversation.id)}><strong>{conversation.title}</strong><small>{formatConversationTime(conversation.updatedAt)} · {conversation.messageCount} 条</small></button>
-            <button className="danger" title="删除对话" onClick={() => void deleteConversation(conversation)}><Trash2 size={12} /></button>
+          {conversations.length === 0 ? <p>UI-Text: Nach dem Senden der ersten Nachricht wird der Dialog lokal gespeichert.</p> : conversations.map((conversation) => <div className={`ai-conversation-item ${conversation.id === conversationId ? "active" : ""}`} key={conversation.id}>
+            <button onClick={() => void openConversation(conversation.id)}><strong>{conversation.title}</strong><small>{formatConversationTime(conversation.updatedAt)} · {conversation.messageCount} bar</small></button>
+            <button className="danger" title="Dialog löschen" onClick={() => void deleteConversation(conversation)}><Trash2 size={12} /></button>
           </div>)}
         </div>
       </aside>
 
       <div className="ai-command-main">
         <header className="ai-command-toolbar">
-          <button className="ai-history-toggle" onClick={() => setSidebarOpen((value) => !value)}>对话</button>
-          <div><span><WandSparkles size={14} />AI Command</span><small>当前只进行纯对话，不会读取或修改工作区数据</small></div>
-          <label><span className="sr-only">模型</span><AppSelect ariaLabel="模型" size="compact" value={requestedModelId} onValueChange={setRequestedModelId} disabled={busy} options={[{ value: "", label: "自动选择模型" }, ...availableModels.map((model) => ({ value: model.id, label: `${model.displayName} · ${model.providerName}` }))]} /></label>
+          <button className="ai-history-toggle" onClick={() => setSidebarOpen((value) => !value)}>Dialog</button>
+          <div><span><WandSparkles size={14} />AI Command</span><small>Derzeit wird nur Dialog geführt und keine Workspace-Daten werden gelesen oder geändert</small></div>
+          <label><span className="sr-only">Modell</span><AppSelect ariaLabel="Modell" size="compact" value={requestedModelId} onValueChange={setRequestedModelId} disabled={busy} options={[{ value: "", label: "Autoselect-Modell" }, ...availableModels.map((model) => ({ value: model.id, label: `${model.displayName} · ${model.providerName}` }))]} /></label>
         </header>
 
         <div className="ai-command-messages" aria-live="polite">
-          {messages.length === 0 ? <div className="ai-command-empty"><div><Bot size={25} /></div><h2>有什么想一起思考的？</h2><p>现在可以进行真实流式对话。邮件、日历、任务和笔记尚未发送给模型。</p><div><button onClick={() => setInput("帮我规划今天最重要的三件事，并说明排序理由。")}>规划优先事项</button><button onClick={() => setInput("把下面的想法整理成一个清晰的执行计划：")}>整理执行计划</button></div>{availableModels.length === 0 && <Link href="/settings"><Settings size={14} />先配置 AI 模型</Link>}</div> : messages.map((message) => {
+          {messages.length === 0 ? <div className="ai-command-empty"><div><Bot size={25} /></div><h2>Was willst du zusammen denken?</h2><p>Ein echter Flow Dialog ist nun möglich. E-Mail, Kalender, Aufgaben und Notizen wurden noch nicht an das Modell gesendet.</p><div><button onClick={() => setInput("Helfen Sie mir, die drei wichtigsten Dinge des Tages zu planen und erklären Sie die Gründe für ihre Sequenzierung.")}>Planungsprioritäten</button><button onClick={() => setInput("Setzen Sie die folgenden Ideen in einen klaren Umsetzungsplan:")}>Zusammenstellung der Durchführungspläne</button></div>{availableModels.length === 0 && <Link href="/settings"><Settings size={14} />AI-Modelle zuerst konfigurieren</Link>}</div> : messages.map((message) => {
             const text = message.parts.filter((part): part is Extract<typeof part, { type: "text" }> => part.type === "text").map((part) => part.text).join("");
             return <article className={`ai-chat-message ${message.role}`} key={message.id}>
               <div className="ai-chat-avatar">{message.role === "user" ? <User size={15} /> : <Bot size={15} />}</div>
-              <div><header><strong>{message.role === "user" ? "你" : "Dayline AI"}</strong>{message.role === "assistant" && activeModel && message === messages[messages.length - 1] && <span>{activeModel.modelName}{activeModel.usedFallback ? " · 备用" : ""}</span>}</header><p>{text}{message.role === "assistant" && busy && message === messages[messages.length - 1] && <i className="ai-stream-caret" />}</p></div>
+              <div><header><strong>{message.role === "user" ? "Sie" : "Dayline AI"}</strong>{message.role === "assistant" && activeModel && message === messages[messages.length - 1] && <span>{activeModel.modelName}{activeModel.usedFallback ? " . . . . . . . . . . ." : ""}</span>}</header><p>{text}{message.role === "assistant" && busy && message === messages[messages.length - 1] && <i className="ai-stream-caret" />}</p></div>
             </article>;
           })}
-          {status === "submitted" && <div className="ai-command-thinking"><LoaderCircle className="spin" size={15} />正在连接模型…</div>}
+          {status === "submitted" && <div className="ai-command-thinking"><LoaderCircle className="spin" size={15} />Verbindendes Modell...</div>}
           <div ref={messageEndRef} />
         </div>
 
         {(fallbackNotice || feedback || error) && <div className={`ai-command-notice ${feedback || error ? "error" : ""}`}>
           {feedback || error ? <CircleAlert size={14} /> : <RotateCcw size={14} />}
-          <span>{feedback || error?.message || `主模型 ${fallbackNotice?.fromModelName} 不可用，已切换到 ${fallbackNotice?.toModelName}`}</span>
-          {(feedback || error) && messages.some((message) => message.role === "user") && !busy && <button onClick={() => void retry()}><RotateCcw size={12} />重试</button>}
+          <span>{feedback || error?.message || `Hauptmodell ${fallbackNotice?.fromModelName} nicht verfügbar, umgeschaltet auf ${fallbackNotice?.toModelName}`}</span>
+          {(feedback || error) && messages.some((message) => message.role === "user") && !busy && <button onClick={() => void retry()}><RotateCcw size={12} />Erneut versuchen</button>}
         </div>}
 
         <form className="ai-command-composer" onSubmit={(event) => void submit(event)}>
-          <textarea value={input} maxLength={20_000} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} placeholder="输入消息；Enter 发送，Shift + Enter 换行" disabled={busy} />
-          <footer><div>{activeModel ? <span><Bot size={12} />{activeModel.providerName} / {activeModel.modelName}</span> : <span><ShieldCheck size={12} />不发送工作区数据</span>}{runSummary?.status === "succeeded" && <span><Clock3 size={12} />{runSummary.latencyMs} ms</span>}</div>{busy ? <button type="button" className="ai-stop-button" onClick={() => void stop()}><Square size={12} />停止</button> : <button className="primary-button" disabled={!input.trim() || availableModels.length === 0}><Send size={14} />发送</button>}</footer>
+          <textarea value={input} maxLength={20_000} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); } }} placeholder="Eingabemeldungen; Senden, Umschalten + Eingeben" disabled={busy} />
+          <footer><div>{activeModel ? <span><Bot size={12} />{activeModel.providerName} / {activeModel.modelName}</span> : <span><ShieldCheck size={12} />keine Workspace-Daten gesendet</span>}{runSummary?.status === "succeeded" && <span><Clock3 size={12} />{runSummary.latencyMs} ms</span>}</div>{busy ? <button type="button" className="ai-stop-button" onClick={() => void stop()}><Square size={12} />Anhalten</button> : <button className="primary-button" disabled={!input.trim() || availableModels.length === 0}><Send size={14} />Senden</button>}</footer>
         </form>
       </div>
     </section>
@@ -243,14 +243,14 @@ export function AiCommand() {
 async function requestJson<T = Record<string, unknown>>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...init });
   const payload = await response.json().catch(() => null) as ({ readonly ok?: boolean; readonly message?: string } & T) | null;
-  if (!response.ok || !payload?.ok) throw new Error(payload?.message || "操作失败，请稍后重试");
+  if (!response.ok || !payload?.ok) throw new Error(payload?.message || "Operation fehlgeschlagen, bitte versuchen Sie es später noch einmal");
   return payload;
 }
 
-function errorMessage(error: unknown): string { return error instanceof Error ? error.message : "操作失败，请稍后重试"; }
+function errorMessage(error: unknown): string { return error instanceof Error ? error.message : "Operation fehlgeschlagen, bitte versuchen Sie es später noch einmal"; }
 
 function formatConversationTime(value: string): string {
   const date = new Date(value);
   const sameDay = date.toDateString() === new Date().toDateString();
-  return new Intl.DateTimeFormat("zh-CN", sameDay ? { hour: "2-digit", minute: "2-digit", hour12: false } : { month: "short", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat("de-DE", sameDay ? { hour: "2-digit", minute: "2-digit", hour12: false } : { month: "short", day: "numeric" }).format(date);
 }

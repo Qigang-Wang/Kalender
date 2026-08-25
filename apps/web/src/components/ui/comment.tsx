@@ -320,8 +320,8 @@ function CommentMoreDropdown(props: {
   const onDeleteComment = React.useCallback(() => {
     if (!comment.id) {
       void appAlert({
-        title: '暂时无法删除评论',
-        description: '操作过于频繁，请稍后再试。',
+        title: "es ist nicht möglich, Kommentare für den Moment zu löschen",
+        description: "ist zu häufig und bitte versuchen Sie es später noch einmal.",
         tone: 'danger',
       });
       return;
@@ -361,8 +361,8 @@ function CommentMoreDropdown(props: {
 
     if (!comment.id) {
       void appAlert({
-        title: '暂时无法编辑评论',
-        description: '操作过于频繁，请稍后再试。',
+        title: "es ist nicht möglich, Kommentare für den Moment zu bearbeiten",
+        description: "ist zu häufig und bitte versuchen Sie es später noch einmal.",
         tone: 'danger',
       });
       return;

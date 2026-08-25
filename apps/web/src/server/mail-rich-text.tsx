@@ -217,34 +217,34 @@ function renderDaylineInvitationHtml(data: DaylineInvitationTemplateData, signat
               </tr></tbody></table>
             </td></tr>
             <tr><td class="dayline-invitation-content">
-              <p class="dayline-invitation-title">你受邀加入 Dayline</p>
-              <p class="dayline-invitation-greeting">你好，${recipient}</p>
-              <p class="dayline-invitation-copy">${inviterName} 邀请你加入 Dayline 工作台，一起管理邮件、日历、任务、项目和笔记。</p>
+              <p class="dayline-invitation-title">Einladung zu Dayline</p>
+              <p class="dayline-invitation-greeting">Hallo ${recipient},</p>
+              <p class="dayline-invitation-copy">${inviterName} lädt Sie zum Dayline-Arbeitsbereich ein, um E-Mails, Kalender, Aufgaben, Projekte und Notizen gemeinsam zu verwalten.</p>
               <table class="dayline-invitation-details" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tbody><tr>
                   <td class="dayline-invitation-detail" width="33%">
-                    <div class="dayline-invitation-label">邀请人</div>
+                    <div class="dayline-invitation-label">Eingeladen von</div>
                     <div class="dayline-invitation-value">${inviterName}</div>
                     <div class="dayline-invitation-label">${inviterEmail}</div>
                   </td>
                   <td class="dayline-invitation-detail dayline-invitation-detail-border" width="33%">
-                    <div class="dayline-invitation-label">账号角色</div>
+                    <div class="dayline-invitation-label">Kontorolle</div>
                     <div class="dayline-invitation-value">${roleLabel}</div>
                   </td>
                   <td class="dayline-invitation-detail dayline-invitation-detail-border" width="34%">
-                    <div class="dayline-invitation-label">有效期至</div>
+                    <div class="dayline-invitation-label">Gültig bis</div>
                     <div class="dayline-invitation-value">${expiresAtLabel}</div>
                   </td>
                 </tr></tbody>
               </table>
               <table class="dayline-invitation-action" role="presentation" cellpadding="0" cellspacing="0" border="0">
                 <tbody><tr><td class="dayline-invitation-button-cell">
-                  <a class="dayline-invitation-button" href="${inviteUrl}">接受邀请</a>
+                  <a class="dayline-invitation-button" href="${inviteUrl}">Einladung annehmen</a>
                 </td></tr></tbody>
               </table>
-              <p class="dayline-invitation-help">如果按钮无法打开，请复制以下链接到浏览器：</p>
+              <p class="dayline-invitation-help">Falls sich die Schaltfläche nicht öffnen lässt, kopieren Sie bitte den folgenden Link in Ihren Browser:</p>
               <a class="dayline-invitation-url" href="${inviteUrl}">${inviteUrl}</a>
-              <p class="dayline-invitation-security">如果你不认识邀请人，可以安全地忽略这封邮件。</p>
+              <p class="dayline-invitation-security">Wenn Sie die einladende Person nicht kennen, können Sie diese E-Mail ignorieren.</p>
               ${signature}
             </td></tr>
             <tr><td class="dayline-invitation-footer">Dayline · Quiet Intelligence</td></tr>

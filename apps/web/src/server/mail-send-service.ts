@@ -46,7 +46,7 @@ export async function sendMailDraft(
   idempotencyKey: string,
 ): Promise<MailSendResult> {
   const active = globalThis.kalenderActiveMailSends ??= new Set<string>();
-  if (active.has(draftId)) throw new MailSendError("SEND_BUSY", "邮件正在发送，请勿重复操作", 409);
+  if (active.has(draftId)) throw new MailSendError("SEND_BUSY", "Mail wird gesendet, nicht wiederholen", 409);
   active.add(draftId);
   try {
     const claim = await beginMailDraftSend(draftId, accountId, idempotencyKey);
@@ -55,7 +55,7 @@ export async function sendMailDraft(
     }
     const account = await getAccount(accountId);
     if (!account || account.syncStatus === "paused") {
-      throw new MailSendError("ACCOUNT_UNAVAILABLE", "请先启用发件账户", 409);
+      throw new MailSendError("ACCOUNT_UNAVAILABLE", "bitte zuerst das Absenderkonto aktivieren", 409);
     }
     const attachmentRecords = await listMailDraftAttachmentRecords(draftId);
     const referencedInlineIds = mailInlineImageAttachmentIds(claim.draft.bodyContent);
@@ -137,7 +137,7 @@ export async function sendMailDraft(
       });
       const accepted = info.accepted.map(String);
       const rejected = info.rejected.map(String);
-      if (!accepted.length) throw new MailSendError("REMOTE_ERROR", "邮件服务器没有接受任何收件人", 502);
+      if (!accepted.length) throw new MailSendError("REMOTE_ERROR", "Der Mailserver akzeptierte keine Empfänger", 502);
       const draft = await finishMailDraftSend(draftId, info.messageId);
       await clearMailDraftAttachmentFiles(draftId).catch(() => undefined);
       return { draft, alreadySent: false, accepted, rejected };
@@ -165,13 +165,13 @@ function normalizeSendError(error: unknown): MailSendError {
   const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
   const responseCode = typeof error === "object" && error !== null && "responseCode" in error ? Number(error.responseCode) : undefined;
   if (/AUTH|EAUTH|LOGIN/i.test(code) || responseCode === 535) {
-    return new MailSendError("AUTH_REQUIRED", "SMTP 服务器拒绝了账户凭据，请重新配置账户", 401);
+    return new MailSendError("AUTH_REQUIRED", "SMTP-Server lehnt Kontodokumente ab, bitte Konto neu konfigurieren", 401);
   }
   if (/ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ESOCKET|ECONNECTION|EACCES/i.test(code)) {
-    return new MailSendError("NETWORK_ERROR", "无法连接 SMTP 服务器，草稿已保留", 502);
+    return new MailSendError("NETWORK_ERROR", "nicht in der Lage, sich mit SMTP-Server zu verbinden, Entwurf beibehalten", 502);
   }
-  if (error instanceof Error && /^(请|邮件|发件)/.test(error.message)) {
+  if (error instanceof Error && /^(?:Bitte|E-Mail|Nachricht|Versand|SMTP)/i.test(error.message)) {
     return new MailSendError("REMOTE_ERROR", error.message, 400);
   }
-  return new MailSendError("REMOTE_ERROR", "邮件发送失败，草稿已保留", 502);
+  return new MailSendError("REMOTE_ERROR", "E-Mail gesendet fehlgeschlagen, Entwurf beibehalten", 502);
 }

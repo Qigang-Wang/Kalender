@@ -30,7 +30,7 @@ function stringValue(value: unknown): string {
 }
 
 function authErrorResponse(error: unknown) {
-  const normalized = error instanceof AuthError ? error : new AuthError("登录失败", 500);
+  const normalized = error instanceof AuthError ? error : new AuthError("Anmeldung fehlgeschlagen", 500);
   return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
 }
 

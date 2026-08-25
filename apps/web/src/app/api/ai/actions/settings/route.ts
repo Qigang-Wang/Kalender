@@ -33,11 +33,11 @@ export async function PUT(request: Request) {
 
 async function requireActor() {
   const actor = await getCurrentAppUser();
-  if (!actor) throw new AuthError("请先登录", 401);
+  if (!actor) throw new AuthError("Bitte melden Sie sich zuerst an", 401);
   return actor;
 }
 
 function aiActionErrorResponse(error: unknown) {
-  const normalized = error instanceof AuthError || error instanceof AiActionError ? error : new AiActionError("AI 动作设置失败", 500);
+  const normalized = error instanceof AuthError || error instanceof AiActionError ? error : new AiActionError("KI-Aktionseinstellungen fehlgeschlagen", 500);
   return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
 }

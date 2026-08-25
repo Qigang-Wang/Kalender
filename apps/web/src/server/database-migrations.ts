@@ -95,7 +95,7 @@ export async function runDatabaseMigrations(
     });
   } catch (error) {
     throw new DatabaseMigrationError(
-      "无法创建迁移前恢复点，数据库未更改",
+      "Migrationswiederherstellungspunkt kann nicht erstellt werden, Datenbank unverändert",
       pending[0]?.version,
       { cause: error },
     );
@@ -119,8 +119,8 @@ export async function runDatabaseMigrations(
     });
   } catch (error) {
     const detail = activeMigration
-      ? `数据库迁移 ${activeMigration.version}（${activeMigration.name}）失败`
-      : "数据库迁移失败";
+      ? `Datenbankmigration ${activeMigration.version}（${activeMigration.name}fehlgeschlagen`
+      : "Datenbankmigration fehlgeschlagen";
     throw new DatabaseMigrationError(detail, activeMigration?.version, { cause: error });
   }
 
@@ -188,13 +188,13 @@ function validateDefinitions(migrations: readonly DatabaseMigration[]): void {
   let previousVersion = 0;
   for (const migration of migrations) {
     if (!Number.isInteger(migration.version) || migration.version <= previousVersion) {
-      throw new DatabaseMigrationError("数据库迁移版本必须是严格递增的正整数", migration.version);
+      throw new DatabaseMigrationError("Datenbank-Migration-Version muss eine streng inkrementelle positive Ganzzahl sein", migration.version);
     }
     if (!migration.name.trim()) {
-      throw new DatabaseMigrationError(`数据库迁移 ${migration.version} 缺少名称`, migration.version);
+      throw new DatabaseMigrationError(`Datenbankmigration ${migration.version} fehlender Name`, migration.version);
     }
     if (!migration.sql.trim()) {
-      throw new DatabaseMigrationError(`数据库迁移 ${migration.version} 缺少 SQL`, migration.version);
+      throw new DatabaseMigrationError(`Datenbankmigration ${migration.version} SQL fehlt`, migration.version);
     }
     previousVersion = migration.version;
   }
@@ -209,19 +209,19 @@ function validateAppliedMigrations(
     const definition = definitions.get(recorded.version);
     if (!definition) {
       throw new DatabaseMigrationError(
-        `数据库版本 ${recorded.version} 高于当前应用支持范围，请使用更新版本的应用`,
+        `Datenbankversion ${recorded.version} höher als die aktuelle Anwendungsunterstützung, verwenden Sie bitte eine aktualisierte Version der Anwendung`,
         recorded.version,
       );
     }
     if (migrations[index]?.version !== recorded.version) {
       throw new DatabaseMigrationError(
-        `数据库迁移历史在版本 ${recorded.version} 前存在缺口，已停止启动以保护数据`,
+        `Datenbank-Migrationshistorie in Version ${recorded.version} eine Lücke existierte, bevor der Start gestoppt wurde, um die Daten zu schützen`,
         recorded.version,
       );
     }
     if (recorded.name !== definition.name || recorded.checksum !== migrationChecksum(definition)) {
       throw new DatabaseMigrationError(
-        `数据库迁移 ${recorded.version} 的定义已变化，已停止启动以保护数据`,
+        `Datenbankmigration ${recorded.version} Definition geändert und Start gestoppt, um Daten zu schützen`,
         recorded.version,
       );
     }

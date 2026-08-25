@@ -14,10 +14,10 @@ export async function POST(request: Request, context: { params: Promise<{ messag
     const { messageId } = await context.params;
     const body = await request.json().catch(() => null) as { action?: unknown; instruction?: unknown } | null;
     if (!body || typeof body.action !== "string" || !allowedActions.has(body.action as MailAiAction)) {
-      throw new AiProviderError("AI 邮件操作无效", "INVALID_REQUEST", 400);
+      throw new AiProviderError("Ungültiger AI-Mail-Betrieb", "INVALID_REQUEST", 400);
     }
     if (body.instruction !== undefined && typeof body.instruction !== "string") {
-      throw new AiProviderError("回复要求格式无效", "INVALID_REQUEST", 400);
+      throw new AiProviderError("das Antwort-Anfrage-Format ist nicht gültig", "INVALID_REQUEST", 400);
     }
     const result = await generateMailAiResult(messageId, body.action as MailAiAction, body.instruction, request.signal);
     return NextResponse.json({ ok: true, result });

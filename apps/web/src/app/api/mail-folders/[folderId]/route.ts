@@ -28,7 +28,7 @@ export async function PATCH(request: Request, context: FolderRouteContext) {
     if (input?.action === "move" && (input.parentFolderId === undefined || typeof input.parentFolderId === "string")) {
       return NextResponse.json({ ok: true, result: await moveMailFolder(folderId, input.parentFolderId) });
     }
-    return NextResponse.json({ message: "不支持的文件夹操作" }, { status: 400 });
+    return NextResponse.json({ message: "nicht unterstützte Ordner-Operationen" }, { status: 400 });
   } catch (error) {
     return folderErrorResponse(error);
   }
@@ -47,5 +47,5 @@ function folderErrorResponse(error: unknown) {
   if (error instanceof MailFolderActionError) {
     return NextResponse.json({ ok: false, code: error.code, message: error.message }, { status: error.status });
   }
-  return NextResponse.json({ ok: false, message: "邮件文件夹操作失败" }, { status: 500 });
+  return NextResponse.json({ ok: false, message: "Mail-Ordner-Operation fehlgeschlagen" }, { status: 500 });
 }

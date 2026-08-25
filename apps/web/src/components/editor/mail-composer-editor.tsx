@@ -37,23 +37,23 @@ const MailToolbarKit = [
     key: 'mail-fixed-toolbar',
     render: {
       beforeEditable: () => (
-        <FixedToolbar className="mail-compose-toolbar" aria-label="邮件格式工具栏">
+        <FixedToolbar className="mail-compose-toolbar" aria-label="Werkzeugleiste für das Mailformat">
           <ToolbarGroup>
             <UndoToolbarButton />
             <RedoToolbarButton />
           </ToolbarGroup>
           <ToolbarGroup>
-            <MarkToolbarButton aria-label="加粗" nodeType={KEYS.bold} tooltip="加粗 (⌘+B)"><BoldIcon /></MarkToolbarButton>
-            <MarkToolbarButton aria-label="斜体" nodeType={KEYS.italic} tooltip="斜体 (⌘+I)"><ItalicIcon /></MarkToolbarButton>
-            <MarkToolbarButton aria-label="下划线" nodeType={KEYS.underline} tooltip="下划线 (⌘+U)"><UnderlineIcon /></MarkToolbarButton>
-            <MarkToolbarButton aria-label="删除线" nodeType={KEYS.strikethrough} tooltip="删除线"><StrikethroughIcon /></MarkToolbarButton>
-            <FontColorToolbarButton nodeType={KEYS.color} tooltip="文字颜色"><BaselineIcon /></FontColorToolbarButton>
-            <FontColorToolbarButton nodeType={KEYS.backgroundColor} tooltip="背景颜色"><PaintBucketIcon /></FontColorToolbarButton>
+            <MarkToolbarButton aria-label="dicker" nodeType={KEYS.bold} tooltip="dicker (B)"><BoldIcon /></MarkToolbarButton>
+            <MarkToolbarButton aria-label="kursiv" nodeType={KEYS.italic} tooltip="kursiv (I)"><ItalicIcon /></MarkToolbarButton>
+            <MarkToolbarButton aria-label="unterstrichen" nodeType={KEYS.underline} tooltip="Unterstrichen ()"><UnderlineIcon /></MarkToolbarButton>
+            <MarkToolbarButton aria-label="Streik" nodeType={KEYS.strikethrough} tooltip="Streik"><StrikethroughIcon /></MarkToolbarButton>
+            <FontColorToolbarButton nodeType={KEYS.color} tooltip="Farbe des Textes"><BaselineIcon /></FontColorToolbarButton>
+            <FontColorToolbarButton nodeType={KEYS.backgroundColor} tooltip="Hintergrundfarbe"><PaintBucketIcon /></FontColorToolbarButton>
           </ToolbarGroup>
           <ToolbarGroup>
             <NumberedListToolbarButton />
             <BulletedListToolbarButton />
-            <LinkToolbarButton aria-label="插入链接" />
+            <LinkToolbarButton aria-label="Verknüpfungen einfügen" />
           </ToolbarGroup>
         </FixedToolbar>
       ),
@@ -125,9 +125,9 @@ export function MailComposerEditor({
         <Editor
           className="mail-compose-content"
           variant="none"
-        aria-label="邮件正文"
+        aria-label="E-Mail-Stelle"
         disabled={disabled}
-        placeholder="写下邮件内容…"
+        placeholder="Mail-Inhalte schreiben..."
         autoFocus
         onPaste={(event) => {
           if (!onPasteImages || disabled) return;

@@ -57,7 +57,7 @@ export async function discoverAiModels(
     provider.requestTimeoutMs,
   );
   const body = asRecord(await readJson(response));
-  if (!Array.isArray(body.data)) throw new AiProviderError("AI API 的模型列表格式不兼容", "AI_MODELS_INVALID", 502);
+  if (!Array.isArray(body.data)) throw new AiProviderError("das Modelllistenformat der AI API ist nicht kompatibel", "AI_MODELS_INVALID", 502);
   const seen = new Set<string>();
   return body.data.flatMap((value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return [];
@@ -138,7 +138,7 @@ export async function testAiModelCapabilities(
       tool_choice: { type: "function", function: { name: "health_check" } },
       stream: false,
     });
-    if (!containsToolCall(response)) throw new AiProviderError("模型未返回工具调用", "AI_TOOL_UNSUPPORTED", 502);
+    if (!containsToolCall(response)) throw new AiProviderError("das Modell gab keinen Werkzeugaufruf zurück", "AI_TOOL_UNSUPPORTED", 502);
   });
   return {
     latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
@@ -188,7 +188,7 @@ export async function* streamAiChat(input: {
   if (!contentType.includes("text/event-stream")) {
     const json = await readJson(response);
     const text = extractCompleteText(json);
-    if (!text) throw new AiProviderError("模型没有返回文本内容", "AI_EMPTY_RESPONSE", 502);
+    if (!text) throw new AiProviderError("das Modell gibt keinen Textinhalt zurück", "AI_EMPTY_RESPONSE", 502);
     yield { type: "text", text };
     const usage = extractUsage(json);
     if (usage.promptTokens !== undefined || usage.completionTokens !== undefined) yield { type: "usage", ...usage };
@@ -207,7 +207,7 @@ export async function* streamAiChat(input: {
     const usage = extractUsage(payload);
     if (usage.promptTokens !== undefined || usage.completionTokens !== undefined) yield { type: "usage", ...usage };
   }
-  if (!receivedText) throw new AiProviderError("模型没有返回文本内容", "AI_EMPTY_RESPONSE", 502);
+  if (!receivedText) throw new AiProviderError("das Modell gibt keinen Textinhalt zurück", "AI_EMPTY_RESPONSE", 502);
 }
 
 async function postJson(
@@ -238,7 +238,7 @@ async function postStream(
   const contentType = response.headers.get("content-type") ?? "";
   const text = await readTextLimited(response, 256 * 1024);
   if (!contentType.includes("text/event-stream") && !/^data:/m.test(text)) {
-    throw new AiProviderError("模型未返回流式响应", "AI_STREAM_UNSUPPORTED", 502);
+    throw new AiProviderError("Das Modell gibt keine Reaktion auf den Durchfluss zurück", "AI_STREAM_UNSUPPORTED", 502);
   }
 }
 
@@ -246,7 +246,7 @@ async function aiFetch(url: string, init: RequestInit, timeoutMs: number): Promi
   try {
     const response = await fetch(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
     if (response.status >= 300 && response.status < 400) {
-      throw new AiProviderError("AI API 不允许重定向", "AI_REDIRECT_BLOCKED", 502);
+      throw new AiProviderError("AI API erlaubt keine Umleitung", "AI_REDIRECT_BLOCKED", 502);
     }
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
@@ -266,7 +266,7 @@ async function aiFetchWithSignal(url: string, init: RequestInit, signal: AbortSi
       signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
     });
     if (response.status >= 300 && response.status < 400) {
-      throw new AiProviderError("AI API 不允许重定向", "AI_REDIRECT_BLOCKED", 502);
+      throw new AiProviderError("AI API erlaubt keine Umleitung", "AI_REDIRECT_BLOCKED", 502);
     }
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
@@ -289,7 +289,7 @@ async function readJson(response: Response): Promise<unknown> {
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    throw new AiProviderError("AI API 返回了无法解析的数据", "AI_RESPONSE_INVALID", 502);
+    throw new AiProviderError("KI API lieferte ungeklärte Daten", "AI_RESPONSE_INVALID", 502);
   }
 }
 
@@ -303,7 +303,7 @@ async function readTextLimited(response: Response, limit: number): Promise<strin
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
-      if (total > limit) throw new AiProviderError("AI API 返回的数据过大", "AI_RESPONSE_TOO_LARGE", 502);
+      if (total > limit) throw new AiProviderError("die Daten, die von AI API zurückgegeben werden, sind zu groß", "AI_RESPONSE_TOO_LARGE", 502);
       chunks.push(value);
     }
   } finally {
@@ -326,7 +326,7 @@ async function* readSseEvents(response: Response, limit: number): AsyncGenerator
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
-      if (total > limit) throw new AiProviderError("AI API 返回的数据过大", "AI_RESPONSE_TOO_LARGE", 502);
+      if (total > limit) throw new AiProviderError("die Daten, die von AI API zurückgegeben werden, sind zu groß", "AI_RESPONSE_TOO_LARGE", 502);
       buffer += decoder.decode(value, { stream: true }).replaceAll("\r\n", "\n");
       let boundary = buffer.indexOf("\n\n");
       while (boundary >= 0) {
@@ -424,7 +424,7 @@ async function probe(action: () => Promise<unknown>): Promise<boolean> {
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new AiProviderError("AI API 返回格式不兼容", "AI_RESPONSE_INVALID", 502);
+    throw new AiProviderError("KI API gibt inkompatibles Format zurück", "AI_RESPONSE_INVALID", 502);
   }
   return value as Record<string, unknown>;
 }
@@ -443,10 +443,10 @@ function containsToolCall(value: unknown): boolean {
 }
 
 function httpError(status: number): AiProviderError {
-  if (status === 401) return new AiProviderError("API Key 无效或认证失败", "AI_AUTH_FAILED", 401);
-  if (status === 403) return new AiProviderError("AI API 拒绝访问，请检查权限", "AI_ACCESS_DENIED", 403);
-  if (status === 404) return new AiProviderError("AI API 接口不存在，请检查 Base URL", "AI_ENDPOINT_NOT_FOUND", 502);
-  if (status === 429) return new AiProviderError("AI API 当前达到速率或额度限制", "AI_RATE_LIMITED", 429);
-  if (status >= 500) return new AiProviderError(`AI API 服务异常（HTTP ${status}）`, "AI_UPSTREAM_ERROR", 502);
-  return new AiProviderError(`AI API 请求失败（HTTP ${status}）`, "AI_REQUEST_REJECTED", 502);
+  if (status === 401) return new AiProviderError("API Schlüssel ungültig oder Authentifizierung fehlgeschlagen", "AI_AUTH_FAILED", 401);
+  if (status === 403) return new AiProviderError("AI API verweigert Zugriff, bitte überprüfen Sie die Berechtigungen", "AI_ACCESS_DENIED", 403);
+  if (status === 404) return new AiProviderError("Die KI-API-Schnittstelle existiert nicht.", "AI_ENDPOINT_NOT_FOUND", 502);
+  if (status === 429) return new AiProviderError("KI API erreicht derzeit Geschwindigkeit oder Grenze", "AI_RATE_LIMITED", 429);
+  if (status >= 500) return new AiProviderError(`KI-API-Dienstanomalie (HTTP) ${status}）`, "AI_UPSTREAM_ERROR", 502);
+  return new AiProviderError(`KI-API-Anfrage fehlgeschlagen (HTTP) ${status}）`, "AI_REQUEST_REJECTED", 502);
 }

@@ -35,8 +35,8 @@ export async function POST(request: Request) {
           ok: true,
           checkedAt: new Date().toISOString(),
           latencyMs: Math.round(performance.now() - startedAt),
-          message: `链接有效，读取到 ${snapshot.events.length} 项日程${snapshot.calendarName ? ` · ${snapshot.calendarName}` : ""}`,
-          calendars: [{ name: snapshot.calendarName || "ICS 订阅", readOnly: true }],
+          message: `Verbindung erfolgreich getestet: ${snapshot.events.length} Termin(e) gelesen${snapshot.calendarName ? ` · ${snapshot.calendarName}` : ""}`,
+          calendars: [{ name: snapshot.calendarName || "ICS-Abonnement", readOnly: true }],
         });
       } finally {
         clearTimeout(timeout);
@@ -57,7 +57,7 @@ export async function POST(request: Request) {
           ok: true,
           checkedAt: new Date().toISOString(),
           latencyMs: Math.round(performance.now() - startedAt),
-          message: `Exchange 连接成功 · 日历：${calendar.name} · 邮箱：${inbox?.name ?? "收件箱"}`,
+          message: `Austausch erfolgreich verbunden . Kalender:${calendar.name} . Postfach:${inbox?.name ?? "Posteingang"}`,
           calendars: [{ name: calendar.name, readOnly: true }],
           mail: { enabled: true, folders: folders.length, inboxUnread: inbox?.unreadCount ?? 0 },
         });
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
       ]);
       return NextResponse.json({
         ...result,
-        message: `连接成功，发现 ${calendars.length} 个日历`,
+        message: `erfolgreich verbunden, gefunden ${calendars.length} einen Kalender`,
         calendars: calendars.map((calendar) => ({ name: calendar.name, color: calendar.color, readOnly: calendar.readOnly })),
       });
     } finally {

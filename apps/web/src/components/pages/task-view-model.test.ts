@@ -29,12 +29,12 @@ assert.deepEqual(
 );
 assert.deepEqual(
   resolveNewTaskDefaults("projects", "archived-project", projects),
-  { ok: false, message: "已归档项目不能添加任务" },
+  { ok: false, message: "Aufgaben für archivierte Projekte können nicht hinzugefügt werden" },
   "archived projects reject new tasks",
 );
 assert.deepEqual(
   resolveNewTaskDefaults("projects", "missing-project", projects),
-  { ok: false, message: "项目不存在或已删除" },
+  { ok: false, message: "Projekt nicht gefunden oder gelöscht" },
   "missing projects reject new tasks",
 );
 

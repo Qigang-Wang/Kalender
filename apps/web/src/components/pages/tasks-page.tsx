@@ -154,13 +154,13 @@ interface TaskContextMenuState {
 }
 
 const taskViewCopy: Record<TaskView, string> = {
-  today: "今天",
-  inbox: "收集箱",
-  upcoming: "后续",
-  waiting: "等待",
-  projects: "项目",
-  completed: "已完成",
-  matrix: "四象限",
+  today: "Heute",
+  inbox: "Sammelbox",
+  upcoming: "Folgemaßnahmen",
+  waiting: "Warten",
+  projects: "Projekt",
+  completed: "abgeschlossen",
+  matrix: "vier Quadranten",
 };
 
 export function TasksPage({
@@ -203,14 +203,14 @@ export function TasksPage({
       const tasksPayload = await tasksResponse.json() as { ok: boolean; tasks?: readonly ClientTask[]; message?: string };
       const projectsPayload = await projectsResponse.json() as { ok: boolean; projects?: readonly ClientProject[]; message?: string };
       const collaboratorsPayload = await collaboratorsResponse.json() as { ok: boolean; users?: readonly ClientCollaborator[]; message?: string };
-      if (!tasksResponse.ok || !tasksPayload.ok) throw new Error(tasksPayload.message ?? "无法读取任务");
-      if (!projectsResponse.ok || !projectsPayload.ok) throw new Error(projectsPayload.message ?? "无法读取项目");
+      if (!tasksResponse.ok || !tasksPayload.ok) throw new Error(tasksPayload.message ?? "Aufgabe kann nicht gelesen werden");
+      if (!projectsResponse.ok || !projectsPayload.ok) throw new Error(projectsPayload.message ?? "Projekt kann nicht gelesen werden");
       setTasks(tasksPayload.tasks ?? []);
       setTaskProjects(projectsPayload.projects ?? []);
       if (collaboratorsResponse.ok && collaboratorsPayload.ok) setCollaborators(collaboratorsPayload.users ?? []);
       if (!background) setFeedback(undefined);
     } catch (error) {
-      if (!background) setFeedback(error instanceof Error ? error.message : "无法读取任务");
+      if (!background) setFeedback(error instanceof Error ? error.message : "Aufgabe kann nicht gelesen werden");
     } finally {
       if (!background) setLoading(false);
     }
@@ -238,7 +238,7 @@ export function TasksPage({
       readonly message?: string;
     };
     if (!response.ok || !payload.ok || !payload.task) {
-      throw new Error(payload.message ?? "无法增量刷新任务");
+      throw new Error(payload.message ?? "Aufgaben können nicht schrittweise aktualisiert werden");
     }
     setTasks((current) => {
       const found = current.some((task) => task.id === payload.task!.id);
@@ -274,10 +274,10 @@ export function TasksPage({
     void workspaceFetch("/api/calendars")
       .then(async (response) => {
         const payload = await response.json() as { readonly calendars?: readonly CalendarListItem[]; readonly message?: string };
-        if (!response.ok || !payload.calendars) throw new Error(payload.message ?? "无法读取日历");
+        if (!response.ok || !payload.calendars) throw new Error(payload.message ?? "Kalender kann nicht gelesen werden");
         setTaskCalendars(payload.calendars.filter((calendar) => !calendar.readOnly && calendar.providerData?.providerId === "local-calendar"));
       })
-      .catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "无法读取日历"));
+      .catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Kalender kann nicht gelesen werden"));
   }, []);
   useEffect(() => {
     if (!initialTaskId || openedInitialTask.current || loading) return;
@@ -286,9 +286,9 @@ export function TasksPage({
     if (task) {
       setView(task.status === "inbox" ? "inbox" : task.status === "done" ? "completed" : task.status === "waiting" ? "waiting" : "today");
       setDraft(taskToDraft(task));
-      setFeedback("已打开日程关联的任务");
+      setFeedback("Aufgaben offen für Kalender-Veranstaltungsassoziation");
     } else {
-      setFeedback("关联任务已删除或已完成");
+      setFeedback("Zugehörige Aufgaben gelöscht oder abgeschlossen");
     }
   }, [initialTaskId, loading, tasks]);
   const saveDraft = async () => {
@@ -301,13 +301,13 @@ export function TasksPage({
         body: JSON.stringify(taskDraftPayload(draft)),
       });
       const payload = await response.json() as { ok: boolean; task?: ClientTask; message?: string };
-      if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? "无法保存任务");
+      if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? "Aufgabe kann nicht gespeichert werden");
       setTasks((current) => [payload.task!, ...current.filter((task) => task.id !== payload.task!.id)]);
       window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
       setDraft(undefined);
-      setFeedback(draft.id ? "任务已更新" : "任务已创建");
+      setFeedback(draft.id ? "Aufgabe aktualisiert" : "Aufgabe erstellt");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法保存任务");
+      setFeedback(error instanceof Error ? error.message : "Aufgabe kann nicht gespeichert werden");
     } finally {
       setBusyTaskId(undefined);
     }
@@ -323,12 +323,12 @@ export function TasksPage({
         body: JSON.stringify(taskDraftPayload(nextDraft)),
       });
       const payload = await response.json() as { ok: boolean; task?: ClientTask; message?: string };
-      if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? "无法更新任务");
+      if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? "Temporärer Ordner kann nicht geschlossen werden: %s");
       setTasks((current) => current.map((entry) => entry.id === task.id ? payload.task! : entry));
       window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
-      setFeedback(changes.status === "done" ? "任务已完成" : "任务已更新");
+      setFeedback(changes.status === "done" ? "Erledigte Aufgabe" : "Aufgabe aktualisiert");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法更新任务");
+      setFeedback(error instanceof Error ? error.message : "Temporärer Ordner kann nicht geschlossen werden: %s");
     } finally {
       setBusyTaskId(undefined);
     }
@@ -336,21 +336,21 @@ export function TasksPage({
 
   const deleteTask = async (task: ClientTask) => {
     if (!await appConfirm({
-      title: `删除任务“${task.title}”？`,
-      description: "任务及其日历时间块将被永久删除，此操作无法撤销。",
-      confirmLabel: "删除任务",
+      title: `Aufgaben löschen${task.title}“?`,
+      description: "Die Aufgabe und deren Kalenderblock werden dauerhaft gelöscht und diese Operation kann nicht widerrufen werden.",
+      confirmLabel: "Aufgaben löschen",
       tone: "danger",
     })) return;
     setBusyTaskId(task.id);
     try {
       const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, { method: "DELETE" });
       const payload = await response.json() as { ok: boolean; message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "无法删除任务");
+      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "Aufgabe kann nicht gelöscht werden");
       setTasks((current) => current.filter((entry) => entry.id !== task.id));
       window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
-      setFeedback("任务已删除");
+      setFeedback("Aufgabe gelöscht");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法删除任务");
+      setFeedback(error instanceof Error ? error.message : "Aufgabe kann nicht gelöscht werden");
     } finally {
       setBusyTaskId(undefined);
     }
@@ -366,7 +366,7 @@ export function TasksPage({
       ? taskCalendars.find((entry) => entry.id === block.calendarId)
       : taskCalendars.find((entry) => entry.primary) ?? taskCalendars[0];
     if (!calendar) {
-      setFeedback("没有可写的本地日历");
+      setFeedback("kein lokaler Kalender zum Schreiben");
       return;
     }
     const start = block ? new Date(block.start) : nextCalendarHour(new Date());
@@ -389,7 +389,7 @@ export function TasksPage({
     openedInitialScheduleTask.current = true;
     const task = tasks.find((entry) => entry.id === initialScheduleTaskId);
     if (!task || task.status === "done") {
-      setFeedback("待安排任务不存在或已经完成");
+      setFeedback("Aufgaben, die geplant werden sollen, existieren nicht oder sind bereits abgeschlossen");
       return;
     }
     setView(task.status === "inbox" ? "inbox" : task.status === "waiting" ? "waiting" : "today");
@@ -417,7 +417,7 @@ export function TasksPage({
     const start = new Date(scheduleDraft.startLocal);
     const end = new Date(scheduleDraft.endLocal);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
-      setFeedback("结束时间必须晚于开始时间");
+      setFeedback("Die Endzeit muss später als die Startzeit sein.");
       return;
     }
     setScheduleBusy(true);
@@ -439,16 +439,16 @@ export function TasksPage({
       const payload = await response.json() as { readonly ok?: boolean; readonly task?: ClientTask; readonly conflicts?: readonly TaskScheduleConflict[]; readonly message?: string };
       if (response.status === 409 && payload.conflicts?.length) {
         setScheduleDraft({ ...scheduleDraft, conflicts: payload.conflicts });
-        setFeedback("所选时间与现有日程冲突");
+        setFeedback("die ausgewählten Zeitkonflikte mit dem bestehenden Kalenderereignis");
         return;
       }
-      if (!response.ok || !payload.task) throw new Error(payload.message ?? "无法安排任务");
+      if (!response.ok || !payload.task) throw new Error(payload.message ?? "Aufgabe kann nicht geplant werden");
       setTasks((current) => current.map((entry) => entry.id === payload.task!.id ? payload.task! : entry));
       setScheduleDraft(undefined);
       if (scheduleDraft.returnTaskDraft) setDraft(scheduleDraft.returnTaskDraft);
-      setFeedback(scheduleDraft.eventId ? "任务时间块已更新" : "任务已安排到日历");
+      setFeedback(scheduleDraft.eventId ? "Aufgaben-Zeitblock aktualisiert" : "Aufgabe für den Kalender geplant");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法安排任务");
+      setFeedback(error instanceof Error ? error.message : "Aufgabe kann nicht geplant werden");
     } finally {
       setScheduleBusy(false);
     }
@@ -456,20 +456,20 @@ export function TasksPage({
 
   const deleteTaskTimeBlock = async (task: ClientTask, block: ClientTaskTimeBlock) => {
     if (scheduleBusy || !await appConfirm({
-      title: "删除这个时间块？",
-      description: `${formatTaskBlockRange(block.start, block.end)}\n任务本身会保留，并重新回到待安排状态。`,
-      confirmLabel: "删除时间块",
+      title: "Diesen Zeitblock löschen?",
+      description: `${formatTaskBlockRange(block.start, block.end)}Die \n-Aufgabe selbst wird beibehalten und in vorgeordneten Status zurückgegeben.`,
+      confirmLabel: "Zeitblock löschen",
       tone: "danger",
     })) return;
     setScheduleBusy(true);
     try {
       const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}/schedule/${encodeURIComponent(block.eventId)}`, { method: "DELETE" });
       const payload = await response.json() as { readonly ok?: boolean; readonly task?: ClientTask; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? "无法删除时间块");
+      if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? "Zeitblock kann nicht gelöscht werden");
       setTasks((current) => current.map((entry) => entry.id === payload.task!.id ? payload.task! : entry));
-      setFeedback("时间块已删除，任务仍然保留");
+      setFeedback("Zeitblock gelöscht und Aufgabe beibehalten");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法删除时间块");
+      setFeedback(error instanceof Error ? error.message : "Zeitblock kann nicht gelöscht werden");
     } finally {
       setScheduleBusy(false);
     }
@@ -535,20 +535,20 @@ export function TasksPage({
   return (
     <div className="task-workspace">
       <div className="task-view-toolbar">
-        <nav className="task-view-tabs" aria-label="任务视图">
+        <nav className="task-view-tabs" aria-label="Aufgabenansicht">
           {taskViews.map((item) => {
             const Icon = item === "today" ? CalendarClock : item === "inbox" ? Inbox : item === "upcoming" ? CalendarDays : item === "waiting" ? Pause : item === "projects" ? FolderPlus : item === "completed" ? CheckCircle2 : LayoutGrid;
             return <button className={view === item ? "active" : ""} key={item} onClick={() => setView(item)}><Icon size={15} />{taskViewCopy[item]}<span>{viewCounts[item]}</span></button>;
           })}
         </nav>
         <div className="task-view-actions">
-          <button className="secondary-button" onClick={openNewTask}><Plus size={15} />添加任务</button>
+          <button className="secondary-button" onClick={openNewTask}><Plus size={15} />Aufgaben hinzufügen</button>
         </div>
       </div>
 
       {feedback && <TransientToast message={feedback} onClose={() => setFeedback(undefined)} />}
       {loading ? (
-        <div className="task-loading"><LoaderCircle className="spin" size={17} />正在读取任务…</div>
+        <div className="task-loading"><LoaderCircle className="spin" size={17} />Aufgabe lesen...</div>
       ) : view === "matrix" ? (
         <TaskMatrix tasks={matrixTasks} busyTaskId={busyTaskId} onComplete={(task) => void updateTask(task, { status: "done" })} onEdit={(task) => setDraft(taskToDraft(task))} onMenu={openTaskMenu} onMove={(task, important, urgent) => void updateTask(task, { important, urgencyMode: urgent ? "urgent" : "not_urgent" })} />
       ) : view === "projects" ? (
@@ -560,23 +560,23 @@ export function TasksPage({
       ) : (
         <section className="panel task-empty-state">
           <div><CheckCircle2 size={22} /></div>
-          <h3>{view === "inbox" ? "任务收集箱是空的" : view === "completed" ? "还没有已完成任务" : view === "waiting" ? "没有等待事项" : view === "upcoming" ? "没有后续截止任务" : "今天没有紧急任务"}</h3>
-          <p>{view === "inbox" ? "先快速记下来，稍后再设置项目、截止时间和优先级。" : view === "completed" ? "完成任务后会在这里保留记录，也可以重新打开。" : view === "waiting" ? "将依赖他人的任务设为等待中，方便集中跟进。" : view === "upcoming" ? "给任务设置今天之后的截止时间，就会出现在这里。" : "可以从四象限里挑一项重要但不紧急的任务安排时间。"}</p>
-          <button className="primary-button" onClick={() => setDraft(createEmptyTaskDraft(view === "inbox" ? "inbox" : "next"))}><Plus size={15} />新建任务</button>
+          <h3>{view === "inbox" ? "Task-Collection-Box ist leer" : view === "completed" ? "Noch nicht abgeschlossen" : view === "waiting" ? "Nein, warte nicht." : view === "upcoming" ? "keine Folgeabschaltungsaufgabe" : "keine Notfallaufgabe heute"}</h3>
+          <p>{view === "inbox" ? "UI-Text: Schreiben Sie es schnell auf, bevor Sie Projekte, Fristen und Prioritäten zu einem späteren Zeitpunkt festlegen." : view === "completed" ? "Aufzeichnungen werden hier nach Abschluss der Aufgabe aufbewahrt und können auch wieder geöffnet werden." : view === "waiting" ? "Aufgaben, die von anderen abhängen, werden auf Eis gelegt, um zentralisierte Folgemaßnahmen zu erleichtern." : view === "upcoming" ? "Die Frist für die Festlegung der Aufgabe nach heute wird hier erscheinen." : "Ein wichtiger, aber nicht dringender Aufgabenplan kann aus einem vier Quadranten ausgewählt werden."}</p>
+          <button className="primary-button" onClick={() => setDraft(createEmptyTaskDraft(view === "inbox" ? "inbox" : "next"))}><Plus size={15} />neue Aufgabe</button>
         </section>
       )}
 
       {draft && (
         <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busyTaskId) setDraft(undefined); }}>
           <section className="calendar-dialog task-dialog panel" role="dialog" aria-modal="true" aria-labelledby="task-dialog-title">
-            <header><div><h2 id="task-dialog-title">{draft.id ? "编辑任务" : "新建任务"}</h2></div><button aria-label="关闭" onClick={() => setDraft(undefined)} disabled={Boolean(busyTaskId)}><X size={18} /></button></header>
+            <header><div><h2 id="task-dialog-title">{draft.id ? "Aufgaben bearbeiten" : "neue Aufgabe"}</h2></div><button aria-label="Schließen" onClick={() => setDraft(undefined)} disabled={Boolean(busyTaskId)}><X size={18} /></button></header>
             <div className="task-form">
-              <label className="task-title-field"><span>任务标题</span><input autoFocus value={draft.title} maxLength={240} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="要完成什么？" /></label>
-              <label><span>状态</span><AppSelect ariaLabel="任务状态" value={draft.status} onValueChange={(status) => setDraft({ ...draft, status: status as TaskStatus })} options={[{ value: "inbox", label: "Inbox · 待整理" }, { value: "next", label: "下一步" }, { value: "waiting", label: "等待中" }, { value: "someday", label: "以后也许" }, { value: "done", label: "已完成" }]} /></label>
-              <label><span>紧急程度</span><AppSelect ariaLabel="紧急程度" value={draft.urgencyMode} onValueChange={(urgencyMode) => setDraft({ ...draft, urgencyMode: urgencyMode as TaskUrgencyMode })} options={[{ value: "auto", label: "自动（按截止时间）" }, { value: "urgent", label: "紧急" }, { value: "not_urgent", label: "不紧急" }]} /></label>
-              <DateTimeField label="截止时间" value={draft.dueAt} onChange={(dueAt) => setDraft({ ...draft, dueAt })} />
-              <label><span>预计时长（分钟）</span><input type="number" min="5" max="1440" step="5" value={draft.estimatedMinutes} onChange={(event) => setDraft({ ...draft, estimatedMinutes: event.target.value })} placeholder="例如 45" /></label>
-              <label className="task-project-field"><span>项目</span><AppSelect ariaLabel="任务所属项目" value={draft.projectId || (draft.projectName ? "__legacy__" : "")} onValueChange={(projectId) => {
+              <label className="task-title-field"><span>Aufgabentitel</span><input autoFocus value={draft.title} maxLength={240} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="Was willst du erreichen?" /></label>
+              <label><span>Status</span><AppSelect ariaLabel="Status der Aufgaben" value={draft.status} onValueChange={(status) => setDraft({ ...draft, status: status as TaskStatus })} options={[{ value: "inbox", label: "Posteingang - zu vereinigen" }, { value: "next", label: "Weiter" }, { value: "waiting", label: "warten" }, { value: "someday", label: "Vielleicht später." }, { value: "done", label: "abgeschlossen" }]} /></label>
+              <label><span>Dringlichkeitsgrad</span><AppSelect ariaLabel="Dringlichkeitsgrad" value={draft.urgencyMode} onValueChange={(urgencyMode) => setDraft({ ...draft, urgencyMode: urgencyMode as TaskUrgencyMode })} options={[{ value: "auto", label: "automatisch (nach Ablauf der Frist)" }, { value: "urgent", label: "Notfall" }, { value: "not_urgent", label: "Kein Notfall" }]} /></label>
+              <DateTimeField label="Fälligkeitsdatum" value={draft.dueAt} onChange={(dueAt) => setDraft({ ...draft, dueAt })} />
+              <label><span>voraussichtliche Dauer (Minuten)</span><input type="number" min="5" max="1440" step="5" value={draft.estimatedMinutes} onChange={(event) => setDraft({ ...draft, estimatedMinutes: event.target.value })} placeholder="z.B. 45" /></label>
+              <label className="task-project-field"><span>Projekt</span><AppSelect ariaLabel="aufgabenbeteiligte Projekte" value={draft.projectId || (draft.projectName ? "__legacy__" : "")} onValueChange={(projectId) => {
                 const project = taskProjects.find((entry) => entry.id === projectId);
                 setDraft({
                   ...draft,
@@ -584,20 +584,20 @@ export function TasksPage({
                   projectName: project?.name ?? "",
                   areaName: project?.areaName ?? (projectId ? draft.areaName : ""),
                 });
-              }} options={[{ value: "", label: "无项目" }, ...(draft.projectName && !draft.projectId ? [{ value: "__legacy__", label: `旧标签 · ${draft.projectName}`, disabled: true }] : []), ...taskProjects.map((project) => ({ value: project.id, label: `${project.name}${project.areaName ? ` · ${project.areaName}` : ""}${project.status === "archived" ? " · 已归档" : ""}`, disabled: project.status === "archived" && project.id !== draft.projectId }))]} /></label>
-              <label className="task-important-field"><input type="checkbox" checked={draft.important} onChange={(event) => setDraft({ ...draft, important: event.target.checked })} /><Star size={15} fill={draft.important ? "currentColor" : "none"} /><span>这是重要任务</span></label>
+              }} options={[{ value: "", label: "keine Projekte" }, ...(draft.projectName && !draft.projectId ? [{ value: "__legacy__", label: `Alte Tabs . ${draft.projectName}`, disabled: true }] : []), ...taskProjects.map((project) => ({ value: project.id, label: `${project.name}${project.areaName ? ` · ${project.areaName}` : ""}${project.status === "archived" ? " · Archiviert" : ""}`, disabled: project.status === "archived" && project.id !== draft.projectId }))]} /></label>
+              <label className="task-important-field"><input type="checkbox" checked={draft.important} onChange={(event) => setDraft({ ...draft, important: event.target.checked })} /><Star size={15} fill={draft.important ? "currentColor" : "none"} /><span>Dies ist eine wichtige Aufgabe</span></label>
               <details className="task-advanced-options">
-                <summary><span>更多选项{draft.areaName || draft.assigneeUserId || draft.notes ? " · 已填写" : ""}</span><ChevronDown size={16} /></summary>
+                <summary><span>mehr Optionen{draft.areaName || draft.assigneeUserId || draft.notes ? " . . . . . . . . . . ." : ""}</span><ChevronDown size={16} /></summary>
                 <div>
-                  <label><span>领域{draft.projectId ? " · 由项目继承" : ""}</span><input value={draft.areaName} maxLength={100} disabled={Boolean(draft.projectId)} onChange={(event) => setDraft({ ...draft, areaName: event.target.value })} placeholder="例如 工作 / 个人" /></label>
-                  <label><span>指派给</span><AppSelect ariaLabel="任务负责人" value={draft.assigneeUserId} onValueChange={(assigneeUserId) => setDraft({ ...draft, assigneeUserId })} options={[{ value: "", label: "未指派" }, ...collaborators.map((user) => ({ value: user.id, label: `${user.displayName} · ${user.email}` }))]} /></label>
-                  <label className="task-notes-field"><span>备注</span><textarea value={draft.notes} maxLength={10_000} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="补充完成标准、等待事项或下一步…" /></label>
+                  <label><span>Bereich{draft.projectId ? " · Nach Projekt vererbt" : ""}</span><input value={draft.areaName} maxLength={100} disabled={Boolean(draft.projectId)} onChange={(event) => setDraft({ ...draft, areaName: event.target.value })} placeholder="z.B. Arbeit/Einzelperson" /></label>
+                  <label><span>zugewiesen</span><AppSelect ariaLabel="Mandatsinhaber" value={draft.assigneeUserId} onValueChange={(assigneeUserId) => setDraft({ ...draft, assigneeUserId })} options={[{ value: "", label: "nicht zugeordnet" }, ...collaborators.map((user) => ({ value: user.id, label: `${user.displayName} · ${user.email}` }))]} /></label>
+                  <label className="task-notes-field"><span>Notizen</span><textarea value={draft.notes} maxLength={10_000} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="Ergänzen von Standards, Warten oder Nächsten..." /></label>
                 </div>
               </details>
-              {editingTask && <section className="task-time-blocks"><header><div><CalendarClock size={15} /><span>专注时间</span><em>{editingTask.scheduledBlocks.length}</em></div><button type="button" className="secondary-button" onClick={() => openSchedule(editingTask, undefined, true)}><Plus size={14} />添加时间</button></header>{editingTask.scheduledBlocks.length ? <div>{editingTask.scheduledBlocks.map((block) => <article key={block.eventId}><Link href={block.href}><CalendarClock size={14} /><span><strong>{formatTaskBlockRange(block.start, block.end)}</strong><small>{block.calendarName}</small></span></Link><button type="button" aria-label={`调整时间：${formatTaskBlockRange(block.start, block.end)}`} title="调整时间" onClick={() => openSchedule(editingTask, block, true)}><Pencil size={14} /></button><button type="button" className="danger-button" aria-label={`删除时间块：${formatTaskBlockRange(block.start, block.end)}`} title="删除时间块" disabled={scheduleBusy} onClick={() => void deleteTaskTimeBlock(editingTask, block)}><Trash2 size={14} /></button></article>)}</div> : <p>尚未安排专注时间。可以添加多个时间块，也可以稍后拖入日历。</p>}</section>}
-              {draft.id && <RelatedContentPanel kind="task" entityId={draft.id} emptyText="这个任务还没有关联来源或时间块。" />}
+              {editingTask && <section className="task-time-blocks"><header><div><CalendarClock size={15} /><span>Zeit im Fokus</span><em>{editingTask.scheduledBlocks.length}</em></div><button type="button" className="secondary-button" onClick={() => openSchedule(editingTask, undefined, true)}><Plus size={14} />Zeit hinzufügen</button></header>{editingTask.scheduledBlocks.length ? <div>{editingTask.scheduledBlocks.map((block) => <article key={block.eventId}><Link href={block.href}><CalendarClock size={14} /><span><strong>{formatTaskBlockRange(block.start, block.end)}</strong><small>{block.calendarName}</small></span></Link><button type="button" aria-label={`Zeit anpassen:${formatTaskBlockRange(block.start, block.end)}`} title="Zeit anpassen" onClick={() => openSchedule(editingTask, block, true)}><Pencil size={14} /></button><button type="button" className="danger-button" aria-label={`Zeitblock löschen:${formatTaskBlockRange(block.start, block.end)}`} title="Zeitblock löschen" disabled={scheduleBusy} onClick={() => void deleteTaskTimeBlock(editingTask, block)}><Trash2 size={14} /></button></article>)}</div> : <p>Es wurde keine Fokuszeit geplant. Sie können mehrere Zeitblöcke hinzufügen oder später in den Kalender ziehen.</p>}</section>}
+              {draft.id && <RelatedContentPanel kind="task" entityId={draft.id} emptyText="Diese Aufgabe hat keine zugehörige Quelle oder Zeitblock." />}
             </div>
-            <footer><div><button className="secondary-button" disabled={Boolean(busyTaskId)} onClick={() => setDraft(undefined)}>取消</button><button className="primary-button" disabled={Boolean(busyTaskId) || !draft.title.trim()} onClick={() => void saveDraft()}>{busyTaskId && <LoaderCircle className="spin" size={15} />}{draft.id ? "保存修改" : "创建任务"}</button></div></footer>
+            <footer><div><button className="secondary-button" disabled={Boolean(busyTaskId)} onClick={() => setDraft(undefined)}>Abbrechen</button><button className="primary-button" disabled={Boolean(busyTaskId) || !draft.title.trim()} onClick={() => void saveDraft()}>{busyTaskId && <LoaderCircle className="spin" size={15} />}{draft.id ? "Änderungen speichern" : "Aufgabe erstellen"}</button></div></footer>
           </section>
         </div>
       )}
@@ -605,15 +605,15 @@ export function TasksPage({
       {scheduleDraft && (
         <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !scheduleBusy) setScheduleDraft(undefined); }}>
           <section className="calendar-dialog task-schedule-dialog panel" role="dialog" aria-modal="true" aria-labelledby="task-schedule-title">
-            <header><div><h2 id="task-schedule-title">{scheduleDraft.eventId ? "调整安排" : "安排到日历"}</h2></div><button aria-label="关闭" onClick={() => { if (scheduleDraft.returnTaskDraft) setDraft(scheduleDraft.returnTaskDraft); setScheduleDraft(undefined); }} disabled={scheduleBusy}><X size={18} /></button></header>
+            <header><div><h2 id="task-schedule-title">{scheduleDraft.eventId ? "Anpassungsmodalitäten" : "Zeitplan für den Kalender"}</h2></div><button aria-label="Schließen" onClick={() => { if (scheduleDraft.returnTaskDraft) setDraft(scheduleDraft.returnTaskDraft); setScheduleDraft(undefined); }} disabled={scheduleBusy}><X size={18} /></button></header>
             <div className="task-schedule-summary"><ListChecks size={17} /><strong>{scheduleDraft.taskTitle}</strong></div>
             <div className="calendar-form task-schedule-form">
-              <DateTimeField label="开始" value={scheduleDraft.startLocal} onChange={changeScheduleStart} />
-              <DateTimeField label="结束" value={scheduleDraft.endLocal} onChange={(value) => { setScheduleDraft((current) => current ? { ...current, endLocal: value, conflicts: [] } : current); }} />
-              <label className="calendar-title-field"><span>日历</span><AppSelect ariaLabel="安排到日历" value={scheduleDraft.calendarId} onValueChange={(calendarId) => setScheduleDraft((current) => current ? { ...current, calendarId, conflicts: [] } : current)} options={taskCalendars.map((calendar) => ({ value: calendar.id, label: calendar.name }))} /></label>
+              <DateTimeField label="Anfang" value={scheduleDraft.startLocal} onChange={changeScheduleStart} />
+              <DateTimeField label="Ende" value={scheduleDraft.endLocal} onChange={(value) => { setScheduleDraft((current) => current ? { ...current, endLocal: value, conflicts: [] } : current); }} />
+              <label className="calendar-title-field"><span>Kalender</span><AppSelect ariaLabel="Zeitplan für den Kalender" value={scheduleDraft.calendarId} onValueChange={(calendarId) => setScheduleDraft((current) => current ? { ...current, calendarId, conflicts: [] } : current)} options={taskCalendars.map((calendar) => ({ value: calendar.id, label: calendar.name }))} /></label>
             </div>
-            {scheduleDraft.conflicts.length > 0 && <div className="task-schedule-conflicts" role="alert"><header><AlertCircle size={16} /><strong>发现时间冲突</strong></header>{scheduleDraft.conflicts.map((conflict) => <div key={conflict.id}><span>{formatTaskBlockRange(conflict.start, conflict.end)}</span><strong>{conflict.title}</strong></div>)}<p>你可以修改时间，或者确认仍然安排。</p></div>}
-            <footer><div><button className="secondary-button" disabled={scheduleBusy} onClick={() => { if (scheduleDraft.returnTaskDraft) setDraft(scheduleDraft.returnTaskDraft); setScheduleDraft(undefined); }}>取消</button><button className={scheduleDraft.conflicts.length ? "danger-confirm-button" : "primary-button"} disabled={scheduleBusy} onClick={() => void saveSchedule(scheduleDraft.conflicts.length > 0)}>{scheduleBusy && <LoaderCircle className="spin" size={15} />}{scheduleDraft.conflicts.length ? "仍然安排" : scheduleDraft.eventId ? "保存时间" : "创建时间块"}</button></div></footer>
+            {scheduleDraft.conflicts.length > 0 && <div className="task-schedule-conflicts" role="alert"><header><AlertCircle size={16} /><strong>Zeitkonflikt erkannt</strong></header>{scheduleDraft.conflicts.map((conflict) => <div key={conflict.id}><span>{formatTaskBlockRange(conflict.start, conflict.end)}</span><strong>{conflict.title}</strong></div>)}<p>Sie können die Zeit ändern oder bestätigen, dass sie noch angeordnet ist.</p></div>}
+            <footer><div><button className="secondary-button" disabled={scheduleBusy} onClick={() => { if (scheduleDraft.returnTaskDraft) setDraft(scheduleDraft.returnTaskDraft); setScheduleDraft(undefined); }}>Abbrechen</button><button className={scheduleDraft.conflicts.length ? "danger-confirm-button" : "primary-button"} disabled={scheduleBusy} onClick={() => void saveSchedule(scheduleDraft.conflicts.length > 0)}>{scheduleBusy && <LoaderCircle className="spin" size={15} />}{scheduleDraft.conflicts.length ? "Immer noch arrangiert" : scheduleDraft.eventId ? "Zeitersparnis" : "Zeitblock erstellen"}</button></div></footer>
           </section>
         </div>
       )}
@@ -621,7 +621,7 @@ export function TasksPage({
       {menu && menuTask && (
         <ContextMenu
           anchor={{ x: menu.x, y: menu.y }}
-          ariaLabel="任务操作"
+          ariaLabel="Aufgaben"
           commands={resolveContextCommands({ kind: "task", id: menuTask.id, title: menuTask.title, busy: busyTaskId === menuTask.id, important: menuTask.important, urgent: menuTask.isUrgent, waiting: menuTask.status === "waiting", hasMailSource: menuTask.sourceReferences.some((source) => source.kind === "mail") })}
           heading={menuTask.title}
           returnFocus={menu.returnFocus}
@@ -653,7 +653,7 @@ function TaskProjectGroups({ projects, selectedProjectId, tasks, busyTaskId, onC
   ));
   if (!visibleProjects.length && !legacyGroups.length) {
     const selectedProject = projects.find((project) => project.id === selectedProjectId);
-    return <section className="panel task-empty-state"><div><FolderPlus size={22} /></div><h3>{selectedProject ? `${selectedProject.name} 暂无任务` : "还没有项目任务"}</h3><p>{selectedProject ? "在新建或编辑任务时选择这个项目，任务会显示在这里。" : "在任务详情中选择一个项目，相关行动会自动汇总到这里。"}</p></section>;
+    return <section className="panel task-empty-state"><div><FolderPlus size={22} /></div><h3>{selectedProject ? `${selectedProject.name} zur Zeit keine Aufgabe` : "keine Projektaufgabe verfügbar"}</h3><p>{selectedProject ? "Wählen Sie dieses Projekt beim Erstellen oder Bearbeiten einer Aufgabe aus, die hier angezeigt wird." : "Wählen Sie in den Aufgabendetails ein Projekt aus, das hier automatisch aggregiert wird."}</p></section>;
   }
   return <div className="task-project-groups">
     {visibleProjects.map((project) => {
@@ -662,7 +662,7 @@ function TaskProjectGroups({ projects, selectedProjectId, tasks, busyTaskId, onC
     })}
     {legacyGroups.map((projectName) => {
       const entries = tasks.filter((task) => !task.projectId && task.projectName === projectName);
-      return <section className="panel" key={`legacy:${projectName}`}><header><div><FolderPlus size={15} /><strong>{projectName}</strong><small>旧分组</small></div><span>{entries.length}</span></header>{entries.map((task) => <TaskCard task={task} key={task.id} busy={busyTaskId === task.id} onComplete={() => onComplete(task)} onEdit={() => onEdit(task)} onMenu={(x, y, returnFocus) => onMenu(task, x, y, returnFocus)} />)}</section>;
+      return <section className="panel" key={`legacy:${projectName}`}><header><div><FolderPlus size={15} /><strong>{projectName}</strong><small>alte Gruppe</small></div><span>{entries.length}</span></header>{entries.map((task) => <TaskCard task={task} key={task.id} busy={busyTaskId === task.id} onComplete={() => onComplete(task)} onEdit={() => onEdit(task)} onMenu={(x, y, returnFocus) => onMenu(task, x, y, returnFocus)} />)}</section>;
     })}
   </div>;
 }
@@ -678,10 +678,10 @@ function TaskMatrix({ tasks, busyTaskId, onComplete, onEdit, onMenu, onMove }: {
   const [draggedTaskId, setDraggedTaskId] = useState<string>();
   const [dropTarget, setDropTarget] = useState<string>();
   const quadrants = [
-    { key: "important-urgent", title: "立即处理", hint: "重要且紧急", important: true, urgent: true },
-    { key: "important-calm", title: "安排时间", hint: "重要但不紧急", important: true, urgent: false },
-    { key: "urgent-light", title: "批量或委托", hint: "紧急但不重要", important: false, urgent: true },
-    { key: "calm-light", title: "减少投入", hint: "不重要且不紧急", important: false, urgent: false },
+    { key: "important-urgent", title: "sofortige Verarbeitung", hint: "Wichtig und dringend", important: true, urgent: true },
+    { key: "important-calm", title: "Zeitplanung", hint: "wichtig, aber nicht dringend", important: true, urgent: false },
+    { key: "urgent-light", title: "Charge oder Kommission", hint: "Notfall, aber nicht wichtig", important: false, urgent: true },
+    { key: "calm-light", title: "reduzierter Eingang", hint: "nicht wichtig und nicht dringend", important: false, urgent: false },
   ] as const;
 
   const finishDrag = () => {
@@ -690,12 +690,12 @@ function TaskMatrix({ tasks, busyTaskId, onComplete, onEdit, onMenu, onMove }: {
   };
 
   return (
-    <div className={`task-matrix panel ${draggedTaskId ? "is-dragging" : ""}`} aria-label="任务四象限">
-      <div className="task-matrix-corner" aria-hidden="true"><LayoutGrid size={16} /><span>重要性</span></div>
-      <div className="task-matrix-column-heading urgent"><strong>紧急</strong><span>需要尽快推进</span></div>
-      <div className="task-matrix-column-heading calm"><strong>不紧急</strong><span>可以计划安排</span></div>
-      <div className="task-matrix-row-heading important"><strong>重要</strong><span>影响目标</span></div>
-      <div className="task-matrix-row-heading light"><strong>不重要</strong><span>影响有限</span></div>
+    <div className={`task-matrix panel ${draggedTaskId ? "is-dragging" : ""}`} aria-label="Aufgabe vier Quadranten">
+      <div className="task-matrix-corner" aria-hidden="true"><LayoutGrid size={16} /><span>Wesentlichkeit</span></div>
+      <div className="task-matrix-column-heading urgent"><strong>Notfall</strong><span>muss so schnell wie möglich vorangebracht werden</span></div>
+      <div className="task-matrix-column-heading calm"><strong>Kein Notfall</strong><span>Sie können planen</span></div>
+      <div className="task-matrix-row-heading important"><strong>Wichtig</strong><span>Wirkungsziel</span></div>
+      <div className="task-matrix-row-heading light"><strong>nicht wichtig</strong><span>Begrenzte Auswirkungen</span></div>
       {quadrants.map((quadrant) => {
         const entries = tasks.filter((task) => task.important === quadrant.important && task.isUrgent === quadrant.urgent);
         const isDropTarget = dropTarget === quadrant.key;
@@ -723,14 +723,14 @@ function TaskMatrix({ tasks, busyTaskId, onComplete, onEdit, onMenu, onMove }: {
               finishDrag();
             }}
           >
-            <header><div><h3>{quadrant.title}</h3><p>{quadrant.hint}</p></div><span aria-label={`${entries.length} 个任务`}>{entries.length}</span></header>
+            <header><div><h3>{quadrant.title}</h3><p>{quadrant.hint}</p></div><span aria-label={`${entries.length} eine Aufgabe`}>{entries.length}</span></header>
             <div className="task-quadrant-list">
               {entries.map((task) => <TaskCard task={task} compact draggable key={task.id} busy={busyTaskId === task.id} dragging={draggedTaskId === task.id} onDragStart={(event) => {
                 event.dataTransfer.effectAllowed = "move";
                 event.dataTransfer.setData("text/plain", task.id);
                 setDraggedTaskId(task.id);
               }} onDragEnd={finishDrag} onComplete={() => onComplete(task)} onEdit={() => onEdit(task)} onMenu={(x, y, returnFocus) => onMenu(task, x, y, returnFocus)} />)}
-              {!entries.length && <div className="task-quadrant-empty"><CheckCircle2 size={17} /><span>{draggedTaskId ? "放到这里" : "暂无任务"}</span></div>}
+              {!entries.length && <div className="task-quadrant-empty"><CheckCircle2 size={17} /><span>{draggedTaskId ? "Hier ist es." : "zur Zeit keine Aufgabe"}</span></div>}
             </div>
           </section>
         );
@@ -756,7 +756,7 @@ function TaskCard({ task, busy, compact, draggable, dragging, onDragStart, onDra
   const scheduledBlock = task.scheduledBlocks[0];
   return (
     <article className={`task-card ${compact ? "compact" : ""} ${draggable ? "draggable" : ""} ${dragging ? "dragging" : ""}`} draggable={draggable && !busy} onDragStart={onDragStart} onDragEnd={onDragEnd} onContextMenu={(event) => { event.preventDefault(); onMenu(event.clientX, event.clientY, event.currentTarget); }}>
-      <button className={`task-check ${task.status === "done" ? "completed" : ""}`} aria-label={`${task.status === "done" ? "重新打开" : "完成"} ${task.title}`} title={task.status === "done" ? "重新打开任务" : "标记为已完成"} disabled={busy} onClick={onComplete}>{busy ? <LoaderCircle className="spin" size={15} /> : task.status === "done" ? <RefreshCw size={15} /> : <Check size={15} />}</button>
+      <button className={`task-check ${task.status === "done" ? "completed" : ""}`} aria-label={`${task.status === "done" ? "Wiedereröffnen" : "Erledigt"} ${task.title}`} title={task.status === "done" ? "Aufgaben wieder öffnen" : "als fertig markiert"} disabled={busy} onClick={onComplete}>{busy ? <LoaderCircle className="spin" size={15} /> : task.status === "done" ? <RefreshCw size={15} /> : <Check size={15} />}</button>
       <button className="task-card-body" onClick={onEdit}>
         <strong>{task.title}</strong>
         <span className="task-card-meta">
@@ -764,15 +764,15 @@ function TaskCard({ task, busy, compact, draggable, dragging, onDragStart, onDra
           {task.estimatedMinutes && <em><Clock3 size={12} />{formatTaskEstimate(task.estimatedMinutes)}</em>}
           {task.projectName && <em>{task.projectName}</em>}
           {task.areaName && <em>{task.areaName}</em>}
-          {task.assigneeDisplayName && <em>指派给 {task.assigneeDisplayName}</em>}
+          {task.assigneeDisplayName && <em>zugewiesen {task.assigneeDisplayName}</em>}
           {source && <em><Link2 size={12} />{source.label}</em>}
-          {scheduledBlock && <em className="scheduled"><CalendarClock size={12} />{task.scheduledBlockCount > 1 ? `已安排 ${task.scheduledBlockCount} 个时间块 · ` : "已安排 "}{formatTaskBlockRange(scheduledBlock.start, scheduledBlock.end)}</em>}
-          {task.status === "waiting" && <em>等待中</em>}
+          {scheduledBlock && <em className="scheduled"><CalendarClock size={12} />{task.scheduledBlockCount > 1 ? `Angeordnet ${task.scheduledBlockCount} einen Zeitblock . ` : "Angeordnet "}{formatTaskBlockRange(scheduledBlock.start, scheduledBlock.end)}</em>}
+          {task.status === "waiting" && <em>warten</em>}
         </span>
       </button>
-      <div className="task-card-flags">{scheduledBlock && <Link className="task-calendar-link" href={scheduledBlock.href} aria-label={`打开安排的日程：${scheduledBlock.title}`} title={`打开安排的日程：${formatTaskBlockRange(scheduledBlock.start, scheduledBlock.end)}`}><CalendarClock size={13} /></Link>}{mailSource && <Link className="task-source-link" href={taskSourceHref(mailSource) ?? "/inbox"} aria-label={`打开关联邮件：${mailSource.label}`} title={`打开关联邮件：${mailSource.label}`}><Mail size={13} /></Link>}{task.important && <Star size={13} fill="currentColor" />}{task.isUrgent && <span>急</span>}</div>
+      <div className="task-card-flags">{scheduledBlock && <Link className="task-calendar-link" href={scheduledBlock.href} aria-label={`Eröffnungsveranstaltung für den Kalender:${scheduledBlock.title}`} title={`Eröffnungsveranstaltung für den Kalender:${formatTaskBlockRange(scheduledBlock.start, scheduledBlock.end)}`}><CalendarClock size={13} /></Link>}{mailSource && <Link className="task-source-link" href={taskSourceHref(mailSource) ?? "/inbox"} aria-label={`Offene Assoziations-E-Mail:${mailSource.label}`} title={`Offene Assoziations-E-Mail:${mailSource.label}`}><Mail size={13} /></Link>}{task.important && <Star size={13} fill="currentColor" />}{task.isUrgent && <span>Dringend</span>}</div>
       {draggable && <GripVertical className="task-drag-indicator" size={14} aria-hidden="true" />}
-      <button className="task-menu-trigger" aria-label={`更多操作：${task.title}`} aria-expanded={false} onClick={(event) => { const bounds = event.currentTarget.getBoundingClientRect(); onMenu(bounds.right, bounds.bottom + 4, event.currentTarget); }}><MoreHorizontal size={15} /></button>
+      <button className="task-menu-trigger" aria-label={`mehr Operationen:${task.title}`} aria-expanded={false} onClick={(event) => { const bounds = event.currentTarget.getBoundingClientRect(); onMenu(bounds.right, bounds.bottom + 4, event.currentTarget); }}><MoreHorizontal size={15} /></button>
     </article>
   );
 }
@@ -829,25 +829,25 @@ function formatTaskBlockRange(startValue: string, endValue: string): string {
   const start = new Date(startValue);
   const end = new Date(endValue);
   const sameDay = start.toDateString() === end.toDateString();
-  const day = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(start);
-  const time = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
-  return `${day} ${time.format(start)}–${sameDay ? time.format(end) : new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(end)}`;
+  const day = new Intl.DateTimeFormat("de-DE", { month: "numeric", day: "numeric" }).format(start);
+  const time = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${day} ${time.format(start)}–${sameDay ? time.format(end) : new Intl.DateTimeFormat("de-DE", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(end)}`;
 }
 
 function formatTaskDue(value: string): string {
   const date = new Date(value);
   const today = new Date();
   const sameDay = date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth() && date.getDate() === today.getDate();
-  return new Intl.DateTimeFormat("zh-CN", sameDay ? { hour: "2-digit", minute: "2-digit", hour12: false } : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  return new Intl.DateTimeFormat("de-DE", sameDay ? { hour: "2-digit", minute: "2-digit", hour12: false } : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
 }
 
 function formatTaskEstimate(minutes: number): string {
-  if (minutes < 60) return `${minutes} 分钟`;
+  if (minutes < 60) return `${minutes} Minuten`;
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
-  return remainder ? `${hours} 小时 ${remainder} 分` : `${hours} 小时`;
+  return remainder ? `${hours} Stunden ${remainder} Minuten` : `${hours} Stunden`;
 }
 
 function taskSourceLabel(kind: ClientTaskSource["kind"]): string {
-  return kind === "mail" ? "邮件" : kind === "calendar" ? "日历" : "笔记";
+  return kind === "mail" ? "E-Mail" : kind === "calendar" ? "Kalender" : "Notiz";
 }

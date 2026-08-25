@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null) as SetupBody | null;
     const password = stringValue(body?.password);
     if (password !== stringValue(body?.confirmPassword)) {
-      throw new AuthError("两次输入的密码不一致", 400);
+      throw new AuthError("Inkonsistente Passwörter zweimal eingegeben", 400);
     }
     const user = await createInitialAdmin({
       displayName: stringValue(body?.displayName),
@@ -36,6 +36,6 @@ function stringValue(value: unknown): string {
 }
 
 function authErrorResponse(error: unknown) {
-  const normalized = error instanceof AuthError ? error : new AuthError("初始化失败", 500);
+  const normalized = error instanceof AuthError ? error : new AuthError("Initialisierung fehlgeschlagen", 500);
   return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
 }

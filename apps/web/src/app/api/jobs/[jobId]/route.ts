@@ -26,7 +26,7 @@ export async function PATCH(request: Request, context: JobRouteContext) {
     const body = await request.json().catch(() => null) as { readonly action?: unknown } | null;
     if (body?.action === "cancel") return NextResponse.json({ ok: true, job: await cancelJob(actor, jobId) });
     if (body?.action === "retry") return NextResponse.json({ ok: true, job: await retryJob(actor, jobId) });
-    throw new JobError("不支持的任务操作");
+    throw new JobError("Nicht unterstützte Aufgaben");
   } catch (error) {
     return jobErrorResponse(error);
   }
@@ -45,11 +45,11 @@ export async function DELETE(_request: Request, context: JobRouteContext) {
 
 async function requireActor() {
   const actor = await getCurrentAppUser();
-  if (!actor) throw new AuthError("请先登录", 401);
+  if (!actor) throw new AuthError("Bitte melden Sie sich zuerst an", 401);
   return actor;
 }
 
 function jobErrorResponse(error: unknown) {
-  const normalized = error instanceof AuthError || error instanceof JobError ? error : new JobError("任务操作失败", 500);
+  const normalized = error instanceof AuthError || error instanceof JobError ? error : new JobError("Aufgabenoperation fehlgeschlagen", 500);
   return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
 }

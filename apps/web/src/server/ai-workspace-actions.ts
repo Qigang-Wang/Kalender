@@ -45,7 +45,7 @@ export async function saveAiActionSettings(actor: AppUser, input: {
   readonly autoExecutionEnabled: boolean;
   readonly highRiskAutoEnabled: boolean;
 }): Promise<Awaited<ReturnType<typeof getAiActionSettings>>> {
-  if (actor.role === "viewer") throw new AiActionError("只读用户不能启用 AI 自动执行", 403);
+  if (actor.role === "viewer") throw new AiActionError("Nur lesende Benutzer können keine automatische KI-Ausführung aktivieren", 403);
   const database = await getDatabase();
   await database.query(
     `INSERT INTO ai_action_settings (user_id, auto_execution_enabled, high_risk_auto_enabled, updated_by_user_id)
@@ -90,7 +90,7 @@ export async function runAiWorkspaceAction(actor: AppUser, action: AiWorkspaceAc
     });
     return result;
   } catch (error) {
-    const message = error instanceof Error && error.message ? error.message : "AI 动作失败";
+    const message = error instanceof Error && error.message ? error.message : "KI-Aktion fehlgeschlagen";
     await database.query(
       `UPDATE ai_action_events SET status = 'failed', error_message = $2, finished_at = now() WHERE id = $1`,
       [eventId, message],
@@ -101,20 +101,20 @@ export async function runAiWorkspaceAction(actor: AppUser, action: AiWorkspaceAc
 
 export async function runAiActionJob(job: AppJob): Promise<Readonly<Record<string, unknown>>> {
   const actorId = typeof job.payload.actorUserId === "string" ? job.payload.actorUserId : job.userId;
-  if (!actorId) throw new AiActionError("AI 动作缺少用户");
+  if (!actorId) throw new AiActionError("der KI-Aktion fehlt ein Benutzer");
   const actor = await loadActor(actorId);
   const action = parseAction(job.payload.action);
   const input = job.payload.input && typeof job.payload.input === "object" && !Array.isArray(job.payload.input)
     ? job.payload.input as Record<string, unknown>
     : {};
-  await appendJobLog(job.id, `AI 执行动作：${action}`);
+  await appendJobLog(job.id, `KI führt Aktionen durch:${action}`);
   return runAiWorkspaceAction(actor, action, input);
 }
 
 async function executeAction(actor: AppUser, action: AiWorkspaceAction, input: Readonly<Record<string, unknown>>): Promise<Readonly<Record<string, unknown>>> {
   const database = await getDatabase();
   if (action === "workspace.search") {
-    const query = requiredString(input.query, "搜索内容");
+    const query = requiredString(input.query, "Suche nach Inhalten");
     const results = await searchWorkspace(query, { kind: searchKind(stringInput(input.kind)), limit: 8 });
     return { results: results.slice(0, 8) };
   }
@@ -126,7 +126,7 @@ async function executeAction(actor: AppUser, action: AiWorkspaceAction, input: R
       [
         id,
         actor.id,
-        requiredString(input.title, "任务标题").slice(0, 240),
+        requiredString(input.title, "Aufgabentitel").slice(0, 240),
         stringInput(input.notes) ?? "",
         safeTaskStatus(input.status),
         input.important === true,
@@ -139,14 +139,14 @@ async function executeAction(actor: AppUser, action: AiWorkspaceAction, input: R
     return { taskId: id, href: `/tasks?task=${encodeURIComponent(id)}` };
   }
   if (action === "task.update-status") {
-    const taskId = requiredString(input.taskId, "任务");
+    const taskId = requiredString(input.taskId, "Aufgabe");
     const status = safeTaskStatus(input.status);
     const result = await database.query(
       `UPDATE tasks SET status = $3, completed_at = CASE WHEN $3 = 'done' THEN now() ELSE NULL END, updated_at = now()
         WHERE id = $1 AND user_id = $2`,
       [taskId, actor.id, status],
     );
-    if (!result.affectedRows) throw new AiActionError("任务不存在或无权修改", 404);
+    if (!result.affectedRows) throw new AiActionError("Aufgabe existiert nicht oder hat nicht das Recht zu ändern", 404);
     return { taskId, status };
   }
   if (action === "note.create") {
@@ -154,51 +154,51 @@ async function executeAction(actor: AppUser, action: AiWorkspaceAction, input: R
     await database.query(
       `INSERT INTO notes (id, user_id, project_id, title, content, note_type, pinned)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [id, actor.id, stringInput(input.projectId), requiredString(input.title, "笔记标题").slice(0, 240), stringInput(input.content) ?? "", safeNoteType(input.noteType), input.pinned === true],
+      [id, actor.id, stringInput(input.projectId), requiredString(input.title, "Titel des Vermerks").slice(0, 240), stringInput(input.content) ?? "", safeNoteType(input.noteType), input.pinned === true],
     );
     return { noteId: id, href: `/notes?note=${encodeURIComponent(id)}` };
   }
   if (action === "calendar.create-event") {
     const id = randomUUID();
-    const calendarId = requiredString(input.calendarId, "日历");
+    const calendarId = requiredString(input.calendarId, "Kalender");
     const ownsCalendar = await database.query<{ exists: boolean }>(
       `SELECT EXISTS (SELECT 1 FROM calendars WHERE id = $1 AND user_id = $2 AND read_only = false) AS exists`,
       [calendarId, actor.id],
     );
-    if (!ownsCalendar.rows[0]?.exists) throw new AiActionError("日历不存在或不可写", 404);
+    if (!ownsCalendar.rows[0]?.exists) throw new AiActionError("Kalender existiert nicht oder kann nicht geschrieben werden", 404);
     await database.query(
       `INSERT INTO calendar_events (id, calendar_id, title, description, location, starts_at, ends_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [id, calendarId, requiredString(input.title, "日程标题").slice(0, 240), stringInput(input.description), stringInput(input.location), requiredString(input.start, "开始时间"), requiredString(input.end, "结束时间")],
+      [id, calendarId, requiredString(input.title, "Titel der Veranstaltung im Kalender").slice(0, 240), stringInput(input.description), stringInput(input.location), requiredString(input.start, "Startzeit"), requiredString(input.end, "Endzeit")],
     );
     return { eventId: id, href: `/calendar?event=${encodeURIComponent(id)}` };
   }
   if (action === "mail.message-action") {
-    const messageId = requiredString(input.messageId, "邮件");
-    const mailAction = parseMailAction(requiredString(input.mailAction, "邮件操作"));
+    const messageId = requiredString(input.messageId, "E-Mail");
+    const mailAction = parseMailAction(requiredString(input.mailAction, "E-Mail-Operationen"));
     const result = await performMailMessageAction(messageId, mailAction, stringInput(input.folderId));
     return { messageId, mailAction, result };
   }
   if (action === "mail.send-draft") {
-    const draftId = requiredString(input.draftId, "草稿");
-    const accountId = requiredString(input.accountId, "发件账户");
-    const idempotencyKey = requiredString(input.idempotencyKey, "发送确认标识");
+    const draftId = requiredString(input.draftId, "Entwürfe");
+    const accountId = requiredString(input.accountId, "Konto des Abgangskontos");
+    const idempotencyKey = requiredString(input.idempotencyKey, "Bestätigungskennung senden");
     const result = await sendMailDraft(draftId, accountId, idempotencyKey);
     return { draftId, result };
   }
-  throw new AiActionError("不支持的 AI 动作");
+  throw new AiActionError("nicht unterstützte KI-Aktionen");
 }
 
 async function assertAiActionAllowed(actor: AppUser, risk: AiActionRisk): Promise<void> {
-  if (actor.role === "viewer" && risk !== "read") throw new AiActionError("只读用户不能执行写入动作", 403);
+  if (actor.role === "viewer" && risk !== "read") throw new AiActionError("Nur lesende Benutzer können keine Schreibaktionen durchführen", 403);
   const settings = await getAiActionSettings(actor);
   if (risk === "read") return;
   if (process.env.KALENDER_AI_AUTO_EXECUTION !== "true") {
-    throw new AiActionError("服务器未启用 AI 自动执行", 403);
+    throw new AiActionError("der Server hat KI autoexecution nicht aktiviert", 403);
   }
-  if (!settings.autoExecutionEnabled) throw new AiActionError("AI 自动执行尚未启用", 403);
+  if (!settings.autoExecutionEnabled) throw new AiActionError("Autoexekutierte KI nicht aktiviert", 403);
   if ((risk === "external-write" || risk === "destructive") && !settings.highRiskAutoEnabled) {
-    throw new AiActionError("高风险 AI 自动执行尚未启用", 403);
+    throw new AiActionError("KI mit hohem Risiko automatisch ausgeführt nicht aktiviert", 403);
   }
 }
 
@@ -217,7 +217,7 @@ async function loadActor(userId: string): Promise<AppUser> {
     [userId],
   );
   const row = result.rows[0];
-  if (!row) throw new AiActionError("AI 动作用户不存在", 404);
+  if (!row) throw new AiActionError("Der KI-Action-Benutzer existiert nicht", 404);
   return {
     id: row.id,
     displayName: row.display_name,
@@ -250,16 +250,16 @@ function parseAction(value: unknown): AiWorkspaceAction {
     || value === "mail.message-action"
     || value === "mail.send-draft"
   ) return value;
-  throw new AiActionError("AI 动作类型无效");
+  throw new AiActionError("der KI-Aktionstyp ist ungültig");
 }
 
 function parseMailAction(value: string): MailMessageAction {
   if (value === "mark-read" || value === "mark-unread" || value === "star" || value === "unstar" || value === "archive" || value === "delete" || value === "move") return value;
-  throw new AiActionError("邮件操作无效");
+  throw new AiActionError("Ungültige E-Mail-Operation");
 }
 
 function requiredString(value: unknown, label: string): string {
-  if (typeof value !== "string" || !value.trim()) throw new AiActionError(`缺少${label}`);
+  if (typeof value !== "string" || !value.trim()) throw new AiActionError(`fehlt${label}`);
   return value.trim();
 }
 
@@ -271,7 +271,7 @@ function dateInput(value: unknown): string | null {
   const text = stringInput(value);
   if (!text) return null;
   const date = new Date(text);
-  if (Number.isNaN(date.getTime())) throw new AiActionError("日期无效");
+  if (Number.isNaN(date.getTime())) throw new AiActionError("Datum ungültig");
   return date.toISOString();
 }
 

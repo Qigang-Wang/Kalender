@@ -42,7 +42,7 @@ export function BulletedListToolbarButton() {
   return (
     <ToolbarSplitButton pressed={open}>
       <ToolbarSplitButtonPrimary
-        aria-label="项目符号列表"
+        aria-label="Liste der Felder"
         className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
         onClick={() => {
           toggleList(editor, {
@@ -56,7 +56,7 @@ export function BulletedListToolbarButton() {
 
       <DropdownMenu open={open} onOpenChange={setOpen} modal={false}>
         <DropdownMenuTrigger asChild>
-          <ToolbarSplitButtonSecondary aria-label="项目符号列表样式" />
+          <ToolbarSplitButtonSecondary aria-label="bullet list style" />
         </DropdownMenuTrigger>
 
         <DropdownMenuContent align="start" alignOffset={-32}>
@@ -123,7 +123,7 @@ export function NumberedListToolbarButton() {
   return (
     <ToolbarSplitButton pressed={open}>
       <ToolbarSplitButtonPrimary
-        aria-label="编号列表"
+        aria-label="nummerierte Liste"
         className="data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
         onClick={() =>
           toggleList(editor, {
@@ -137,7 +137,7 @@ export function NumberedListToolbarButton() {
 
       <DropdownMenu open={open} onOpenChange={setOpen} modal={false}>
         <DropdownMenuTrigger asChild>
-          <ToolbarSplitButtonSecondary aria-label="编号列表样式" />
+          <ToolbarSplitButtonSecondary aria-label="Numerierungslistenstile" />
         </DropdownMenuTrigger>
 
         <DropdownMenuContent align="start" alignOffset={-32}>

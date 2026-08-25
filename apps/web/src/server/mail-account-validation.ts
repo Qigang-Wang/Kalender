@@ -21,27 +21,27 @@ export function withRetainedPassword(
 
 export function parseServer(input: ServerInput | undefined, label: "IMAP" | "SMTP"): MailServerConnection {
   if (!input || typeof input.host !== "string" || typeof input.username !== "string" || typeof input.password !== "string") {
-    throw new PublicConnectionError("INVALID_REQUEST", `请完整填写 ${label} 服务器、用户名和密码`, 400);
+    throw new PublicConnectionError("INVALID_REQUEST", `bitte ausfüllen ${label} Server, Benutzername und Passwort`, 400);
   }
   const host = input.host.trim().toLocaleLowerCase();
   const port = typeof input.port === "number" ? input.port : Number.NaN;
   if (!host || !Number.isInteger(port) || port < 1 || port > 65535 || !input.username || !input.password) {
-    throw new PublicConnectionError("INVALID_REQUEST", `${label} 连接参数无效`, 400);
+    throw new PublicConnectionError("INVALID_REQUEST", `${label} Verbindungsparameter ungültig`, 400);
   }
   return { host, port, secure: input.secure !== false, username: input.username, password: input.password };
 }
 
 export async function assertPublicMailHost(host: string): Promise<void> {
   if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) {
-    throw new PublicConnectionError("UNSAFE_HOST", "出于安全原因，连接测试不能访问本机或 .local 地址", 400);
+    throw new PublicConnectionError("UNSAFE_HOST", "Aus Sicherheitsgründen erlaubt der Verbindungstest keinen Zugriff auf den Host oder die lokale Adresse.", 400);
   }
   const addresses = isIP(host)
     ? [{ address: host }]
     : await lookup(host, { all: true, verbatim: true }).catch(() => {
-        throw new PublicConnectionError("DNS_FAILED", "无法解析邮件服务器地址", 400);
+        throw new PublicConnectionError("DNS_FAILED", "E-Mail-Server-Adresse kann nicht geparst werden", 400);
       });
   if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address))) {
-    throw new PublicConnectionError("UNSAFE_HOST", "出于安全原因，连接测试不能访问内网或保留地址", 400);
+    throw new PublicConnectionError("UNSAFE_HOST", "Aus Sicherheitsgründen kann der Verbindungstest nicht auf das Intranet zugreifen oder die Adresse behalten", 400);
   }
 }
 
@@ -52,14 +52,14 @@ export function isEmail(value: string): boolean {
 export function toPublicError(error: unknown): { code: string; message: string; status: number } {
   if (error instanceof PublicConnectionError) return error;
   if (error instanceof MailConnectionError) {
-    if (error.code === "AUTH_REQUIRED") return { code: error.code, message: "服务器拒绝了用户名、密码或应用专用密码", status: 401 };
-    if (error.code === "NETWORK_ERROR") return { code: error.code, message: "无法连接邮件服务器，请检查地址、端口和加密方式", status: 502 };
-    if (error.code === "CANCELLED") return { code: error.code, message: "连接测试超时", status: 504 };
-    return { code: error.code, message: "邮件服务器拒绝了连接测试", status: 502 };
+    if (error.code === "AUTH_REQUIRED") return { code: error.code, message: "der Server hat einen Benutzernamen, ein Passwort oder ein Anwendungspasswort abgelehnt", status: 401 };
+    if (error.code === "NETWORK_ERROR") return { code: error.code, message: "Verbindung zu Mailserver, Adresse, Port und Verschlüsselung nicht möglich", status: 502 };
+    if (error.code === "CANCELLED") return { code: error.code, message: "Zeitabschaltung des Verbindungstests", status: 504 };
+    return { code: error.code, message: "der Mailserver lehnte den Verbindungstest ab", status: 502 };
   }
-  const message = error instanceof Error && /^(邮箱认证失败|无法连接邮件服务器|首次邮件同步失败)/.test(error.message)
+  const message = error instanceof Error && /^(?:Postfachauthentifizierung fehlgeschlagen|Verbindung zum Mailserver nicht möglich|Erste E-Mail-Synchronisierung fehlgeschlagen)/i.test(error.message)
     ? error.message
-    : "操作失败";
+    : "Betrieb fehlgeschlagen";
   return { code: "REMOTE_ERROR", message, status: 502 };
 }
 

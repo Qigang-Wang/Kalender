@@ -62,10 +62,10 @@ export function MailSignatureSettings({ accounts }: { readonly accounts: readonl
         readonly signatures?: readonly ClientMailSignature[];
         readonly message?: string;
       };
-      if (!response.ok) throw new Error(payload.message || "无法读取邮件签名");
+      if (!response.ok) throw new Error(payload.message || "E-Mail-Signatur kann nicht gelesen werden");
       setSignatures(payload.signatures ?? []);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法读取邮件签名");
+      setFeedback(error instanceof Error ? error.message : "E-Mail-Signatur kann nicht gelesen werden");
     } finally {
       setLoading(false);
     }
@@ -106,13 +106,13 @@ export function MailSignatureSettings({ accounts }: { readonly accounts: readonl
         body: JSON.stringify({ accountId, ...draft }),
       });
       const payload = await response.json() as { readonly message?: string };
-      if (!response.ok) throw new Error(payload.message || "无法保存签名版本");
+      if (!response.ok) throw new Error(payload.message || "Signaturversion konnte nicht gespeichert werden");
       await loadSignatures();
       setEditingId(undefined);
       setDraft(emptyDraft());
-      setFeedback("签名版本已保存");
+      setFeedback("Signatur-Version gespeichert");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法保存签名版本");
+      setFeedback(error instanceof Error ? error.message : "Signaturversion konnte nicht gespeichert werden");
     } finally {
       setBusy(false);
     }
@@ -129,11 +129,11 @@ export function MailSignatureSettings({ accounts }: { readonly accounts: readonl
         body: JSON.stringify({ action: "set-default" }),
       });
       const payload = await response.json() as { readonly message?: string };
-      if (!response.ok) throw new Error(payload.message || "无法设置默认签名");
+      if (!response.ok) throw new Error(payload.message || "Standardsignatur kann nicht gesetzt werden");
       await loadSignatures();
-      setFeedback(`“${signature.name}”已设为默认签名`);
+      setFeedback(`„${signature.name}“ wurde als Standardsignatur festgelegt`);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法设置默认签名");
+      setFeedback(error instanceof Error ? error.message : "Standardsignatur kann nicht gesetzt werden");
     } finally {
       setBusy(false);
     }
@@ -141,9 +141,9 @@ export function MailSignatureSettings({ accounts }: { readonly accounts: readonl
 
   const remove = async (signature: ClientMailSignature) => {
     if (busy || !await appConfirm({
-      title: `删除签名版本“${signature.name}”？`,
-      description: "已经插入草稿的签名内容不会被删除，之后的新邮件将不再使用此版本。",
-      confirmLabel: "删除版本",
+      title: `Signaturversion „${signature.name}“ löschen?`,
+      description: "Bereits in Entwürfe eingefügte Signaturen bleiben erhalten. Für neue E-Mails wird diese Version nicht mehr verwendet.",
+      confirmLabel: "Version löschen",
       tone: "danger",
     })) return;
     setBusy(true);
@@ -151,12 +151,12 @@ export function MailSignatureSettings({ accounts }: { readonly accounts: readonl
     try {
       const response = await fetch(`/api/mail-signatures/${encodeURIComponent(signature.id)}`, { method: "DELETE" });
       const payload = await response.json() as { readonly message?: string };
-      if (!response.ok) throw new Error(payload.message || "无法删除签名版本");
+      if (!response.ok) throw new Error(payload.message || "Signaturversion konnte nicht gelöscht werden");
       if (editingId === signature.id) startCreate();
       await loadSignatures();
-      setFeedback("签名版本已删除");
+      setFeedback("Signatur-Version gelöscht");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法删除签名版本");
+      setFeedback(error instanceof Error ? error.message : "Signaturversion konnte nicht gelöscht werden");
     } finally {
       setBusy(false);
     }
@@ -166,20 +166,20 @@ export function MailSignatureSettings({ accounts }: { readonly accounts: readonl
     <section className="mail-signature-settings panel" aria-labelledby="mail-signature-settings-title">
       <div className="settings-section-heading">
         <div>
-          <h2 id="mail-signature-settings-title">自动签名</h2>
-          <p>新邮件和线程中的第一次回复使用完整签名；后续回复使用简短签名。</p>
+          <h2 id="mail-signature-settings-title">automatische Signatur</h2>
+          <p>Die erste Antwort in der neuen Mail und Thread ist in ihrer Gesamtheit signiert; die Folgereaktion wird in einer kurzen Weise unterzeichnet.</p>
         </div>
-        <button className="secondary-button" disabled={!accountId || busy} onClick={startCreate}><Plus size={14} />新建版本</button>
+        <button className="secondary-button" disabled={!accountId || busy} onClick={startCreate}><Plus size={14} />Neue Version</button>
       </div>
 
       {accounts.length === 0 ? (
-        <div className="accounts-empty"><Mail size={20} /><div><strong>尚无可用邮箱账户</strong><span>连接邮箱后即可为账户创建签名版本。</span></div></div>
+        <div className="accounts-empty"><Mail size={20} /><div><strong>noch kein Postfach-Konto verfügbar</strong><span>Sie können eine Signaturversion für ein Konto erstellen, wenn Sie sich mit dem Postfach verbinden.</span></div></div>
       ) : (
         <>
           <label className="mail-signature-account-picker">
-            <span>应用到邮箱账户</span>
+            <span>auf Postfachkonten angewendet</span>
             <AppSelect
-              ariaLabel="签名所属邮箱账户"
+              ariaLabel="Unterzeichnung des Postkontos, zu dem es gehört"
               value={accountId}
               onValueChange={(value) => {
                 setAccountId(value);
@@ -195,23 +195,23 @@ export function MailSignatureSettings({ accounts }: { readonly accounts: readonl
           </label>
 
           <div className="mail-signature-layout">
-            <div className="mail-signature-list" aria-label="签名版本">
+            <div className="mail-signature-list" aria-label="Unterschriftsversion">
               {loading ? (
-                <div className="accounts-empty"><LoaderCircle className="spin" size={17} />正在读取签名…</div>
+                <div className="accounts-empty"><LoaderCircle className="spin" size={17} />Unterschrift lesen...</div>
               ) : accountSignatures.length === 0 ? (
                 <button className="mail-signature-empty" onClick={startCreate}>
-                  <Plus size={18} /><span><strong>创建第一个签名版本</strong><small>分别准备完整和简短内容</small></span>
+                  <Plus size={18} /><span><strong>erste Signatur-Version erstellen</strong><small>Vorbereitung vollständiger bzw. kurzer Inhalte</small></span>
                 </button>
               ) : accountSignatures.map((signature) => (
                 <article className={`mail-signature-item ${editingId === signature.id ? "editing" : ""}`} key={signature.id}>
                   <button className="mail-signature-item-main" onClick={() => startEdit(signature)}>
-                    <span><strong>{signature.name}</strong>{signature.isDefault && <em>默认</em>}</span>
-                    <small>{signature.fullText.split("\n")[0] || "空签名"}</small>
+                    <span><strong>{signature.name}</strong>{signature.isDefault && <em>Standard</em>}</span>
+                    <small>{signature.fullText.split("\n")[0] || "Leere Signatur"}</small>
                   </button>
                   <div>
-                    {!signature.isDefault && <button aria-label={`设为默认：${signature.name}`} title="设为默认" disabled={busy} onClick={() => void setDefault(signature)}><Check size={14} /></button>}
-                    <button aria-label={`编辑：${signature.name}`} title="编辑" disabled={busy} onClick={() => startEdit(signature)}><Pencil size={14} /></button>
-                    <button className="danger-button" aria-label={`删除：${signature.name}`} title="删除" disabled={busy} onClick={() => void remove(signature)}><Trash2 size={14} /></button>
+                    {!signature.isDefault && <button aria-label={`Als Standardeinstellung festlegen:${signature.name}`} title="Als Standardeinstellung festlegen" disabled={busy} onClick={() => void setDefault(signature)}><Check size={14} /></button>}
+                    <button aria-label={`Bearbeiten:${signature.name}`} title="Bearbeiten" disabled={busy} onClick={() => startEdit(signature)}><Pencil size={14} /></button>
+                    <button className="danger-button" aria-label={`Löschen:${signature.name}`} title="Löschen" disabled={busy} onClick={() => void remove(signature)}><Trash2 size={14} /></button>
                   </div>
                 </article>
               ))}
@@ -219,18 +219,18 @@ export function MailSignatureSettings({ accounts }: { readonly accounts: readonl
 
             <div className="mail-signature-editor">
               <header>
-                <div><strong>{editingId ? "编辑签名版本" : "新建签名版本"}</strong><span>完整与简短版本会按往来阶段自动选择</span></div>
+                <div><strong>{editingId ? "Signaturversion bearbeiten" : "Neue Signaturversion"}</strong><span>komplette und kurze Versionen werden automatisch im Transaktionsstadium ausgewählt</span></div>
               </header>
-              <label><span>版本名称</span><input value={draft.name} maxLength={100} placeholder="例如：工作签名" onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+              <label><span>Bezeichnung der Version</span><input value={draft.name} maxLength={100} placeholder="z.B. Arbeitsunterschrift" onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
               <div className="mail-signature-copy-grid">
-                <label><span>完整签名</span><textarea value={draft.fullText} maxLength={20_000} placeholder={"此致\n姓名\n职位 · 机构\n电话 · 网站"} onChange={(event) => setDraft({ ...draft, fullText: event.target.value })} /></label>
-                <label><span>简短签名</span><textarea value={draft.shortText} maxLength={10_000} placeholder={"谢谢\n姓名"} onChange={(event) => setDraft({ ...draft, shortText: event.target.value })} /></label>
+                <label><span>vollständige Unterschrift</span><textarea value={draft.fullText} maxLength={20_000} placeholder={"Hier ist der Name, die Position, die Agentur, das Telefon, die Website."} onChange={(event) => setDraft({ ...draft, fullText: event.target.value })} /></label>
+                <label><span>kurze Unterschrift</span><textarea value={draft.shortText} maxLength={10_000} placeholder={"Vielen Dank. Name"} onChange={(event) => setDraft({ ...draft, shortText: event.target.value })} /></label>
               </div>
-              <label className="secure-toggle"><input type="checkbox" checked={draft.makeDefault} onChange={(event) => setDraft({ ...draft, makeDefault: event.target.checked })} /><span>设为此邮箱账户的默认签名</span></label>
+              <label className="secure-toggle"><input type="checkbox" checked={draft.makeDefault} onChange={(event) => setDraft({ ...draft, makeDefault: event.target.checked })} /><span>der Standard-Signatursatz für dieses Postfach-Konto</span></label>
               <footer>
-                <button className="ghost-button" disabled={busy} onClick={() => { setEditingId(undefined); setDraft(emptyDraft()); }}>清空</button>
+                <button className="ghost-button" disabled={busy} onClick={() => { setEditingId(undefined); setDraft(emptyDraft()); }}>leer</button>
                 <button className="primary-button" disabled={busy || !draft.name.trim() || !draft.fullText.trim() || !draft.shortText.trim()} onClick={() => void save()}>
-                  {busy ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}保存签名
+                  {busy ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}Signatur speichern
                 </button>
               </footer>
             </div>

@@ -29,7 +29,7 @@ export async function DELETE(_request: Request, context: MilestoneRouteContext) 
   const { projectId, milestoneId } = await context.params;
   try {
     if (!await deleteStoredProjectMilestone(projectId, milestoneId)) {
-      throw new ProjectRepositoryError("MILESTONE_NOT_FOUND", "里程碑不存在", 404);
+      throw new ProjectRepositoryError("MILESTONE_NOT_FOUND", "Meilensteine gibt es nicht", 404);
     }
     return NextResponse.json({ ok: true });
   } catch (error) {

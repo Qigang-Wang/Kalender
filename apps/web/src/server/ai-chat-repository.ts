@@ -125,7 +125,7 @@ export async function createAiConversation(firstPrompt: string): Promise<StoredA
 
 export async function requireAiConversation(id: string): Promise<StoredAiConversation> {
   const conversation = await getAiConversation(id);
-  if (!conversation) throw new AiProviderError("AI 会话不存在", "AI_CONVERSATION_NOT_FOUND", 404);
+  if (!conversation) throw new AiProviderError("Die AI-Sitzung existiert nicht", "AI_CONVERSATION_NOT_FOUND", 404);
   return conversation;
 }
 
@@ -175,7 +175,7 @@ export async function saveAiChatMessage(input: {
       WHERE m.id = $1${scope.active ? " AND c.user_id = $2" : ""}
       LIMIT 1`, scope.active ? [id, scope.userId] : [id],
   );
-  if (!result.rows[0]) throw new AiProviderError("无法保存 AI 消息", "AI_MESSAGE_SAVE_FAILED", 500);
+  if (!result.rows[0]) throw new AiProviderError("KI-Nachrichten können nicht gespeichert werden", "AI_MESSAGE_SAVE_FAILED", 500);
   return mapMessage(result.rows[0]);
 }
 
@@ -298,5 +298,5 @@ function mapRun(row: RunRow): StoredAiRun {
 
 function conversationTitle(prompt: string): string {
   const compact = prompt.replace(/\s+/g, " ").trim();
-  return compact.length > 48 ? `${compact.slice(0, 48)}…` : compact || "新对话";
+  return compact.length > 48 ? `${compact.slice(0, 48)}…` : compact || "Neuer Dialog";
 }

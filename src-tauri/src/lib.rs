@@ -148,7 +148,7 @@ fn desktop_status(
     let state = runtime
         .state
         .lock()
-        .map_err(|_| "桌面提醒状态暂时不可用".to_string())?;
+        .map_err(|_| "Desktop-Erinnerungsstatus ist vorübergehend nicht verfügbar".to_string())?;
     update_tray_tooltip(&app, &state);
     Ok(status_from_state(&state))
 }
@@ -166,17 +166,17 @@ fn update_desktop_settings(
     if settings.launch_at_login {
         autostart
             .enable()
-            .map_err(|error| format!("无法启用开机启动：{error}"))?;
+            .map_err(|error| format!("Autostart konnte nicht aktiviert werden: {error}"))?;
     } else {
         autostart
             .disable()
-            .map_err(|error| format!("无法关闭开机启动：{error}"))?;
+            .map_err(|error| format!("Autostart konnte nicht deaktiviert werden: {error}"))?;
     }
 
     let mut state = runtime
         .state
         .lock()
-        .map_err(|_| "桌面提醒状态暂时不可用".to_string())?;
+        .map_err(|_| "Desktop-Erinnerungsstatus ist vorübergehend nicht verfügbar".to_string())?;
     state.settings = settings;
     save_state(&runtime.state_path, &state)?;
     update_tray_tooltip(&app, &state);
@@ -195,7 +195,7 @@ fn sync_reminders(
     let mut state = runtime
         .state
         .lock()
-        .map_err(|_| "桌面提醒状态暂时不可用".to_string())?;
+        .map_err(|_| "Desktop-Erinnerungsstatus ist vorübergehend nicht verfügbar".to_string())?;
     state.last_sync_attempt_at = Some(Utc::now().timestamp_millis());
     state.last_sync_error = None;
     let delivered = state
@@ -233,7 +233,7 @@ fn report_sync_error(
     let mut state = runtime
         .state
         .lock()
-        .map_err(|_| "桌面提醒状态暂时不可用".to_string())?;
+        .map_err(|_| "Desktop-Erinnerungsstatus ist vorübergehend nicht verfügbar".to_string())?;
     state.last_sync_attempt_at = Some(Utc::now().timestamp_millis());
     state.last_sync_error = Some(normalize_sync_error(&message));
     save_state(&runtime.state_path, &state)?;
@@ -250,7 +250,7 @@ fn get_server_config(
     let state = runtime
         .state
         .lock()
-        .map_err(|_| "服务器配置暂时不可用".to_string())?;
+        .map_err(|_| "Serverkonfiguration ist vorübergehend nicht verfügbar".to_string())?;
     Ok(server_config_from_state(&state))
 }
 
@@ -267,12 +267,12 @@ async fn save_server_config(
     let connected =
         tauri::async_runtime::spawn_blocking(move || probe_server_health(&health_target))
             .await
-            .map_err(|error| format!("无法完成服务器健康检查：{error}"))?;
+            .map_err(|error| format!("Serverstatus konnte nicht geprüft werden: {error}"))?;
     let config = {
         let mut state = runtime
             .state
             .lock()
-            .map_err(|_| "服务器配置暂时不可用".to_string())?;
+            .map_err(|_| "Serverkonfiguration ist vorübergehend nicht verfügbar".to_string())?;
         state.server_url = Some(normalized.clone());
         state.reminders.clear();
         state.summary = DesktopSummary::default();
@@ -286,10 +286,10 @@ async fn save_server_config(
     };
 
     if connected {
-        let target = Url::parse(&normalized).map_err(|_| "保存后的服务器地址无效".to_string())?;
+        let target = Url::parse(&normalized).map_err(|_| "Die gespeicherte Serveradresse ist ungültig".to_string())?;
         if let Some(main) = app.get_webview_window("main") {
             main.navigate(target)
-                .map_err(|error| format!("无法打开服务器地址：{error}"))?;
+                .map_err(|error| format!("Serveradresse konnte nicht geöffnet werden: {error}"))?;
             show_main_window_unchecked(&app);
         } else {
             create_main_window(&app, &normalized, true)?;
@@ -305,7 +305,7 @@ async fn close_server_config(window: WebviewWindow) -> Result<(), String> {
     ensure_config_caller(&window)?;
     window
         .close()
-        .map_err(|error| format!("无法关闭服务器配置窗口：{error}"))
+        .map_err(|error| format!("Fenster für die Serverkonfiguration konnte nicht geschlossen werden: {error}"))
 }
 
 #[tauri::command]
@@ -316,7 +316,7 @@ fn desktop_window_is_maximized(
     ensure_main_caller(&window, &runtime)?;
     window
         .is_maximized()
-        .map_err(|error| format!("无法读取窗口状态：{error}"))
+        .map_err(|error| format!("Fensterstatus konnte nicht gelesen werden: {error}"))
 }
 
 #[tauri::command]
@@ -327,7 +327,7 @@ fn desktop_window_minimize(
     ensure_main_caller(&window, &runtime)?;
     window
         .minimize()
-        .map_err(|error| format!("无法最小化窗口：{error}"))
+        .map_err(|error| format!("Fenster konnte nicht minimiert werden: {error}"))
 }
 
 #[tauri::command]
@@ -338,16 +338,16 @@ fn desktop_window_toggle_maximized(
     ensure_main_caller(&window, &runtime)?;
     if window
         .is_maximized()
-        .map_err(|error| format!("无法读取窗口状态：{error}"))?
+        .map_err(|error| format!("Fensterstatus konnte nicht gelesen werden: {error}"))?
     {
         window
             .unmaximize()
-            .map_err(|error| format!("无法还原窗口：{error}"))?;
+            .map_err(|error| format!("Fenster konnte nicht wiederhergestellt werden: {error}"))?;
         Ok(false)
     } else {
         window
             .maximize()
-            .map_err(|error| format!("无法最大化窗口：{error}"))?;
+            .map_err(|error| format!("Fenster konnte nicht maximiert werden: {error}"))?;
         Ok(true)
     }
 }
@@ -360,7 +360,7 @@ fn desktop_window_start_dragging(
     ensure_main_caller(&window, &runtime)?;
     window
         .start_dragging()
-        .map_err(|error| format!("无法拖动窗口：{error}"))
+        .map_err(|error| format!("Fenster konnte nicht verschoben werden: {error}"))
 }
 
 #[tauri::command]
@@ -371,7 +371,7 @@ fn desktop_window_close(
     ensure_main_caller(&window, &runtime)?;
     window
         .close()
-        .map_err(|error| format!("无法关闭窗口：{error}"))
+        .map_err(|error| format!("Fenster konnte nicht geschlossen werden: {error}"))
 }
 
 pub fn run() {
@@ -401,7 +401,7 @@ pub fn run() {
             let state_path = app
                 .path()
                 .app_data_dir()
-                .map_err(|error| format!("无法确定桌面数据目录：{error}"))?
+                .map_err(|error| format!("Desktop-Datenverzeichnis konnte nicht ermittelt werden: {error}"))?
                 .join(STATE_FILE);
             let mut persisted = load_state(&state_path);
             let server_url = configured_server_url(&persisted).to_string();
@@ -451,19 +451,19 @@ pub fn run() {
 }
 
 fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "打开 Kalender", true, None::<&str>)?;
-    let pause_30 = MenuItem::with_id(app, "pause-30", "暂停 30 分钟", true, None::<&str>)?;
-    let pause_120 = MenuItem::with_id(app, "pause-120", "暂停 2 小时", true, None::<&str>)?;
-    let pause_today = MenuItem::with_id(app, "pause-today", "今天不再提醒", true, None::<&str>)?;
-    let resume = MenuItem::with_id(app, "resume", "恢复提醒", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Kalender öffnen", true, None::<&str>)?;
+    let pause_30 = MenuItem::with_id(app, "pause-30", "30 Minuten pausieren", true, None::<&str>)?;
+    let pause_120 = MenuItem::with_id(app, "pause-120", "2 Stunden pausieren", true, None::<&str>)?;
+    let pause_today = MenuItem::with_id(app, "pause-today", "Für heute pausieren", true, None::<&str>)?;
+    let resume = MenuItem::with_id(app, "resume", "Erinnerungen fortsetzen", true, None::<&str>)?;
     let pause_menu = Submenu::with_items(
         app,
-        "暂停提醒",
+        "Erinnerungen pausieren",
         true,
         &[&pause_30, &pause_120, &pause_today, &resume],
     )?;
-    let sync = MenuItem::with_id(app, "sync", "同步", true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
+    let sync = MenuItem::with_id(app, "sync", "Synchronisieren", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Einstellungen", true, None::<&str>)?;
     let server_status = IconMenuItem::with_id(
         app,
         "server-status",
@@ -472,9 +472,9 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
         Some(server_connection_icon(None)),
         None::<&str>,
     )?;
-    let server_config = MenuItem::with_id(app, "server-config", "服务器地址…", true, None::<&str>)?;
+    let server_config = MenuItem::with_id(app, "server-config", "Serveradresse…", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Beenden", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -499,7 +499,7 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 .expect("application icon is required")
                 .clone(),
         )
-        .tooltip("Kalender\n正在同步今日日程")
+        .tooltip("Kalender\nHeutige Termine werden synchronisiert")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -655,19 +655,19 @@ fn show_notification(app: AppHandle, reminder: ReminderInput, show_title: bool) 
     let title = if show_title && !reminder.title.trim().is_empty() {
         reminder.title.clone()
     } else {
-        "日程提醒".to_string()
+        "Terminerinnerung".to_string()
     };
     let body = if reminder.all_day {
-        "今天的全天日程".to_string()
+        "Heutiger ganztägiger Termin".to_string()
     } else {
-        format!("{} 开始", format_local_time(reminder.start_at))
+        format!("Beginn: {}", format_local_time(reminder.start_at))
     };
     let mut notification = Notification::new();
     notification
         .appname("Kalender")
         .summary(&title)
         .body(&body)
-        .action("default", "打开 Kalender");
+        .action("default", "Kalender öffnen");
     if let Ok(handle) = notification.show() {
         let route = reminder.route;
         thread::spawn(move || {
@@ -764,7 +764,7 @@ fn create_main_window(app: &AppHandle, server_url: &str, visible: bool) -> Resul
         return Ok(());
     }
     let normalized = normalize_server_url(server_url).unwrap_or_else(|_| DEFAULT_SERVER_URL.into());
-    let url = Url::parse(&normalized).map_err(|error| format!("服务器地址无效：{error}"))?;
+    let url = Url::parse(&normalized).map_err(|error| format!("Ungültige Serveradresse: {error}"))?;
     WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         .title("Kalender")
         .decorations(true)
@@ -774,15 +774,15 @@ fn create_main_window(app: &AppHandle, server_url: &str, visible: bool) -> Resul
         .min_inner_size(980.0, 640.0)
         .center()
         .build()
-        .map_err(|error| format!("无法创建 Kalender 窗口：{error}"))?;
+        .map_err(|error| format!("Kalender-Fenster konnte nicht erstellt werden: {error}"))?;
     Ok(())
 }
 
 fn show_server_unavailable_notification(app: &AppHandle) {
     let _ = Notification::new()
         .appname("Kalender")
-        .summary("Kalender 服务器不可用")
-        .body("健康检查失败，主窗口未打开。Kalender 将留在托盘中并自动重试。")
+        .summary("Kalender-Server nicht verfügbar")
+        .body("Die Statusprüfung ist fehlgeschlagen. Das Hauptfenster wurde nicht geöffnet. Kalender bleibt im Infobereich und versucht es automatisch erneut.")
         .show();
     update_server_connection_menu(app, Some(false));
 }
@@ -790,8 +790,8 @@ fn show_server_unavailable_notification(app: &AppHandle) {
 fn show_server_recovered_notification() {
     let _ = Notification::new()
         .appname("Kalender")
-        .summary("Kalender 服务器已恢复")
-        .body("后台同步已恢复，可从托盘打开 Kalender。")
+        .summary("Kalender-Server wieder verfügbar")
+        .body("Die Hintergrundsynchronisierung läuft wieder. Kalender kann über den Infobereich geöffnet werden.")
         .show();
 }
 
@@ -809,7 +809,7 @@ fn open_server_config(app: &AppHandle) {
             "server-config",
             WebviewUrl::App("server-config.html".into()),
         )
-        .title("Kalender · 服务器地址")
+        .title("Kalender · Serveradresse")
         .inner_size(560.0, 430.0)
         .min_inner_size(480.0, 390.0)
         .resizable(true)
@@ -850,9 +850,9 @@ fn update_server_connection_menu(app: &AppHandle, connected: Option<bool>) {
 
 fn server_connection_label(connected: Option<bool>) -> &'static str {
     match connected {
-        Some(true) => "服务器运行正常",
-        Some(false) => "服务器健康检查失败",
-        None => "正在检查服务器状态",
+        Some(true) => "Server ist erreichbar",
+        Some(false) => "Serverstatusprüfung fehlgeschlagen",
+        None => "Serverstatus wird geprüft",
     }
 }
 
@@ -885,18 +885,18 @@ fn server_connection_icon(connected: Option<bool>) -> Image<'static> {
 fn tray_tooltip_text(state: &PersistedState, now: i64) -> String {
     let mut lines = vec!["Kalender".to_string()];
     if state.server_connected == Some(false) {
-        lines.push("服务器健康检查失败".to_string());
+        lines.push("Serverstatusprüfung fehlgeschlagen".to_string());
     } else if let Some(error) = state.last_sync_error.as_deref() {
-        lines.push(format!("日历同步失败：{error}"));
+        lines.push(format!("Kalendersynchronisierung fehlgeschlagen: {error}"));
     } else if state.summary.synced_at.is_none() {
-        lines.push("等待日历同步".to_string());
+        lines.push("Kalendersynchronisierung ausstehend".to_string());
     } else if state.summary.today_count == 0 {
-        lines.push("今天暂无日程".to_string());
+        lines.push("Heute gibt es keine Termine".to_string());
     } else {
-        lines.push(format!("今天 {} 个日程", state.summary.today_count));
+        lines.push(format!("Heute: {} Termine", state.summary.today_count));
     }
     if let Some(until) = state.pause_until.filter(|until| *until > now) {
-        lines.push(format!("提醒暂停至 {}", format_local_time(until)));
+        lines.push(format!("Erinnerungen pausiert bis {}", format_local_time(until)));
     } else {
         if state.last_sync_error.is_none() {
             if let Some(start_at) = state.summary.next_start_at {
@@ -907,7 +907,7 @@ fn tray_tooltip_text(state: &PersistedState, now: i64) -> String {
                     .filter(|_| state.settings.show_event_title)
                     .unwrap_or("");
                 lines.push(format!(
-                    "下一项 {}{}",
+                    "Als Nächstes: {}{}",
                     format_local_time(start_at),
                     if title.is_empty() {
                         String::new()
@@ -919,9 +919,9 @@ fn tray_tooltip_text(state: &PersistedState, now: i64) -> String {
         }
         lines.push(
             if state.settings.enabled {
-                "提醒已开启"
+                "Erinnerungen aktiviert"
             } else {
-                "提醒已关闭"
+                "Erinnerungen deaktiviert"
             }
             .to_string(),
         );
@@ -947,7 +947,7 @@ fn status_from_state(state: &PersistedState) -> DesktopStatus {
 fn normalize_sync_error(message: &str) -> String {
     let normalized = message.trim().chars().take(300).collect::<String>();
     if normalized.is_empty() {
-        "未知错误".to_string()
+        "Unbekannter Fehler".to_string()
     } else {
         normalized
     }
@@ -973,10 +973,10 @@ fn configured_server_url(state: &PersistedState) -> &str {
 fn normalize_server_url(input: &str) -> Result<String, String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return Err("请输入服务器域名或网址".to_string());
+        return Err("Bitte geben Sie eine Serverdomain oder URL ein".to_string());
     }
     if trimmed.len() > MAX_SERVER_URL_LENGTH {
-        return Err("服务器地址过长".to_string());
+        return Err("Die Serveradresse ist zu lang".to_string());
     }
 
     let candidate = if trimmed.contains("://") {
@@ -995,27 +995,27 @@ fn normalize_server_url(input: &str) -> Result<String, String> {
         format!("{scheme}://{trimmed}")
     };
 
-    let mut url = Url::parse(&candidate).map_err(|_| "服务器地址格式无效".to_string())?;
+    let mut url = Url::parse(&candidate).map_err(|_| "Ungültiges Format der Serveradresse".to_string())?;
     if !matches!(url.scheme(), "http" | "https") {
-        return Err("服务器地址只支持 HTTP 或 HTTPS".to_string());
+        return Err("Die Serveradresse muss HTTP oder HTTPS verwenden".to_string());
     }
     if url.host_str().is_none() {
-        return Err("服务器地址缺少域名或 IP 地址".to_string());
+        return Err("Der Serveradresse fehlt eine Domain oder IP-Adresse".to_string());
     }
     if !url.username().is_empty() || url.password().is_some() {
-        return Err("服务器地址不能包含用户名或密码".to_string());
+        return Err("Die Serveradresse darf keinen Benutzernamen und kein Passwort enthalten".to_string());
     }
     url.set_fragment(None);
     Ok(url.to_string())
 }
 
 fn server_route_url(server_url: &str, route: &str) -> Result<Url, String> {
-    let mut base = Url::parse(server_url).map_err(|_| "服务器地址无效".to_string())?;
+    let mut base = Url::parse(server_url).map_err(|_| "Ungültige Serveradresse".to_string())?;
     base.set_path("/");
     base.set_query(None);
     base.set_fragment(None);
     base.join(route.trim_start_matches('/'))
-        .map_err(|_| "无法生成 Kalender 页面地址".to_string())
+        .map_err(|_| "Kalender-Seitenadresse konnte nicht erstellt werden".to_string())
 }
 
 fn ensure_main_caller(
@@ -1023,20 +1023,20 @@ fn ensure_main_caller(
     runtime: &State<'_, DesktopRuntime>,
 ) -> Result<(), String> {
     if window.label() != "main" {
-        return Err("这个窗口不能调用桌面提醒功能".to_string());
+        return Err("Dieses Fenster darf die Desktop-Erinnerungsfunktion nicht verwenden".to_string());
     }
     let current = window
         .url()
-        .map_err(|_| "无法验证当前 Kalender 页面".to_string())?;
+        .map_err(|_| "Die aktuelle Kalender-Seite konnte nicht verifiziert werden".to_string())?;
     let expected = {
         let state = runtime
             .state
             .lock()
-            .map_err(|_| "服务器配置暂时不可用".to_string())?;
-        Url::parse(configured_server_url(&state)).map_err(|_| "保存的服务器地址无效".to_string())?
+            .map_err(|_| "Serverkonfiguration ist vorübergehend nicht verfügbar".to_string())?;
+        Url::parse(configured_server_url(&state)).map_err(|_| "Die gespeicherte Serveradresse ist ungültig".to_string())?
     };
     if current.origin() != expected.origin() {
-        return Err("当前页面不是已配置的 Kalender 服务器".to_string());
+        return Err("Die aktuelle Seite gehört nicht zum konfigurierten Kalender-Server".to_string());
     }
     Ok(())
 }
@@ -1045,7 +1045,7 @@ fn ensure_config_caller(window: &WebviewWindow) -> Result<(), String> {
     if window.label() == "server-config" {
         Ok(())
     } else {
-        Err("这个窗口不能修改服务器地址".to_string())
+        Err("Dieses Fenster darf die Serveradresse nicht ändern".to_string())
     }
 }
 
@@ -1054,7 +1054,7 @@ fn validate_settings(settings: &DesktopSettings) -> Result<(), String> {
         || ![7, 8, 9, 10, 12].contains(&settings.all_day_reminder_hour)
         || ![0, 15, 30, 60, 180].contains(&settings.missed_reminder_window_minutes)
     {
-        return Err("桌面提醒设置包含不支持的值".to_string());
+        return Err("Die Desktop-Erinnerungseinstellungen enthalten einen nicht unterstützten Wert".to_string());
     }
     Ok(())
 }
@@ -1072,11 +1072,11 @@ fn load_state(path: &PathBuf) -> PersistedState {
 
 fn save_state(path: &PathBuf, state: &PersistedState) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("无法创建桌面提醒目录：{error}"))?;
+        fs::create_dir_all(parent).map_err(|error| format!("Verzeichnis für Desktop-Erinnerungen konnte nicht erstellt werden: {error}"))?;
     }
     let contents =
-        serde_json::to_vec_pretty(state).map_err(|error| format!("无法序列化桌面提醒：{error}"))?;
-    fs::write(path, contents).map_err(|error| format!("无法保存桌面提醒：{error}"))
+        serde_json::to_vec_pretty(state).map_err(|error| format!("Desktop-Erinnerungen konnten nicht serialisiert werden: {error}"))?;
+    fs::write(path, contents).map_err(|error| format!("Desktop-Erinnerungen konnten nicht gespeichert werden: {error}"))
 }
 
 fn format_local_time(timestamp: i64) -> String {
@@ -1166,9 +1166,9 @@ mod tests {
 
     #[test]
     fn connection_labels_cover_all_states() {
-        assert_eq!(server_connection_label(None), "正在检查服务器状态");
-        assert_eq!(server_connection_label(Some(true)), "服务器运行正常");
-        assert_eq!(server_connection_label(Some(false)), "服务器健康检查失败");
+        assert_eq!(server_connection_label(None), "Serverstatus wird geprüft");
+        assert_eq!(server_connection_label(Some(true)), "Server ist erreichbar");
+        assert_eq!(server_connection_label(Some(false)), "Serverstatusprüfung fehlgeschlagen");
     }
 
     #[test]
@@ -1220,8 +1220,8 @@ mod tests {
     #[test]
     fn unsynced_tooltip_does_not_claim_the_calendar_is_empty() {
         let tooltip = tray_tooltip_text(&PersistedState::default(), 0);
-        assert!(tooltip.contains("等待日历同步"));
-        assert!(!tooltip.contains("今天暂无日程"));
+        assert!(tooltip.contains("Kalendersynchronisierung ausstehend"));
+        assert!(!tooltip.contains("Heute gibt es keine Termine"));
     }
 
     #[test]
@@ -1233,7 +1233,7 @@ mod tests {
             },
             ..PersistedState::default()
         };
-        assert!(tray_tooltip_text(&state, 1).contains("今天暂无日程"));
+        assert!(tray_tooltip_text(&state, 1).contains("Heute gibt es keine Termine"));
     }
 
     #[test]
@@ -1242,7 +1242,7 @@ mod tests {
             last_sync_error: Some("请先登录".into()),
             ..PersistedState::default()
         };
-        assert!(tray_tooltip_text(&state, 1).contains("日历同步失败：请先登录"));
+        assert!(tray_tooltip_text(&state, 1).contains("Kalendersynchronisierung fehlgeschlagen: 请先登录"));
     }
 
     fn health_server(status: &'static str, body: &'static str) -> (String, thread::JoinHandle<()>) {

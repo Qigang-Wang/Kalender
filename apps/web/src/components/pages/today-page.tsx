@@ -112,12 +112,12 @@ export function TodayPage() {
     try {
       const response = await fetchWithTimeout(`/api/today?${params}`, { cache: "no-store" });
       const payload = await response.json() as { readonly ok?: boolean; readonly snapshot?: TodaySnapshot; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.snapshot) throw new Error(payload.message ?? "无法读取 Today 数据");
+      if (!response.ok || !payload.ok || !payload.snapshot) throw new Error(payload.message ?? "Daten können heute nicht gelesen werden");
       setSnapshot(payload.snapshot);
       setState("ready");
     } catch (error) {
       if (background) return;
-      setFeedback(error instanceof Error ? error.message : "无法读取 Today 数据");
+      setFeedback(error instanceof Error ? error.message : "Daten können heute nicht gelesen werden");
       setState("error");
     }
   }, []);
@@ -148,16 +148,16 @@ export function TodayPage() {
         }),
       });
       const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "无法完成任务");
+      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "nicht in der Lage, die Aufgabe zu erledigen");
       setSnapshot((current) => current ? {
         ...current,
         tasks: current.tasks.filter((entry) => entry.id !== task.id),
         totals: { ...current.totals, tasks: Math.max(0, current.totals.tasks - 1) },
       } : current);
       window.dispatchEvent(new Event("kalender:tasks-changed"));
-      setFeedback("任务已完成");
+      setFeedback("Erledigte Aufgabe");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法完成任务");
+      setFeedback(error instanceof Error ? error.message : "nicht in der Lage, die Aufgabe zu erledigen");
     } finally {
       setBusyTaskId(undefined);
     }
@@ -166,25 +166,25 @@ export function TodayPage() {
   const deleteTask = async (task: TodayTaskItem) => {
     if (busyTaskId) return;
     if (!await appConfirm({
-      title: `删除任务“${task.title}”？`,
-      description: "任务及其日历时间块将被永久删除，此操作无法撤销。",
-      confirmLabel: "删除任务",
+      title: `Aufgaben löschen${task.title}“?`,
+      description: "Die Aufgabe und deren Kalenderblock werden dauerhaft gelöscht und diese Operation kann nicht widerrufen werden.",
+      confirmLabel: "Aufgaben löschen",
       tone: "danger",
     })) return;
     setBusyTaskId(task.id);
     try {
       const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, { method: "DELETE" });
       const payload = await response.json().catch(() => ({})) as { readonly ok?: boolean; readonly message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "无法删除任务");
+      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "Aufgabe kann nicht gelöscht werden");
       setSnapshot((current) => current ? {
         ...current,
         tasks: current.tasks.filter((entry) => entry.id !== task.id),
         totals: { ...current.totals, tasks: Math.max(0, current.totals.tasks - 1) },
       } : current);
       window.dispatchEvent(new Event("kalender:tasks-changed"));
-      setFeedback("任务已删除");
+      setFeedback("Aufgabe gelöscht");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法删除任务");
+      setFeedback(error instanceof Error ? error.message : "Aufgabe kann nicht gelöscht werden");
     } finally {
       setBusyTaskId(undefined);
     }
@@ -197,11 +197,11 @@ export function TodayPage() {
       return;
     }
     if (!await appConfirm({
-      title: `删除日程“${event.title}”？`,
+      title: `Termin „${event.title}“ löschen?`,
       description: event.recurrenceSeriesId && event.recurrenceId
-        ? "只删除今天这一次日程，此操作无法撤销。"
-        : "该日程将被永久删除，此操作无法撤销。",
-      confirmLabel: "删除日程",
+        ? "löschen Sie nur dieses Kalenderereignis für heute, diese Operation kann nicht widerrufen werden."
+        : "Dieses Kalenderereignis wird dauerhaft gelöscht und diese Operation kann nicht widerrufen werden.",
+      confirmLabel: "Termin löschen",
       tone: "danger",
     })) return;
     setBusyEventId(event.id);
@@ -214,15 +214,15 @@ export function TodayPage() {
       }
       const response = await fetch(`/api/calendar-events/${encodeURIComponent(event.id)}?${params}`, { method: "DELETE" });
       const payload = await response.json().catch(() => ({})) as { readonly ok?: boolean; readonly message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "无法删除日程");
+      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "Kalenderereignis kann nicht gelöscht werden");
       setSnapshot((current) => current ? {
         ...current,
         events: current.events.filter((entry) => entry.id !== event.id),
         totals: { ...current.totals, events: Math.max(0, current.totals.events - 1) },
       } : current);
-      setFeedback("日程已删除");
+      setFeedback("Termin gelöscht");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法删除日程");
+      setFeedback(error instanceof Error ? error.message : "Kalenderereignis kann nicht gelöscht werden");
     } finally {
       setBusyEventId(undefined);
     }
@@ -273,26 +273,26 @@ export function TodayPage() {
       };
       let result = await requestResize(false);
       if (result.response.status === 409 && result.payload.conflicts?.length) {
-        const conflictNames = result.payload.conflicts.slice(0, 3).map((conflict) => `“${conflict.title}”`).join("、");
+        const conflictNames = result.payload.conflicts.slice(0, 3).map((conflict) => `„${conflict.title}“`).join(", ");
         if (!await appConfirm({
-          title: "时间与现有日程冲突",
-          description: `调整后的时间与 ${conflictNames} 冲突。仍然调整这个日程的时长吗？`,
-          confirmLabel: "仍然调整",
+          title: "Zeitkonflikt mit bestehenden Terminen",
+          description: `Zeit und Zeit nach der Anpassung ${conflictNames}Konflikt. Passen Sie dieses Kalenderereignis noch lange an?`,
+          confirmLabel: "Nach wie vor anpassen",
         })) {
-          setFeedback("已取消调整日程时长");
+          setFeedback("Terminanpassung abgebrochen");
           return;
         }
         result = await requestResize(true);
       }
-      if (!result.response.ok || !result.payload.ok) throw new Error(result.payload.message ?? "无法调整日程时长");
+      if (!result.response.ok || !result.payload.ok) throw new Error(result.payload.message ?? "es ist nicht möglich, die Länge des Kalenderereignisses anzupassen");
       setSnapshot((current) => current ? {
         ...current,
         events: current.events.map((entry) => entry.id === event.id ? { ...entry, end: targetEnd.toISOString() } : entry),
       } : current);
       void loadToday({ background: true });
-      setFeedback(`已调整“${event.title}”的时长`);
+      setFeedback(`angepasst "${event.title}"lange Zeit"`);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法调整日程时长");
+      setFeedback(error instanceof Error ? error.message : "es ist nicht möglich, die Länge des Kalenderereignisses anzupassen");
     } finally {
       setBusyEventId(undefined);
     }
@@ -301,9 +301,9 @@ export function TodayPage() {
   const runMailAction = async (message: TodayMailItem, action: TodayMailAction) => {
     if (busyMailId) return;
     if (action === "delete" && !await appConfirm({
-      title: `删除邮件“${message.subject}”？`,
-      description: "邮件将移至邮箱的已删除邮件文件夹。",
-      confirmLabel: "删除邮件",
+      title: `Mail löschen '${message.subject}“?`,
+      description: "Mail wird in den gelöschten Mail-Ordner im Postfach verschoben.",
+      confirmLabel: "Mail löschen",
       tone: "danger",
     })) return;
     setBusyMailId(message.id);
@@ -321,7 +321,7 @@ export function TodayPage() {
           readonly alreadyRemoved?: boolean;
         };
       };
-      if (!response.ok || !payload.result) throw new Error(payload.message ?? "邮件操作失败");
+      if (!response.ok || !payload.result) throw new Error(payload.message ?? "Mail-Operation fehlgeschlagen");
       const leavesUnreadList = action === "mark-read" || payload.result.removedFromInbox;
       setSnapshot((current) => current ? {
         ...current,
@@ -335,13 +335,13 @@ export function TodayPage() {
           : current.totals,
       } : current);
       setFeedback(
-        action === "mark-read" ? "邮件已标为已读"
-          : action === "archive" ? "邮件已归档"
-          : action === "delete" ? payload.result.alreadyRemoved ? "本地邮件记录已清理" : "邮件已移至已删除邮件"
-          : action === "star" ? "邮件已添加星标" : "邮件已取消星标",
+        action === "mark-read" ? "E-Mail als gelesen markiert"
+          : action === "archive" ? "E-Mail archiviert"
+          : action === "delete" ? payload.result.alreadyRemoved ? "lokale Mail-Datensätze gelöscht" : "E-Mail auf gelöschte E-Mail verschoben"
+          : action === "star" ? "E-Mail hinzugefügt Sternchen" : "E-Mail storniert Sternchen",
       );
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "邮件操作失败");
+      setFeedback(error instanceof Error ? error.message : "Mail-Operation fehlgeschlagen");
     } finally {
       setBusyMailId(undefined);
     }
@@ -355,8 +355,8 @@ export function TodayPage() {
     returnFocus?: HTMLElement | null,
   ) => setContextMenu({ kind, id, x, y, returnFocus });
 
-  if (state === "loading") return <div className="today-loading panel"><LoaderCircle className="spin" size={19} />正在汇总今天的数据…</div>;
-  if (state === "error" || !snapshot) return <div className="today-loading panel"><AlertCircle size={19} /><span>{feedback ?? "无法读取 Today 数据"}</span><button className="secondary-button" onClick={() => setRetry((value) => value + 1)}>重试</button></div>;
+  if (state === "loading") return <div className="today-loading panel"><LoaderCircle className="spin" size={19} />Die heutigen Daten zu synthetisieren...</div>;
+  if (state === "error" || !snapshot) return <div className="today-loading panel"><AlertCircle size={19} /><span>{feedback ?? "Daten können heute nicht gelesen werden"}</span><button className="secondary-button" onClick={() => setRetry((value) => value + 1)}>Erneut versuchen</button></div>;
 
   const contextEvent = contextMenu?.kind === "event" ? snapshot.events.find((event) => event.id === contextMenu.id) : undefined;
   const contextTask = contextMenu?.kind === "task" ? snapshot.tasks.find((task) => task.id === contextMenu.id) : undefined;
@@ -366,36 +366,36 @@ export function TodayPage() {
     <>
       <div className="today-summary-strip">
         <time>{formatTodayDate(snapshot.from)}</time>
-        <span><CalendarDays size={14} />{snapshot.totals.events} 项日程</span>
-        <span><ListChecks size={14} />{snapshot.totals.tasks} 项需推进</span>
-        <span><Mail size={14} />{snapshot.totals.unreadMail} 封未读</span>
+        <span><CalendarDays size={14} />{snapshot.totals.events} Termin(e)</span>
+        <span><ListChecks size={14} />{snapshot.totals.tasks} anstehende Aufgabe(n)</span>
+        <span><Mail size={14} />{snapshot.totals.unreadMail} Abdeckung ungelesen</span>
       </div>
       {feedback && <TransientToast message={feedback} onClose={() => setFeedback(undefined)} />}
       <div className="today-layout">
         <section className="panel schedule-panel">
-          <h2><Clock3 size={19} />今日安排 <small>{snapshot.events.length}</small></h2>
+          <h2><Clock3 size={19} />heute Zeitplan <small>{snapshot.events.length}</small></h2>
           {snapshot.events.length ? <TodayTimeline events={snapshot.events} dayStartValue={snapshot.from} busyEventId={busyEventId} onResizeEvent={(event, end) => void resizeEvent(event, end)} onOpenMenu={(event, x, y, returnFocus) => openContextMenu("event", event.id, x, y, returnFocus)} />
-            : <TodayEmpty icon={<CalendarDays size={20} />} text="今天没有日程安排" />}
+            : <TodayEmpty icon={<CalendarDays size={20} />} text="kein Veranstaltungskalender für heute" />}
         </section>
         <div className="today-side">
           <section className="panel compact-panel">
-            <h2><ListChecks size={19} />需要推进 <small>{snapshot.totals.tasks}</small></h2>
+            <h2><ListChecks size={19} />muss fortgeschritten sein <small>{snapshot.totals.tasks}</small></h2>
             {snapshot.tasks.length ? snapshot.tasks.map((task) => <TaskRow task={task} busy={busyTaskId === task.id} onComplete={() => void completeTask(task)} onOpenMenu={(x, y, returnFocus) => openContextMenu("task", task.id, x, y, returnFocus)} key={task.id} />)
-              : <TodayEmpty icon={<CheckCircle2 size={20} />} text="今天没有到期或紧急任务" />}
+              : <TodayEmpty icon={<CheckCircle2 size={20} />} text="keine abgelaufene oder dringende Aufgabe heute" />}
           </section>
           <section className="panel reply-panel">
-            <h2><Mail size={18} />未读邮件 <small>{snapshot.totals.unreadMail}</small></h2>
+            <h2><Mail size={18} />ungelesene E-Mail <small>{snapshot.totals.unreadMail}</small></h2>
             {snapshot.unreadMail.length ? <div className="today-mail-list">{snapshot.unreadMail.map((message) => <TodayMailRow
               message={message}
               onOpenMenu={(x, y, returnFocus) => openContextMenu("mail", message.id, x, y, returnFocus)}
               key={message.id}
-            />)}</div> : <TodayEmpty icon={<Mail size={20} />} text="收件箱没有未读邮件" />}
+            />)}</div> : <TodayEmpty icon={<Mail size={20} />} text="Posteingang hat keine ungelesene E-Mail" />}
           </section>
         </div>
       </div>
       {contextMenu && contextEvent && <ContextMenu
         anchor={{ x: contextMenu.x, y: contextMenu.y }}
-        ariaLabel="今日日程操作"
+        ariaLabel="Die heutige Veranstaltung des Kalenders Operation"
         commands={resolveContextCommands({
           kind: "calendar-event",
           id: contextEvent.id,
@@ -417,7 +417,7 @@ export function TodayPage() {
       />}
       {contextMenu && contextTask && <ContextMenu
         anchor={{ x: contextMenu.x, y: contextMenu.y }}
-        ariaLabel="今日任务操作"
+        ariaLabel="Betrieb heute"
         commands={resolveContextCommands({
           kind: "task",
           id: contextTask.id,
@@ -441,7 +441,7 @@ export function TodayPage() {
       />}
       {contextMenu && contextMail && <ContextMenu
         anchor={{ x: contextMenu.x, y: contextMenu.y }}
-        ariaLabel="今日邮件操作"
+        ariaLabel="Die heutige Mail Operation"
         commands={resolveContextCommands({
           kind: "mail-message",
           id: contextMail.id,
@@ -595,7 +595,7 @@ function TodayTimeline({
   return (
     <div className="today-timeline">
       {allDayEvents.length > 0 && <div className="today-all-day-lane">
-        <span>全天</span>
+        <span>Ganztägig</span>
         <div>{allDayEvents.map((event) => <TodayEventLink className="today-all-day-event" event={event} key={event.id} onOpenMenu={onOpenMenu} />)}</div>
       </div>}
       <div className="today-time-grid" style={{ height: timelineHeight }}>
@@ -628,7 +628,7 @@ function TodayTimeline({
               }}
               resizeHandle={resizable ? <span
                 className="today-event-resize-handle"
-                title="拖动修改时长"
+                title="Länge des Ziehens und Wechselns"
                 onPointerDown={(pointerEvent) => beginResize(pointerEvent, event)}
                 onPointerMove={updateResize}
                 onPointerUp={finishResize}
@@ -681,7 +681,7 @@ function TodayEventLink({
           onOpenMenu(event, bounds.right - 8, bounds.top + 24, keyEvent.currentTarget);
         }}
       >
-        <span className="today-event-time">{event.allDay ? "全天" : formatTodayEventClockRange(event)}</span>
+        <span className="today-event-time">{event.allDay ? "Ganztägig" : formatTodayEventClockRange(event)}</span>
         <strong>{event.title}</strong>
         <small>{event.calendarName}{event.location ? ` · ${event.location}` : ""}</small>
         {resizeHandle}
@@ -690,7 +690,7 @@ function TodayEventLink({
     <HoverCardContent className="today-event-hover-card" align="start" side="right" sideOffset={8} collisionPadding={12}>
       <header>
         <span><i style={{ background: event.calendarColor }} />{event.calendarName}</span>
-        {(event.availability === "oof" || event.status !== "confirmed") && <em>{event.availability === "oof" ? "外出" : event.status === "tentative" ? "暂定" : "已取消"}</em>}
+        {(event.availability === "oof" || event.status !== "confirmed") && <em>{event.availability === "oof" ? "Ausflug" : event.status === "tentative" ? "vorläufig" : "Annulliert"}</em>}
       </header>
       <strong>{event.title}</strong>
       <div className="today-event-hover-meta">
@@ -703,8 +703,8 @@ function TodayEventLink({
       {hasMore && <button
         type="button"
         className="today-hover-expand"
-        aria-label={expanded ? "收起完整详情" : "展开完整详情"}
-        title={expanded ? "收起完整详情" : "展开完整详情"}
+        aria-label={expanded ? "Komplette Details fallen lassen" : "Volle Details erweitern"}
+        title={expanded ? "Komplette Details fallen lassen" : "Volle Details erweitern"}
         onClick={() => setExpanded((value) => !value)}
       >{expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</button>}
     </HoverCardContent>
@@ -786,7 +786,7 @@ function TaskRow({
           onOpenMenu(event.clientX, event.clientY, event.currentTarget);
         }}
       >
-        <button className="checkbox" aria-label={`完成 ${task.title}`} disabled={busy} onClick={onComplete}>{busy ? <LoaderCircle className="spin" size={12} /> : <Check size={12} />}</button>
+        <button className="checkbox" aria-label={`vollständig ${task.title}`} disabled={busy} onClick={onComplete}>{busy ? <LoaderCircle className="spin" size={12} /> : <Check size={12} />}</button>
         <Link
           href={task.href}
           onKeyDown={(event) => {
@@ -799,18 +799,18 @@ function TaskRow({
           <strong>{task.title}</strong>
           <span>{todayTaskAttentionLabel(task)}{task.projectName ? ` · ${task.projectName}` : ""}</span>
         </Link>
-        <b>{task.dueAt ? formatTodayTaskDue(task.dueAt) : "紧急"}</b>
+        <b>{task.dueAt ? formatTodayTaskDue(task.dueAt) : "Notfall"}</b>
       </div>
     </HoverCardTrigger>
     <HoverCardContent className="today-event-hover-card today-task-hover-card" align="start" side="left" sideOffset={8} collisionPadding={12}>
       <header>
         <span><ListChecks size={14} />{todayTaskAttentionLabel(task)}</span>
-        <em>{task.isUrgent ? "紧急" : todayTaskStatusLabel(task.status)}</em>
+        <em>{task.isUrgent ? "Notfall" : todayTaskStatusLabel(task.status)}</em>
       </header>
       <strong>{task.title}</strong>
       <div className="today-event-hover-meta">
-        {task.dueAt && <span><Clock3 size={14} />截止：{formatTodayTaskDueDetail(task.dueAt)}</span>}
-        {task.estimatedMinutes && <span><Clock3 size={14} />预计：{formatTodayTaskEstimate(task.estimatedMinutes)}</span>}
+        {task.dueAt && <span><Clock3 size={14} />Ende:{formatTodayTaskDueDetail(task.dueAt)}</span>}
+        {task.estimatedMinutes && <span><Clock3 size={14} />Erwartet:{formatTodayTaskEstimate(task.estimatedMinutes)}</span>}
         {(task.projectName || task.areaName) && <span><Link2 size={14} />{[task.areaName, task.projectName].filter(Boolean).join(" · ")}</span>}
       </div>
       {task.notes && <p className={expanded ? "expanded" : undefined}>{task.notes}</p>}
@@ -820,8 +820,8 @@ function TaskRow({
       {hasMore && <button
         type="button"
         className="today-hover-expand"
-        aria-label={expanded ? "收起完整详情" : "展开完整详情"}
-        title={expanded ? "收起完整详情" : "展开完整详情"}
+        aria-label={expanded ? "Komplette Details fallen lassen" : "Volle Details erweitern"}
+        title={expanded ? "Komplette Details fallen lassen" : "Volle Details erweitern"}
         onClick={() => setExpanded((value) => !value)}
       >{expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</button>}
     </HoverCardContent>
@@ -860,20 +860,20 @@ function TodayMailRow({
     <HoverCardContent className="today-event-hover-card today-mail-hover-card" align="start" side="left" sideOffset={8} collisionPadding={12}>
       <header>
         <span><i style={{ background: message.accountColor }} />{message.accountName}</span>
-        <em>{message.isStarred ? "未读 · 星标" : "未读"}</em>
+        <em>{message.isStarred ? "Ungelesen . Sterne" : "Ungelesen"}</em>
       </header>
       <strong>{message.subject}</strong>
       <div className="today-event-hover-meta">
         <span><Mail size={14} />{message.senderName} &lt;{message.senderAddress}&gt;</span>
         <span><Clock3 size={14} />{formatTodayMailDateTime(message.receivedAt)}</span>
-        {message.attachmentCount > 0 && <span><Paperclip size={14} />{message.attachmentCount} 个附件</span>}
+        {message.attachmentCount > 0 && <span><Paperclip size={14} />{message.attachmentCount} eine Anlage</span>}
       </div>
       {message.snippet && <p className={expanded ? "expanded" : undefined}>{message.snippet}</p>}
       {hasMore && <button
         type="button"
         className="today-hover-expand"
-        aria-label={expanded ? "收起完整详情" : "展开完整详情"}
-        title={expanded ? "收起完整详情" : "展开完整详情"}
+        aria-label={expanded ? "Komplette Details fallen lassen" : "Volle Details erweitern"}
+        title={expanded ? "Komplette Details fallen lassen" : "Volle Details erweitern"}
         onClick={() => setExpanded((value) => !value)}
       >{expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</button>}
     </HoverCardContent>
@@ -885,11 +885,11 @@ function TodayEmpty({ icon, text }: { readonly icon: ReactNode; readonly text: s
 }
 
 function formatTodayDate(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", { weekday: "long", month: "long", day: "numeric" }).format(new Date(value));
+  return new Intl.DateTimeFormat("de-DE", { weekday: "long", month: "long", day: "numeric" }).format(new Date(value));
 }
 
 function formatTodayClock(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
+  return new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
 }
 
 function formatTodayEventClockRange(event: TodayEventItem): string {
@@ -897,18 +897,18 @@ function formatTodayEventClockRange(event: TodayEventItem): string {
 }
 
 function formatTodayEventRange(event: TodayEventItem): string {
-  if (event.allDay) return "全天";
+  if (event.allDay) return "Ganztägig";
   const start = new Date(event.start);
   const end = new Date(event.end);
   if (start.toDateString() === end.toDateString()) return formatTodayEventClockRange(event);
-  const format = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+  const format = new Intl.DateTimeFormat("de-DE", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
   return `${format.format(start)}–${format.format(end)}`;
 }
 
 function formatTodayEventDuration(event: TodayEventItem): string {
-  if (event.allDay) return "全天";
+  if (event.allDay) return "Ganztägig";
   const minutes = Math.max(0, Math.round((new Date(event.end).getTime() - new Date(event.start).getTime()) / 60_000));
-  return minutes >= 60 && minutes % 60 === 0 ? `${minutes / 60} 小时` : `${minutes} 分钟`;
+  return minutes >= 60 && minutes % 60 === 0 ? `${minutes / 60} Stunden` : `${minutes} Minuten`;
 }
 
 function minutesSince(dayStart: Date, value: string): number {
@@ -918,30 +918,30 @@ function minutesSince(dayStart: Date, value: string): number {
 function formatTodayAttendees(attendees: TodayEventItem["attendees"], limit = 3): string {
   const names = attendees.slice(0, limit).map((attendee) => attendee.name?.trim() || attendee.address);
   const remaining = attendees.length - names.length;
-  return remaining > 0 ? `${names.join("、")} 等 ${attendees.length} 人` : names.join("、");
+  return remaining > 0 ? `${names.join(", ")} und ${remaining} weitere` : names.join(", ");
 }
 
 function formatTodayMeetingHost(value: string): string {
   try {
     return new URL(value).hostname;
   } catch {
-    return "在线会议";
+    return "Online-Sitzungen";
   }
 }
 
 function todayTaskAttentionLabel(task: TodayTaskItem): string {
-  return task.attention === "overdue" ? "已逾期" : task.attention === "today" ? "今天到期" : "需要立即推进";
+  return task.attention === "overdue" ? "Überfällig" : task.attention === "today" ? "Heute fällig" : "muss sofort vorgerückt werden";
 }
 
 function formatTodayTaskDue(value: string): string {
   const date = new Date(value);
   const now = new Date();
-  if (date < now) return "逾期";
+  if (date < now) return "Überfällig";
   return formatTodayClock(value);
 }
 
 function formatTodayTaskDueDetail(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat("de-DE", {
     month: "numeric",
     day: "numeric",
     hour: "2-digit",
@@ -951,17 +951,17 @@ function formatTodayTaskDueDetail(value: string): string {
 }
 
 function formatTodayTaskEstimate(minutes: number): string {
-  if (minutes < 60) return `${minutes} 分钟`;
+  if (minutes < 60) return `${minutes} Minuten`;
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
-  return remainder ? `${hours} 小时 ${remainder} 分钟` : `${hours} 小时`;
+  return remainder ? `${hours} Stunden ${remainder} Minuten` : `${hours} Stunden`;
 }
 
 function todayTaskStatusLabel(status: TodayTaskItem["status"]): string {
-  if (status === "waiting") return "等待中";
-  if (status === "someday") return "以后";
-  if (status === "next") return "下一步";
-  return "收集箱";
+  if (status === "waiting") return "warten";
+  if (status === "someday") return "später";
+  if (status === "next") return "Weiter";
+  return "Sammelbox";
 }
 
 function formatTodayMailTime(value: string): string {
@@ -969,11 +969,11 @@ function formatTodayMailTime(value: string): string {
   const today = new Date();
   return date.toDateString() === today.toDateString()
     ? formatTodayClock(value)
-    : new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(date);
+    : new Intl.DateTimeFormat("de-DE", { month: "numeric", day: "numeric" }).format(date);
 }
 
 function formatTodayMailDateTime(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat("de-DE", {
     year: "numeric",
     month: "numeric",
     day: "numeric",

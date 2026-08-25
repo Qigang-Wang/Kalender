@@ -177,7 +177,7 @@ export function AppDialogProvider({ children }: { readonly children: React.React
             <AlertDialogFooter className="bg-transparent">
               {request.kind !== "alert" ? (
                 <Button variant="outline" onClick={cancel}>
-                  {request.cancelLabel ?? "取消"}
+                  {request.cancelLabel ?? "Abbrechen"}
                 </Button>
               ) : null}
               <Button
@@ -186,7 +186,7 @@ export function AppDialogProvider({ children }: { readonly children: React.React
                 variant={request.tone === "danger" ? "destructive" : "default"}
                 onClick={request.kind === "prompt" ? undefined : acceptDialog}
               >
-                {request.confirmLabel ?? (request.kind === "alert" ? "知道了" : "确认")}
+                {request.confirmLabel ?? (request.kind === "alert" ? "Verstanden" : "Bestätigen")}
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>

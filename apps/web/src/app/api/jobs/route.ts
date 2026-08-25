@@ -24,7 +24,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const actor = await requireActor();
-    if (actor.role !== "admin") throw new AuthError("需要管理员权限", 403);
+    if (actor.role !== "admin") throw new AuthError("Administrator-Rechte erfordern", 403);
     const body = await request.json().catch(() => null) as {
       readonly kind?: unknown;
       readonly title?: unknown;
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       readonly idempotencyKey?: unknown;
     } | null;
     const kind = safeKind(typeof body?.kind === "string" ? body.kind : undefined);
-    if (!kind) throw new JobError("任务类型无效");
+    if (!kind) throw new JobError("Ungültiger Aufgabentyp");
     const job = await enqueueJob({
       kind,
       actor,
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
 
 async function requireActor() {
   const actor = await getCurrentAppUser();
-  if (!actor) throw new AuthError("请先登录", 401);
+  if (!actor) throw new AuthError("Bitte melden Sie sich zuerst an", 401);
   return actor;
 }
 
@@ -63,16 +63,16 @@ function safeStatus(value: string | null): AppJobStatus | undefined {
 
 function defaultJobTitle(kind: AppJobKind): string {
   return {
-    "backup.create": "创建备份",
-    "backup.restore": "恢复备份",
-    "mail.sync": "同步邮件",
-    "calendar.sync": "同步日历",
-    "ai.action": "执行 AI 动作",
-    maintenance: "系统维护",
+    "backup.create": "Backup erstellen",
+    "backup.restore": "Sicherung wiederherstellen",
+    "mail.sync": "Mail synchronisieren",
+    "calendar.sync": "Kalender synchronisieren",
+    "ai.action": "AI-Maßnahmen durchführen",
+    maintenance: "Wartung des Systems",
   }[kind];
 }
 
 function jobErrorResponse(error: unknown) {
-  const normalized = error instanceof AuthError || error instanceof JobError ? error : new JobError("任务操作失败", 500);
+  const normalized = error instanceof AuthError || error instanceof JobError ? error : new JobError("Aufgabenoperation fehlgeschlagen", 500);
   return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
 }

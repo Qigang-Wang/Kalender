@@ -9,7 +9,7 @@ export const BlockPlaceholderKit = [
       className:
         'before:absolute before:cursor-text before:text-muted-foreground/80 before:content-[attr(placeholder)]',
       placeholders: {
-        [KEYS.p]: '输入 / 插入内容块…',
+        [KEYS.p]: "Inhalt-Block eingeben/einfügen...",
       },
       query: ({ path }) => path.length === 1,
     },

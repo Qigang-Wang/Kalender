@@ -54,7 +54,7 @@ interface EntityDetails {
 
 export async function saveEntityLink(input: SaveEntityLinkInput): Promise<StoredEntityLink> {
   if (input.sourceKind === input.targetKind && input.sourceId === input.targetId) {
-    throw new EntityLinkRepositoryError("ENTITY_LINK_SELF", "不能把对象关联到自身", 400);
+    throw new EntityLinkRepositoryError("ENTITY_LINK_SELF", "ein Objekt kann nicht mit sich selbst assoziiert werden", 400);
   }
   const database = await getDatabase();
   const scope = await getUserScope();
@@ -63,7 +63,7 @@ export async function saveEntityLink(input: SaveEntityLinkInput): Promise<Stored
     entityExists(input.targetKind, input.targetId),
   ]);
   if (!sourceExists || !targetExists) {
-    throw new EntityLinkRepositoryError("ENTITY_NOT_FOUND", "要关联的对象不存在或已删除", 404);
+    throw new EntityLinkRepositoryError("ENTITY_NOT_FOUND", "das zu assoziierende Objekt existiert nicht oder wurde gelöscht", 404);
   }
   const existing = await database.query<LinkRow>(
     `SELECT id, source_kind, source_id, target_kind, target_id, relation, created_at
@@ -84,7 +84,7 @@ export async function saveEntityLink(input: SaveEntityLinkInput): Promise<Stored
     [randomUUID(), scope.valueOrNull(), input.sourceKind, input.sourceId, input.targetKind, input.targetId, input.relation],
   );
   const saved = result.rows[0];
-  if (!saved) throw new EntityLinkRepositoryError("ENTITY_LINK_SAVE_FAILED", "无法保存对象关联", 500);
+  if (!saved) throw new EntityLinkRepositoryError("ENTITY_LINK_SAVE_FAILED", "Objektverbindung kann nicht gespeichert werden", 500);
   return mapLink(saved);
 }
 
@@ -157,7 +157,7 @@ async function resolveEntityDetails(kind: EntityKind, entityId: string): Promise
       scope.active ? [entityId, scope.userId] : [entityId],
     );
     const row = result.rows[0];
-    return row ? { title: row.subject, meta: "邮件", href: `/inbox?message=${encodeURIComponent(entityId)}` } : undefined;
+    return row ? { title: row.subject, meta: "E-Mail", href: `/inbox?message=${encodeURIComponent(entityId)}` } : undefined;
   }
   if (kind === "calendar") {
     const result = await database.query<{ title: string; starts_at: string | Date }>(
@@ -166,7 +166,7 @@ async function resolveEntityDetails(kind: EntityKind, entityId: string): Promise
     );
     const row = result.rows[0];
     const start = row ? toIso(row.starts_at) : undefined;
-    return row && start ? { title: row.title, meta: "日程", href: `/calendar?event=${encodeURIComponent(entityId)}&date=${encodeURIComponent(start)}` } : undefined;
+    return row && start ? { title: row.title, meta: "Termin", href: `/calendar?event=${encodeURIComponent(entityId)}&date=${encodeURIComponent(start)}` } : undefined;
   }
   if (kind === "task") {
     const result = await database.query<{ title: string; status: string }>(
@@ -174,7 +174,7 @@ async function resolveEntityDetails(kind: EntityKind, entityId: string): Promise
       scope.active ? [entityId, scope.userId] : [entityId],
     );
     const row = result.rows[0];
-    return row ? { title: row.title, meta: row.status === "done" ? "任务 · 已完成" : "任务", href: `/tasks?task=${encodeURIComponent(entityId)}` } : undefined;
+    return row ? { title: row.title, meta: row.status === "done" ? "Aufgabe . . . . . . . . . . . ." : "Aufgabe", href: `/tasks?task=${encodeURIComponent(entityId)}` } : undefined;
   }
   if (kind === "note") {
     const result = await database.query<{ title: string; note_type: string }>(
@@ -182,14 +182,14 @@ async function resolveEntityDetails(kind: EntityKind, entityId: string): Promise
       scope.active ? [entityId, scope.userId] : [entityId],
     );
     const row = result.rows[0];
-    return row ? { title: row.title, meta: row.note_type === "meeting" ? "会议笔记" : "笔记", href: `/notes?note=${encodeURIComponent(entityId)}` } : undefined;
+    return row ? { title: row.title, meta: row.note_type === "meeting" ? "Sitzungsnotizen" : "Notiz", href: `/notes?note=${encodeURIComponent(entityId)}` } : undefined;
   }
   const result = await database.query<{ name: string; status: string }>(
     `SELECT name, status FROM projects WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
     scope.active ? [entityId, scope.userId] : [entityId],
   );
   const row = result.rows[0];
-  return row ? { title: row.name, meta: row.status === "archived" ? "项目 · 已归档" : "项目", href: `/projects?project=${encodeURIComponent(entityId)}` } : undefined;
+  return row ? { title: row.name, meta: row.status === "archived" ? "Projekt . Archiviert" : "Projekt", href: `/projects?project=${encodeURIComponent(entityId)}` } : undefined;
 }
 
 function mapLink(row: LinkRow): StoredEntityLink {

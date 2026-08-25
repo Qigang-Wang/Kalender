@@ -33,14 +33,14 @@ export async function resolveAiModelRoute(input: {
   const providerMap = new Map(providers.filter((provider) => provider.enabled && provider.hasApiKey).map((provider) => [provider.id, provider]));
   const eligible = models.filter((model) => model.enabled && model.modelKind === "chat" && providerMap.has(model.providerId));
   if (!eligible.length) {
-    throw new AiProviderError("尚未配置可用的聊天模型，请先到“设置 → AI”添加并测试模型", "AI_MODEL_NOT_CONFIGURED", 409);
+    throw new AiProviderError("Das verfügbare Chat-Modell wurde noch nicht konfiguriert, gehen Sie bitte zu SettingsAI, um das Modell hinzuzufügen und zu testen.", "AI_MODEL_NOT_CONFIGURED", 409);
   }
   const binding = bindings.find((item) => item.featureKey === input.featureKey);
   const requested = input.requestedModelId
     ? eligible.find((model) => model.id === input.requestedModelId)
     : undefined;
   if (input.requestedModelId && !requested) {
-    throw new AiProviderError("选择的 AI 模型不可用", "AI_MODEL_UNAVAILABLE", 409);
+    throw new AiProviderError("das ausgewählte AI-Modell ist nicht verfügbar", "AI_MODEL_UNAVAILABLE", 409);
   }
   const boundPrimary = binding?.primaryModelId ? eligible.find((model) => model.id === binding.primaryModelId) : undefined;
   const primaryModel = requested ?? boundPrimary
@@ -60,6 +60,6 @@ export async function resolveAiModelRoute(input: {
 
 async function hydrate(model: StoredAiModel, providerMap: ReadonlyMap<string, StoredAiProvider>): Promise<RoutedAiModel> {
   const provider = providerMap.get(model.providerId);
-  if (!provider) throw new AiProviderError("AI API 当前不可用", "AI_PROVIDER_DISABLED", 409);
+  if (!provider) throw new AiProviderError("KI-API derzeit nicht verfügbar", "AI_PROVIDER_DISABLED", 409);
   return { provider, model, credential: await loadAiProviderCredential(provider.id) };
 }

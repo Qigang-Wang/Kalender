@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   try {
     const token = new URL(request.url).searchParams.get("token") ?? "";
     const invitation = await getAppInvitationByToken(token);
-    if (!invitation) throw new AuthError("邀请链接无效或已过期", 404);
+    if (!invitation) throw new AuthError("Einladungslink ungültig oder abgelaufen", 404);
     return NextResponse.json({ ok: true, invitation });
   } catch (error) {
     return inviteErrorResponse(error);
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null) as InviteBody | null;
     const password = stringValue(body?.password);
-    if (password !== stringValue(body?.confirmPassword)) throw new AuthError("两次输入的密码不一致", 400);
+    if (password !== stringValue(body?.confirmPassword)) throw new AuthError("Inkonsistente Passwörter zweimal eingegeben", 400);
     const user = await acceptAppInvitation(stringValue(body?.token), {
       displayName: stringValue(body?.displayName),
       password,
@@ -44,6 +44,6 @@ function stringValue(value: unknown): string {
 }
 
 function inviteErrorResponse(error: unknown) {
-  const normalized = error instanceof AuthError ? error : new AuthError("邀请处理失败", 500);
+  const normalized = error instanceof AuthError ? error : new AuthError("Einladungsverarbeitung fehlgeschlagen", 500);
   return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
 }

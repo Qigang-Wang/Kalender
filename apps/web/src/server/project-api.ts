@@ -15,5 +15,5 @@ export function projectErrorResponse(error: unknown) {
     return NextResponse.json({ ok: false, message: error.message }, { status: error.status });
   }
   console.error("Project operation failed", error);
-  return NextResponse.json({ ok: false, message: "项目操作失败" }, { status: 500 });
+  return NextResponse.json({ ok: false, message: "Projektbetrieb fehlgeschlagen" }, { status: 500 });
 }

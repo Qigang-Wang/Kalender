@@ -28,8 +28,8 @@ export function resolveNewTaskDefaults(
   if (view !== "projects" || !selectedProjectId) return { ok: true, status };
 
   const project = projects.find((entry) => entry.id === selectedProjectId);
-  if (!project) return { ok: false, message: "项目不存在或已删除" };
-  if (project.status === "archived") return { ok: false, message: "已归档项目不能添加任务" };
+  if (!project) return { ok: false, message: "Projekt nicht gefunden oder gelöscht" };
+  if (project.status === "archived") return { ok: false, message: "Aufgaben für archivierte Projekte können nicht hinzugefügt werden" };
   return {
     ok: true,
     status,

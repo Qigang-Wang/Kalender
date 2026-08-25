@@ -24,13 +24,13 @@ assert(ready.map((command) => command.id).join(",") === [
   "mail.archive",
   "mail.delete",
 ].join(","), "mail command order is stable");
-assert(ready[0]?.label === "标记为未读", "read label reflects current state");
-assert(ready[1]?.label === "取消星标" && ready[1].icon === "star-filled", "star label and icon reflect current state");
+assert(ready[0]?.label === "Als ungelesen markieren", "read label reflects current state");
+assert(ready[1]?.label === "Markierung entfernen" && ready[1].icon === "star-filled", "star label and icon reflect current state");
 assert(!ready[5]?.disabledReason, "archive is enabled when a destination exists");
 assert(ready[6]?.id === "mail.delete" && !ready[6]?.disabledReason, "delete is enabled for a connected mailbox");
-assert(!ready[2]?.disabledReason && ready[2]?.label === "创建关联任务", "mail can create a local linked task");
-assert(!ready[3]?.disabledReason && ready[3]?.label === "关联到项目", "mail can be organized into a project");
-assert(ready[4]?.disabledReason === "需配置 GPT", "AI command explains its dependency");
+assert(!ready[2]?.disabledReason && ready[2]?.label === "Verknüpfte Aufgabe erstellen", "mail can create a local linked task");
+assert(!ready[3]?.disabledReason && ready[3]?.label === "Mit Projekt verknüpfen", "mail can be organized into a project");
+assert(ready[4]?.disabledReason === "GPT konfigurieren", "AI command explains its dependency");
 
 const disconnected = resolveContextCommands({
   kind: "mail-message",
@@ -43,10 +43,10 @@ const disconnected = resolveContextCommands({
   canArchive: false,
 });
 
-assert(disconnected[0]?.label === "标记为已读", "unread label reflects current state");
-assert(disconnected[0]?.disabledReason === "连接真实邮箱后可用", "remote actions explain connection requirement");
-assert(disconnected[5]?.disabledReason === "连接真实邮箱后可用", "connection requirement takes priority over archive capability");
-assert(disconnected[6]?.disabledReason === "连接真实邮箱后可用", "delete requires a connected mailbox");
+assert(disconnected[0]?.label === "Als gelesen markieren", "unread label reflects current state");
+assert(disconnected[0]?.disabledReason === "Nach Verbindung eines Postfachs verfügbar", "remote actions explain connection requirement");
+assert(disconnected[5]?.disabledReason === "Nach Verbindung eines Postfachs verfügbar", "connection requirement takes priority over archive capability");
+assert(disconnected[6]?.disabledReason === "Nach Verbindung eines Postfachs verfügbar", "delete requires a connected mailbox");
 
 const noArchive = resolveContextCommands({
   kind: "mail-message",
@@ -58,7 +58,7 @@ const noArchive = resolveContextCommands({
   isStarred: false,
   canArchive: false,
 });
-assert(noArchive[5]?.disabledReason === "无归档文件夹", "archive capability is reported clearly");
+assert(noArchive[5]?.disabledReason === "Kein Archivordner", "archive capability is reported clearly");
 
 const calendarEvent = resolveContextCommands({
   kind: "calendar-event",
@@ -79,10 +79,10 @@ assert(calendarEvent.map((command) => command.id).join(",") === [
   "calendar.create-followup-task",
   "calendar.delete",
 ].join(","), "calendar event command order is stable");
-assert(calendarEvent[0]?.label === "查看日程详情" && !calendarEvent[0].disabledReason, "calendar details are always available");
-assert(calendarEvent[2]?.label === "打开来源任务" && !calendarEvent[2].disabledReason, "linked calendar event can return to its task");
-assert(calendarEvent[4]?.label === "创建会议笔记" && !calendarEvent[4].disabledReason, "calendar event can create a meeting note");
-assert(calendarEvent[5]?.label === "创建准备任务" && calendarEvent[6]?.label === "创建跟进任务", "calendar event exposes preparation and follow-up workflows");
+assert(calendarEvent[0]?.label === "Termindetails anzeigen" && !calendarEvent[0].disabledReason, "calendar details are always available");
+assert(calendarEvent[2]?.label === "Verknüpfte Aufgabe öffnen" && !calendarEvent[2].disabledReason, "linked calendar event can return to its task");
+assert(calendarEvent[4]?.label === "Besprechungsnotiz erstellen" && !calendarEvent[4].disabledReason, "calendar event can create a meeting note");
+assert(calendarEvent[5]?.label === "Vorbereitungsaufgabe erstellen" && calendarEvent[6]?.label === "Folgeaufgabe erstellen", "calendar event exposes preparation and follow-up workflows");
 assert(calendarEvent[7]?.risk === "destructive", "calendar deletion is classified as destructive");
 
 const readOnlyCalendarEvent = resolveContextCommands({
@@ -95,9 +95,9 @@ const readOnlyCalendarEvent = resolveContextCommands({
   hasWritableCalendar: true,
 });
 assert(!readOnlyCalendarEvent[0]?.disabledReason, "read-only calendar details remain available");
-assert(readOnlyCalendarEvent[1]?.disabledReason === "只读日历不可编辑", "read-only calendar edit explains the restriction");
-assert(!readOnlyCalendarEvent[3]?.disabledReason && readOnlyCalendarEvent[3]?.label === "复制到个人日历", "read-only events can be copied locally");
-assert(readOnlyCalendarEvent[7]?.disabledReason === "只读日历不可删除", "read-only calendar deletion is disabled");
+assert(readOnlyCalendarEvent[1]?.disabledReason === "Schreibgeschützter Kalender kann nicht bearbeitet werden", "read-only calendar edit explains the restriction");
+assert(!readOnlyCalendarEvent[3]?.disabledReason && readOnlyCalendarEvent[3]?.label === "In persönlichen Kalender kopieren", "read-only events can be copied locally");
+assert(readOnlyCalendarEvent[7]?.disabledReason === "Schreibgeschützter Kalender kann nicht gelöscht werden", "read-only calendar deletion is disabled");
 
 const protectedExchangeEvent = resolveContextCommands({
   kind: "calendar-event",
@@ -142,9 +142,9 @@ assert(task.map((command) => command.id).join(",") === [
   "task.set-waiting",
   "task.delete",
 ].join(","), "task command order is stable");
-assert(task[4]?.label === "移出重要", "task importance command reflects current state");
-assert(task[1]?.label === "打开关联邮件" && !task[1].disabledReason, "linked task can open its mail source");
-assert(task[2]?.label === "安排到日历", "task scheduling command is available");
+assert(task[4]?.label === "Wichtig entfernen", "task importance command reflects current state");
+assert(task[1]?.label === "Verknüpfte E-Mail öffnen" && !task[1].disabledReason, "linked task can open its mail source");
+assert(task[2]?.label === "Im Kalender einplanen", "task scheduling command is available");
 assert(task[7]?.risk === "destructive", "task deletion is classified as destructive");
 
 const taskWithoutMail = resolveContextCommands({
@@ -157,7 +157,7 @@ const taskWithoutMail = resolveContextCommands({
   waiting: false,
   hasMailSource: false,
 });
-assert(taskWithoutMail[1]?.disabledReason === "任务未关联邮件", "mail command explains when no source is linked");
+assert(taskWithoutMail[1]?.disabledReason === "Aufgabe ist mit keiner E-Mail verknüpft", "mail command explains when no source is linked");
 
 const note = resolveContextCommands({
   kind: "note",
@@ -173,7 +173,7 @@ assert(note.map((command) => command.id).join(",") === [
   "note.duplicate",
   "note.delete",
 ].join(","), "note command order is stable");
-assert(note[2]?.label === "置顶笔记" && note[2]?.icon === "star", "note pin command reflects current state");
+assert(note[2]?.label === "Notiz anheften" && note[2]?.icon === "star", "note pin command reflects current state");
 assert(note[4]?.risk === "destructive", "note deletion is classified as destructive");
 
 const pinnedBusyNote = resolveContextCommands({
@@ -183,8 +183,8 @@ const pinnedBusyNote = resolveContextCommands({
   busy: true,
   pinned: true,
 });
-assert(pinnedBusyNote[2]?.label === "取消置顶" && pinnedBusyNote[2]?.icon === "star-filled", "pinned note command reflects current state");
-assert(pinnedBusyNote[1]?.disabledReason === "操作进行中" && pinnedBusyNote[4]?.disabledReason === "操作进行中", "note writes are disabled while busy");
+assert(pinnedBusyNote[2]?.label === "Nicht mehr anheften" && pinnedBusyNote[2]?.icon === "star-filled", "pinned note command reflects current state");
+assert(pinnedBusyNote[1]?.disabledReason === "Aktion läuft" && pinnedBusyNote[4]?.disabledReason === "Aktion läuft", "note writes are disabled while busy");
 
 const activeProject = resolveContextCommands({
   kind: "project",
@@ -202,8 +202,8 @@ assert(activeProject.map((command) => command.id).join(",") === [
   "project.copy-link",
   "project.archive",
 ].join(","), "active project commands are stable");
-assert(activeProject[1]?.label === "添加任务" && !activeProject[1]?.disabledReason, "active projects accept tasks");
-assert(activeProject[6]?.label === "归档项目" && activeProject[6]?.risk === "local-write", "active projects can be archived safely");
+assert(activeProject[1]?.label === "Aufgabe hinzufügen" && !activeProject[1]?.disabledReason, "active projects accept tasks");
+assert(activeProject[6]?.label === "Projekt archivieren" && activeProject[6]?.risk === "local-write", "active projects can be archived safely");
 
 const archivedProject = resolveContextCommands({
   kind: "project",
@@ -219,6 +219,6 @@ assert(archivedProject.map((command) => command.id).join(",") === [
   "project.copy-link",
   "project.restore",
 ].join(","), "archived project commands replace archive with restore");
-assert(archivedProject[4]?.label === "恢复项目" && archivedProject[4]?.icon === "restore", "archived projects can be restored");
+assert(archivedProject[4]?.label === "Projekt wiederherstellen" && archivedProject[4]?.icon === "restore", "archived projects can be restored");
 
 console.log("Context command registry tests passed");

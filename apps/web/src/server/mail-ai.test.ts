@@ -14,9 +14,9 @@ const mail = {
 };
 
 const instructed = buildMailAiMessages("draft-reply", mail, "同意参加，但希望改到周三下午。");
-assert(instructed[0]?.role === "system" && instructed[0].content.includes("回复要求由用户主动提供"), "system prompt distinguishes user requirements from untrusted mail");
+assert(instructed[0]?.role === "system" && instructed[0].content.includes("Vom Benutzer eingegebene Antwortvorgaben"), "system prompt distinguishes user requirements from untrusted mail");
 assert(instructed[1]?.content.includes("<reply_requirements>\n同意参加，但希望改到周三下午。\n</reply_requirements>"), "reply requirements are passed in a dedicated boundary");
-assert(instructed[1]?.content.includes("严格结合用户提供的回复要求"), "draft prompt tells the model to follow the requirements");
+assert(instructed[1]?.content.includes("Berücksichtige die vom Benutzer angegebenen Antwortvorgaben genau"), "draft prompt tells the model to follow the requirements");
 
 const direct = buildMailAiMessages("draft-reply", mail);
 assert(!direct[1]?.content.includes("<reply_requirements>"), "empty editor generates a direct reply without a requirements block");

@@ -42,7 +42,7 @@ export function useUploadFile({
         readonly message?: string;
       } | null;
       if (!response.ok || !payload?.file) {
-        throw new Error(payload?.message ?? '文件上传失败');
+        throw new Error(payload?.message ?? "Datei-Upload fehlgeschlagen");
       }
       setProgress(100);
       setUploadedFile(payload.file);

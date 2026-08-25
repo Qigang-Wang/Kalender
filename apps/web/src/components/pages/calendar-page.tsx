@@ -58,12 +58,12 @@ const CALENDAR_SYNCED_EVENT = "kalender:calendar-synced";
 
 const CalendarDescriptionEditor = dynamic(
   () => import("../editor/calendar-description-editor").then((module) => module.CalendarDescriptionEditor),
-  { loading: () => <div className="calendar-rich-loading"><LoaderCircle className="spin" size={15} />正在加载编辑器…</div>, ssr: false },
+  { loading: () => <div className="calendar-rich-loading"><LoaderCircle className="spin" size={15} />Editor wird geladen...</div>, ssr: false },
 );
 
 const CalendarDescriptionView = dynamic(
   () => import("../editor/calendar-description-editor").then((module) => module.CalendarDescriptionView),
-  { loading: () => <div className="calendar-rich-loading"><LoaderCircle className="spin" size={15} />正在读取备注…</div>, ssr: false },
+  { loading: () => <div className="calendar-rich-loading"><LoaderCircle className="spin" size={15} />Kommentare lesen...</div>, ssr: false },
 );
 
 interface ClientTaskSource {
@@ -109,16 +109,16 @@ function formatTaskBlockRange(startValue: string, endValue: string): string {
   const start = new Date(startValue);
   const end = new Date(endValue);
   const sameDay = start.toDateString() === end.toDateString();
-  const day = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(start);
-  const time = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
-  return `${day} ${time.format(start)}–${sameDay ? time.format(end) : new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(end)}`;
+  const day = new Intl.DateTimeFormat("de-DE", { month: "numeric", day: "numeric" }).format(start);
+  const time = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${day} ${time.format(start)}–${sameDay ? time.format(end) : new Intl.DateTimeFormat("de-DE", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(end)}`;
 }
 
 function formatTaskEstimate(minutes: number): string {
-  if (minutes < 60) return `${minutes} 分钟`;
+  if (minutes < 60) return `${minutes} Minuten`;
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
-  return remainder ? `${hours} 小时 ${remainder} 分` : `${hours} 小时`;
+  return remainder ? `${hours} Stunden ${remainder} Minuten` : `${hours} Stunden`;
 }
 
 interface CalendarListItem {
@@ -182,7 +182,7 @@ interface CalendarEventDraft {
 }
 
 interface RecurrenceScopePrompt {
-  readonly action: "修改" | "移动" | "删除";
+  readonly action: "Änderung" | "bewegt" | "Löschen";
   readonly title: string;
 }
 
@@ -196,16 +196,16 @@ interface CalendarEventPreviewState {
   readonly y: number;
 }
 
-const calendarDayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"] as const;
+const calendarDayNames = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"] as const;
 type CalendarViewMode = "week" | "month";
 type CalendarDialogMode = "view" | "edit";
 
 function calendarEventWriteDisabledReason(event?: CalendarViewEvent, calendar?: CalendarListItem): string | undefined {
-  if (calendar?.readOnly) return "这个日历当前为只读";
+  if (calendar?.readOnly) return "Dieser Kalender ist derzeit nur lesbar";
   if (event?.providerData?.providerId !== "exchange") return undefined;
-  if (!event.providerData.itemId) return "请先立即同步 RWTH 日历，再尝试修改";
-  if (event.providerData.isRecurring) return "重复日程暂不支持写回，请在 RWTH 网页端处理";
-  if (event.providerData.isMeeting) return "含参会人的会议暂不支持写回，避免误发会议通知";
+  if (!event.providerData.itemId) return "Bitte synchronisieren Sie den RWTH-Kalender sofort, bevor Sie versuchen, ihn zu ändern";
+  if (event.providerData.isRecurring) return "Wiederholte Kalender-Events werden nicht unterstützt, bitte im RWTH Web-End bearbeiten";
+  if (event.providerData.isMeeting) return "Ein Treffen mit Teilnehmern wird nicht unterstützt, um vorerst zurück zu schreiben, um eine missbräuchliche Ankündigung des Treffens zu vermeiden.";
   return undefined;
 }
 
@@ -275,7 +275,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   const loadCalendarTasks = useCallback(async () => {
     const response = await workspaceFetch("/api/tasks", {}, 0);
     const payload = await response.json() as { readonly tasks?: readonly ClientTask[] };
-    if (!response.ok) throw new Error("无法读取待安排任务");
+    if (!response.ok) throw new Error("Aufgabenplanung kann nicht gelesen werden");
     setCalendarTasks(payload.tasks ?? []);
   }, []);
 
@@ -296,7 +296,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   const loadCalendars = useCallback(async () => {
     const response = await workspaceFetch("/api/calendars");
     const payload = await response.json() as { readonly calendars?: readonly CalendarListItem[]; readonly message?: string };
-    if (!response.ok || !payload.calendars) throw new Error(payload.message || "无法读取日历");
+    if (!response.ok || !payload.calendars) throw new Error(payload.message || "Kalender kann nicht gelesen werden");
     setCalendars(payload.calendars);
     return payload.calendars;
   }, []);
@@ -307,11 +307,11 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       const params = new URLSearchParams({ from: visibleRange.start.toISOString(), to: visibleRange.end.toISOString() });
       const response = await workspaceFetch(`/api/calendar-events?${params}`, {}, 0);
       const payload = await response.json() as { readonly events?: readonly CalendarViewEvent[]; readonly message?: string };
-      if (!response.ok || !payload.events) throw new Error(payload.message || "无法读取日程");
+      if (!response.ok || !payload.events) throw new Error(payload.message || "es ist nicht möglich, das Kalenderereignis zu lesen");
       setEvents(payload.events);
       if (!background) setFeedback("");
     } catch (error) {
-      if (!background) setFeedback(error instanceof Error ? error.message : "无法读取日程");
+      if (!background) setFeedback(error instanceof Error ? error.message : "es ist nicht möglich, das Kalenderereignis zu lesen");
     } finally {
       if (!background) setLoading(false);
     }
@@ -320,7 +320,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   useEffect(() => {
     void loadCalendars().catch((error: unknown) => {
       setLoading(false);
-      setFeedback(error instanceof Error ? error.message : "无法读取日历");
+      setFeedback(error instanceof Error ? error.message : "Kalender kann nicht gelesen werden");
     });
   }, [loadCalendars]);
 
@@ -344,7 +344,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   const openCreateDraft = useCallback((start = nextCalendarHour(new Date()), title = "", selectedEnd?: Date) => {
     const calendarId = writableLocalCalendar?.id;
     if (!calendarId) {
-      setFeedback("本地日历尚未准备好，请稍后再试");
+      setFeedback("Der lokale Kalender ist noch nicht fertig, bitte versuchen Sie es später noch einmal");
       return;
     }
     setMenu(undefined);
@@ -454,32 +454,32 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     openedInitialEvent.current = true;
     if (event) {
       openEditDraft(event);
-      setFeedback("已打开任务安排的日程");
+      setFeedback("Der mit der Aufgabe verknüpfte Termin wurde geöffnet");
     } else {
-      setFeedback("关联日程已删除或不在当前时间范围内");
+      setFeedback("Der verknüpfte Termin wurde gelöscht oder liegt außerhalb des angezeigten Zeitraums");
     }
   }, [events, initialEventId, loading, openEditDraft]);
 
   const saveDraft = async (allowConflicts = false) => {
     if (!draft || busy) return;
     if (calendars.find((calendar) => calendar.id === draft.calendarId)?.readOnly) {
-      setFeedback("这是只读日历，不能修改远端日程");
+      setFeedback("Dieser Termin gehört zu einem schreibgeschützten Kalender und kann nicht geändert werden");
       return;
     }
     if (!draft.title.trim()) {
-      setFeedback("请输入日程标题");
+      setFeedback("Bitte geben Sie einen Titel für den Termin ein");
       return;
     }
     let start = new Date(draft.allDay ? `${draft.startLocal}T00:00` : draft.startLocal);
     let end = new Date(draft.allDay ? `${draft.endLocal}T00:00` : draft.endLocal);
     if (draft.allDay && !Number.isNaN(end.getTime())) end = addCalendarDays(end, 1);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
-      setFeedback("结束时间必须晚于开始时间");
+      setFeedback("Die Endzeit muss später als die Startzeit sein.");
       return;
     }
     let recurrenceScope = draft.recurrenceScope;
     if (draft.recurrenceSeriesId && !recurrenceScope) {
-      recurrenceScope = await requestRecurrenceScope("修改", draft.title);
+      recurrenceScope = await requestRecurrenceScope("Änderung", draft.title);
       if (!recurrenceScope) return;
     }
     setBusy(true);
@@ -510,15 +510,15 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       const payload = await response.json() as { readonly event?: CalendarViewEvent; readonly conflicts?: readonly TaskScheduleConflict[]; readonly message?: string };
       if (response.status === 409 && payload.conflicts?.length) {
         setDraft({ ...draft, recurrenceScope, conflicts: payload.conflicts });
-        setFeedback("所选时间与现有日程冲突");
+        setFeedback("Der ausgewählte Zeitraum überschneidet sich mit einem bestehenden Termin");
         return;
       }
-      if (!response.ok || !payload.event) throw new Error(payload.message || "无法保存日程");
+      if (!response.ok || !payload.event) throw new Error(payload.message || "Der Termin konnte nicht gespeichert werden");
       setDraft(undefined);
-      setFeedback(draft.id ? "日程已更新" : "日程已创建");
+      setFeedback(draft.id ? "Termin aktualisiert" : "Termin erstellt");
       await loadEvents();
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法保存日程");
+      setFeedback(error instanceof Error ? error.message : "Der Termin konnte nicht gespeichert werden");
     } finally {
       setBusy(false);
     }
@@ -527,18 +527,18 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   const deleteEvent = async (event: CalendarViewEvent) => {
     if (calendars.find((calendar) => calendar.id === event.calendarId)?.readOnly) {
       setMenu(undefined);
-      setFeedback("这是只读日历，不能删除远端日程");
+      setFeedback("Dieser Termin gehört zu einem schreibgeschützten Kalender und kann nicht gelöscht werden");
       return;
     }
     if (busy) return;
     let recurrenceScope: CalendarRecurrenceEditScope | undefined;
     if (event.recurrenceSeriesId && event.recurrenceId) {
-      recurrenceScope = await requestRecurrenceScope("删除", event.title);
+      recurrenceScope = await requestRecurrenceScope("Löschen", event.title);
       if (!recurrenceScope) return;
     } else if (!await appConfirm({
-      title: `删除日程“${event.title}”？`,
-      description: "该日程将被永久删除。",
-      confirmLabel: "删除日程",
+      title: `Termin „${event.title}“ löschen?`,
+      description: "Dieses Kalenderereignis wird dauerhaft gelöscht.",
+      confirmLabel: "Termin löschen",
       tone: "danger",
     })) {
       return;
@@ -554,12 +554,12 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       }
       const response = await fetch(`/api/calendar-events/${encodeURIComponent(event.id)}?${params}`, { method: "DELETE" });
       const payload = await response.json().catch(() => ({})) as { readonly message?: string };
-      if (!response.ok) throw new Error(payload.message || "无法删除日程");
+      if (!response.ok) throw new Error(payload.message || "Kalenderereignis kann nicht gelöscht werden");
       setDraft(undefined);
-      setFeedback("日程已删除");
+      setFeedback("Termin gelöscht");
       await loadEvents();
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法删除日程");
+      setFeedback(error instanceof Error ? error.message : "Kalenderereignis kann nicht gelöscht werden");
     } finally {
       setBusy(false);
     }
@@ -569,7 +569,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     const targetCalendar = writableLocalCalendar;
     if (!targetCalendar) {
       setMenu(undefined);
-      setFeedback("没有可写的个人日历，暂时无法复制日程");
+      setFeedback("Es ist kein beschreibbarer persönlicher Kalender verfügbar. Der Termin kann derzeit nicht kopiert werden");
       return;
     }
     const eventStart = new Date(event.start);
@@ -579,7 +579,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     setDraftMode("edit");
     setDraft({
       calendarId: targetCalendar.id,
-      title: `${event.title}（副本）`,
+      title: `${event.title}(Kopie)`,
       description: event.description ?? "",
       descriptionContent: calendarDraftDescriptionContent(event.descriptionContent, event.description),
       location: event.location ?? "",
@@ -601,14 +601,14 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: `会议笔记：${event.title}`.slice(0, 240),
+          title: `Sitzungsnotizen:${event.title}`.slice(0, 240),
           content: EMPTY_PLATE_NOTE_CONTENT,
           noteType: "meeting",
           pinned: false,
         }),
       });
       const payload = await response.json() as { readonly ok?: boolean; readonly note?: { readonly id: string }; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "无法创建会议笔记");
+      if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "Meeting Notes können nicht erstellt werden");
       try {
         await createClientEntityLink({ sourceKind: "calendar", sourceId: event.recurrenceSeriesId ?? event.id, targetKind: "note", targetId: payload.note.id, relation: "meeting-note" });
       } catch (error) {
@@ -617,9 +617,9 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       }
       setRelatedVersion((current) => current + 1);
       openEditDraft(event);
-      setFeedback("会议笔记已创建，可从相关内容打开");
+      setFeedback("Meeting Notes werden erstellt und können von relevanten Inhalten aus geöffnet werden");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法创建会议笔记");
+      setFeedback(error instanceof Error ? error.message : "Meeting Notes können nicht erstellt werden");
     } finally {
       setBusy(false);
     }
@@ -629,14 +629,14 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     if (busy) return;
     setMenu(undefined);
     setBusy(true);
-    const prefix = kind === "preparation" ? "准备" : "跟进";
+    const prefix = kind === "preparation" ? "Vorbereitung" : "Folgemaßnahmen";
     try {
       const response = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: `${prefix}：${event.title}`.slice(0, 240),
-          notes: `关联日程：${event.title}`,
+          title: `${prefix}: ${event.title}`.slice(0, 240),
+          notes: `Veranstaltung des Assoziationskalenders:${event.title}`,
           status: kind === "preparation" ? "next" : "inbox",
           important: false,
           urgencyMode: "auto",
@@ -645,7 +645,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
         }),
       });
       const payload = await response.json() as { readonly ok?: boolean; readonly task?: { readonly id: string }; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? `无法创建${prefix}任务`);
+      if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? `kann nicht erstellt werden${prefix}Aufgabe`);
       try {
         await createClientEntityLink({ sourceKind: "calendar", sourceId: event.recurrenceSeriesId ?? event.id, targetKind: "task", targetId: payload.task.id, relation: kind });
       } catch (error) {
@@ -654,9 +654,9 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       }
       setRelatedVersion((current) => current + 1);
       openEditDraft(event);
-      setFeedback(`${prefix}任务已创建，可从相关内容打开`);
+      setFeedback(`${prefix}Aufgabe erstellt und kann von relevanten Inhalten geöffnet werden`);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : `无法创建${prefix}任务`);
+      setFeedback(error instanceof Error ? error.message : `kann nicht erstellt werden${prefix}Aufgabe`);
     } finally {
       setBusy(false);
     }
@@ -697,7 +697,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       const slotCommand = commandId as CalendarSlotCommandId;
       const start = new Date(menu.startsAt);
       if (slotCommand === "calendar.create-event") openCreateDraft(start);
-      if (slotCommand === "calendar.create-focus") openCreateDraft(start, "专注时间");
+      if (slotCommand === "calendar.create-focus") openCreateDraft(start, "Zeit im Fokus");
     }
   };
 
@@ -707,7 +707,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     const calendar = calendars.find((item) => !item.readOnly && item.primary && item.providerData?.providerId === "local-calendar")
       ?? calendars.find((item) => !item.readOnly && item.providerData?.providerId === "local-calendar");
     if (!task || !calendar) {
-      setFeedback("没有找到任务或可写的本地日历");
+      setFeedback("kein lokaler Kalender für Aufgabe oder Schreiben gefunden");
       return;
     }
     const end = new Date(start.getTime() + (task.estimatedMinutes ?? 60) * 60_000);
@@ -719,19 +719,19 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
         body: JSON.stringify({ calendarId: calendar.id, start: start.toISOString(), end: end.toISOString(), timeZone, allowConflicts: false }),
       });
       const payload = await response.json() as { readonly task?: ClientTask; readonly event?: CalendarViewEvent; readonly conflicts?: readonly TaskScheduleConflict[]; readonly message?: string };
-      if (response.status === 409 && payload.conflicts?.length) throw new Error("这个时间已有日程，请换一个空闲位置或从任务详情确认冲突");
-      if (!response.ok || !payload.task || !payload.event) throw new Error(payload.message ?? "无法安排任务");
+      if (response.status === 409 && payload.conflicts?.length) throw new Error("Dieser Zeitraum überschneidet sich mit einem Termin. Wählen Sie eine freie Zeit oder bestätigen Sie den Konflikt in den Aufgabendetails");
+      if (!response.ok || !payload.task || !payload.event) throw new Error(payload.message ?? "Aufgabe kann nicht geplant werden");
       setCalendarTasks((current) => current.map((item) => item.id === payload.task!.id ? payload.task! : item));
       setEvents((current) => [...current.filter((item) => item.id !== payload.event!.id), payload.event!].sort((left, right) => left.start.localeCompare(right.start)));
-      setFeedback(`已安排“${task.title}”`);
+      setFeedback(`Aufgabe „${task.title}“ eingeplant`);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法安排任务");
+      setFeedback(error instanceof Error ? error.message : "Aufgabe kann nicht geplant werden");
     } finally {
       setTaskDropBusy(false);
     }
   };
 
-  const updateTaskTimeBlock = async (event: CalendarViewEvent, start: Date, end: Date, action: "移动" | "调整时长") => {
+  const updateTaskTimeBlock = async (event: CalendarViewEvent, start: Date, end: Date, action: "bewegt" | "Anpassungszeit") => {
     if (taskDropBusy || !event.linkedTask) return;
     setTaskDropBusy(true);
     try {
@@ -746,23 +746,23 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       };
       let result = await requestMove(false);
       if (result.response.status === 409 && result.payload.conflicts?.length) {
-        const conflictNames = result.payload.conflicts.slice(0, 3).map((conflict) => `“${conflict.title}”`).join("、");
+        const conflictNames = result.payload.conflicts.slice(0, 3).map((conflict) => `„${conflict.title}“`).join(", ");
         if (!await appConfirm({
-          title: "时间与现有日程冲突",
-          description: `新时间与 ${conflictNames} 冲突。仍然${action}这个任务时间块吗？`,
-          confirmLabel: `仍然${action}`,
+          title: "Zeitkonflikt mit bestehenden Terminen",
+          description: `Der neue Zeitraum überschneidet sich mit ${conflictNames}. Soll der Aufgabenblock trotzdem ${action === "bewegt" ? "verschoben" : "angepasst"} werden?`,
+          confirmLabel: action === "bewegt" ? "Trotzdem verschieben" : "Trotzdem anpassen",
         })) {
-          setFeedback(`已取消${action}时间块`);
+          setFeedback(action === "bewegt" ? "Verschieben abgebrochen" : "Anpassen abgebrochen");
           return;
         }
         result = await requestMove(true);
       }
-      if (!result.response.ok || !result.payload.task || !result.payload.event) throw new Error(result.payload.message ?? "无法调整时间块");
+      if (!result.response.ok || !result.payload.task || !result.payload.event) throw new Error(result.payload.message ?? "Zeitblock kann nicht eingestellt werden");
       setCalendarTasks((current) => current.map((item) => item.id === result.payload.task!.id ? result.payload.task! : item));
       setEvents((current) => [...current.filter((item) => item.id !== result.payload.event!.id), result.payload.event!].sort((left, right) => left.start.localeCompare(right.start)));
-      setFeedback(action === "移动" ? `已重新安排“${result.payload.task.title}”` : `已调整“${result.payload.task.title}”的时长`);
+      setFeedback(action === "bewegt" ? `Aufgabe „${result.payload.task.title}“ verschoben` : `Dauer von „${result.payload.task.title}“ angepasst`);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法调整时间块");
+      setFeedback(error instanceof Error ? error.message : "Zeitblock kann nicht eingestellt werden");
     } finally {
       setTaskDropBusy(false);
     }
@@ -770,12 +770,12 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
 
   const moveTaskTimeBlock = async (event: CalendarViewEvent, start: Date) => {
     const duration = Math.max(5 * 60_000, new Date(event.end).getTime() - new Date(event.start).getTime());
-    await updateTaskTimeBlock(event, start, new Date(start.getTime() + duration), "移动");
+    await updateTaskTimeBlock(event, start, new Date(start.getTime() + duration), "bewegt");
   };
 
   const resizeTaskTimeBlock = async (event: CalendarViewEvent, end: Date) => {
     const start = new Date(event.start);
-    await updateTaskTimeBlock(event, start, new Date(Math.max(start.getTime() + 5 * 60_000, end.getTime())), "调整时长");
+    await updateTaskTimeBlock(event, start, new Date(Math.max(start.getTime() + 5 * 60_000, end.getTime())), "Anpassungszeit");
   };
 
   const moveCalendarEvent = async (event: CalendarViewEvent, start: Date) => {
@@ -799,7 +799,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     if (targetStart.getTime() === originalStart.getTime()) return;
     let recurrenceScope: CalendarRecurrenceEditScope | undefined;
     if (event.recurrenceSeriesId && event.recurrenceId) {
-      recurrenceScope = await requestRecurrenceScope("移动", event.title);
+      recurrenceScope = await requestRecurrenceScope("bewegt", event.title);
       if (!recurrenceScope) return;
     }
     setCalendarMoveBusy(true);
@@ -830,22 +830,22 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       };
       let result = await requestMove(false);
       if (result.response.status === 409 && result.payload.conflicts?.length) {
-        const conflictNames = result.payload.conflicts.slice(0, 3).map((conflict) => `“${conflict.title}”`).join("、");
+        const conflictNames = result.payload.conflicts.slice(0, 3).map((conflict) => `„${conflict.title}“`).join(", ");
         if (!await appConfirm({
-          title: "时间与现有日程冲突",
-          description: `新时间与 ${conflictNames} 冲突。仍然移动这个日程吗？`,
-          confirmLabel: "仍然移动",
+          title: "Zeitkonflikt mit bestehenden Terminen",
+          description: `Der neue Zeitraum überschneidet sich mit ${conflictNames}. Soll der Termin trotzdem verschoben werden?`,
+          confirmLabel: "Trotzdem verschieben",
         })) {
-          setFeedback("已取消移动日程");
+          setFeedback("Verschieben des Termins abgebrochen");
           return;
         }
         result = await requestMove(true);
       }
-      if (!result.response.ok || !result.payload.event) throw new Error(result.payload.message ?? "无法移动日程");
+      if (!result.response.ok || !result.payload.event) throw new Error(result.payload.message ?? "Kalenderereignis kann nicht verschoben werden");
       setEvents((current) => [...current.filter((item) => item.id !== result.payload.event!.id), result.payload.event!].sort((left, right) => left.start.localeCompare(right.start)));
-      setFeedback(`已移动“${event.title}”`);
+      setFeedback(`Termin „${event.title}“ verschoben`);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法移动日程");
+      setFeedback(error instanceof Error ? error.message : "Kalenderereignis kann nicht verschoben werden");
     } finally {
       setCalendarMoveBusy(false);
     }
@@ -869,7 +869,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     if (targetEnd.getTime() === originalEnd.getTime()) return;
     let recurrenceScope: CalendarRecurrenceEditScope | undefined;
     if (event.recurrenceSeriesId && event.recurrenceId) {
-      recurrenceScope = await requestRecurrenceScope("修改", event.title);
+      recurrenceScope = await requestRecurrenceScope("Änderung", event.title);
       if (!recurrenceScope) return;
     }
     setCalendarMoveBusy(true);
@@ -900,22 +900,22 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       };
       let result = await requestResize(false);
       if (result.response.status === 409 && result.payload.conflicts?.length) {
-        const conflictNames = result.payload.conflicts.slice(0, 3).map((conflict) => `“${conflict.title}”`).join("、");
+        const conflictNames = result.payload.conflicts.slice(0, 3).map((conflict) => `„${conflict.title}“`).join(", ");
         if (!await appConfirm({
-          title: "时间与现有日程冲突",
-          description: `调整后的时间与 ${conflictNames} 冲突。仍然调整这个日程的时长吗？`,
-          confirmLabel: "仍然调整",
+          title: "Zeitkonflikt mit bestehenden Terminen",
+          description: `Der angepasste Zeitraum überschneidet sich mit ${conflictNames}. Soll die Termindauer trotzdem geändert werden?`,
+          confirmLabel: "Trotzdem anpassen",
         })) {
-          setFeedback("已取消调整日程时长");
+          setFeedback("Terminanpassung abgebrochen");
           return;
         }
         result = await requestResize(true);
       }
-      if (!result.response.ok || !result.payload.event) throw new Error(result.payload.message ?? "无法调整日程时长");
+      if (!result.response.ok || !result.payload.event) throw new Error(result.payload.message ?? "Die Termindauer konnte nicht angepasst werden");
       setEvents((current) => [...current.filter((item) => item.id !== result.payload.event!.id), result.payload.event!].sort((left, right) => left.start.localeCompare(right.start)));
-      setFeedback(`已调整“${event.title}”的时长`);
+      setFeedback(`Dauer von „${event.title}“ angepasst`);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法调整日程时长");
+      setFeedback(error instanceof Error ? error.message : "Die Termindauer konnte nicht angepasst werden");
     } finally {
       setCalendarMoveBusy(false);
     }
@@ -945,21 +945,21 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       <section className="calendar-shell">
         <div className="calendar-toolbar">
           <div className="calendar-navigation">
-            <button className="secondary-button" aria-label={viewMode === "week" ? "上一周" : "上个月"} onClick={() => setAnchorDate(moveCalendarPeriod(anchorDate, viewMode, -1))}>‹</button>
-            <button className="secondary-button" onClick={() => setAnchorDate(new Date())}>今天</button>
-            <button className="secondary-button" aria-label={viewMode === "week" ? "下一周" : "下个月"} onClick={() => setAnchorDate(moveCalendarPeriod(anchorDate, viewMode, 1))}>›</button>
+            <button className="secondary-button" aria-label={viewMode === "week" ? "letzte Woche" : "letzten Monat"} onClick={() => setAnchorDate(moveCalendarPeriod(anchorDate, viewMode, -1))}>‹</button>
+            <button className="secondary-button" onClick={() => setAnchorDate(new Date())}>Heute</button>
+            <button className="secondary-button" aria-label={viewMode === "week" ? "Nächste Woche" : "nächsten Monat"} onClick={() => setAnchorDate(moveCalendarPeriod(anchorDate, viewMode, 1))}>›</button>
           </div>
           <strong>{viewMode === "week" ? formatCalendarWeekRange(visibleRange.start, visibleRange.end) : formatCalendarMonth(anchorDate)}</strong>
           <div className="calendar-toolbar-actions">
-            <div className="calendar-view-switch" role="group" aria-label="日历视图">
-              <button className={viewMode === "week" ? "active" : ""} aria-pressed={viewMode === "week"} onClick={() => changeViewMode("week")}>周</button>
-              <button className={viewMode === "month" ? "active" : ""} aria-pressed={viewMode === "month"} onClick={() => changeViewMode("month")}>月</button>
+            <div className="calendar-view-switch" role="group" aria-label="Kalenderansicht">
+              <button className={viewMode === "week" ? "active" : ""} aria-pressed={viewMode === "week"} onClick={() => changeViewMode("week")}>Woche</button>
+              <button className={viewMode === "month" ? "active" : ""} aria-pressed={viewMode === "month"} onClick={() => changeViewMode("month")}>Monat</button>
             </div>
-            <button className="primary-button" onClick={() => openCreateDraft()}><Plus size={15} />新建日程</button>
+            <button className="primary-button" onClick={() => openCreateDraft()}><Plus size={15} />Neuer Zeitplan</button>
           </div>
         </div>
-        <div className="calendar-source-row"><div>{calendars.map((calendar) => <span key={calendar.id}><i style={{ background: calendar.color ?? "#86bdf5" }} />{calendar.name}{calendar.readOnly ? " · 只读" : ""}</span>)}</div><small>{timeZone}</small></div>
-        {viewMode === "week" && unscheduledTasks.length > 0 && <section className="calendar-task-shelf" aria-label="待安排任务"><header><div><ListChecks size={15} /><strong>待安排任务</strong></div><small>{taskDropBusy ? "正在安排…" : <><span className="desktop-hint">拖入日历，或点击选择时间</span><span className="mobile-hint">点击任务选择时间</span></>}</small></header><div>{unscheduledTasks.map((task) => <Link href={`/tasks?schedule=${encodeURIComponent(task.id)}`} draggable={!taskDropBusy} key={task.id} onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-kalender-task", task.id); }}><span>{task.title}</span>{task.estimatedMinutes && <em>{formatTaskEstimate(task.estimatedMinutes)}</em>}</Link>)}</div></section>}
+        <div className="calendar-source-row"><div>{calendars.map((calendar) => <span key={calendar.id}><i style={{ background: calendar.color ?? "#86bdf5" }} />{calendar.name}{calendar.readOnly ? " · Nur lesen" : ""}</span>)}</div><small>{timeZone}</small></div>
+        {viewMode === "week" && unscheduledTasks.length > 0 && <section className="calendar-task-shelf" aria-label="noch zu planen"><header><div><ListChecks size={15} /><strong>noch zu planen</strong></div><small>{taskDropBusy ? "Wir arrangieren..." : <><span className="desktop-hint">Ziehen Sie in den Kalender oder klicken Sie auf die Auswahlzeit</span><span className="mobile-hint">Klicken Sie auf Aufgabenauswahlzeit</span></>}</small></header><div>{unscheduledTasks.map((task) => <Link href={`/tasks?schedule=${encodeURIComponent(task.id)}`} draggable={!taskDropBusy} key={task.id} onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-kalender-task", task.id); }}><span>{task.title}</span>{task.estimatedMinutes && <em>{formatTaskEstimate(task.estimatedMinutes)}</em>}</Link>)}</div></section>}
         {feedback && <TransientToast message={feedback} onClose={() => setFeedback("")} />}
         {viewMode === "week" ? (
           <CalendarWeekView
@@ -1027,30 +1027,30 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
           <section className={`calendar-dialog panel calendar-event-dialog ${draftEditing ? "calendar-edit-dialog" : "calendar-detail-dialog"}`} role="dialog" aria-modal="true" aria-labelledby="calendar-dialog-title">
             <header className="calendar-event-dialog-header">
               {draftEditing ? (
-                <h2 className="calendar-edit-dialog-title" id="calendar-dialog-title">{draft.id ? "编辑日程" : "新建日程"}</h2>
+                <h2 className="calendar-edit-dialog-title" id="calendar-dialog-title">{draft.id ? "Termin bearbeiten" : "Neuer Termin"}</h2>
               ) : (
                 <div className="calendar-event-dialog-heading">
                   <span className={`calendar-event-badge ${draftReadOnly ? "protected" : ""}`}>
                     {draftReadOnly ? <ShieldCheck size={14} /> : <CalendarDays size={14} />}
-                    {draftReadOnly ? "受保护" : draftCalendar?.name ?? "日程详情"}
+                    {draftReadOnly ? "geschützt" : draftCalendar?.name ?? "Details zur Veranstaltung im Kalender"}
                   </span>
                   <h2 id="calendar-dialog-title">{draft.title}</h2>
                 </div>
               )}
-              <button aria-label="关闭" onClick={() => setDraft(undefined)} disabled={busy && draftEditing}><X size={20} /></button>
+              <button aria-label="Schließen" onClick={() => setDraft(undefined)} disabled={busy && draftEditing}><X size={20} /></button>
             </header>
             {draftEditing ? <>
               <div className="calendar-form calendar-modern-form">
                 <label className="calendar-title-field">
                   <i className="calendar-title-dot" aria-hidden="true" style={{ background: draftCalendar?.color ?? "#86bdf5" }} />
-                  <input aria-label="日程标题" autoFocus value={draft.title} maxLength={200} placeholder="添加标题" onChange={(event) => updateCalendarDraft({ title: event.target.value })} />
+                  <input aria-label="Titel der Veranstaltung im Kalender" autoFocus value={draft.title} maxLength={200} placeholder="Titel hinzufügen" onChange={(event) => updateCalendarDraft({ title: event.target.value })} />
                 </label>
                 <div className="calendar-schedule-card">
                   <div className="calendar-schedule-row">
                     <span className="calendar-schedule-icon" aria-hidden="true"><CalendarDays size={18} /></span>
                     <DateTimeField
                       className="calendar-schedule-field"
-                      ariaLabel={draft.allDay ? "开始日期" : "开始时间"}
+                      ariaLabel={draft.allDay ? "Anfangsdatum" : "Startzeit"}
                       mode={draft.allDay ? "date" : "datetime"}
                       value={draft.startLocal}
                       onChange={(startLocal) => updateCalendarDraft({ startLocal })}
@@ -1058,7 +1058,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                     <ArrowRight className="calendar-schedule-arrow" size={16} strokeWidth={1.7} aria-hidden="true" />
                     <DateTimeField
                       className="calendar-schedule-field"
-                      ariaLabel={draft.allDay ? "结束日期（含）" : "结束时间"}
+                      ariaLabel={draft.allDay ? "Enddatum (einschließlich)" : "Endzeit"}
                       mode={draft.allDay ? "date" : "datetime"}
                       min={draft.allDay ? draft.startLocal : undefined}
                       value={draft.endLocal}
@@ -1072,24 +1072,24 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                           reminderMinutesBefore: value === "default" ? undefined : Number(value) as CalendarEventReminderMinutes,
                         })}
                       >
-                        <SelectTrigger className="calendar-reminder-select-trigger" aria-label="提醒时间">
+                        <SelectTrigger className="calendar-reminder-select-trigger" aria-label="Erinnerungszeit">
                           <BellRing size={14} aria-hidden="true" />
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="calendar-reminder-select-content" position="popper" align="end" sideOffset={6}>
-                          <SelectItem className="calendar-reminder-select-item" value="default">使用桌面默认设置</SelectItem>
-                          <SelectItem className="calendar-reminder-select-item" value="0">不提醒</SelectItem>
-                          <SelectItem className="calendar-reminder-select-item" value="5">提前 5 分钟</SelectItem>
-                          <SelectItem className="calendar-reminder-select-item" value="15">提前 15 分钟</SelectItem>
-                          <SelectItem className="calendar-reminder-select-item" value="30">提前 30 分钟</SelectItem>
-                          <SelectItem className="calendar-reminder-select-item" value="60">提前 1 小时</SelectItem>
-                          <SelectItem className="calendar-reminder-select-item" value="1440">提前 1 天</SelectItem>
+                          <SelectItem className="calendar-reminder-select-item" value="default">Desktop-Standardeinstellungen verwenden</SelectItem>
+                          <SelectItem className="calendar-reminder-select-item" value="0">Keine Erinnerung</SelectItem>
+                          <SelectItem className="calendar-reminder-select-item" value="5">5 Minuten im Voraus</SelectItem>
+                          <SelectItem className="calendar-reminder-select-item" value="15">15 Minuten im Voraus</SelectItem>
+                          <SelectItem className="calendar-reminder-select-item" value="30">30 Minuten im Voraus</SelectItem>
+                          <SelectItem className="calendar-reminder-select-item" value="60">1 Stunde im Voraus</SelectItem>
+                          <SelectItem className="calendar-reminder-select-item" value="1440">1 Tag im Voraus</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                     <label className="calendar-all-day-switch">
-                      <span>全天</span>
-                      <input aria-label="全天日程" type="checkbox" checked={draft.allDay} onChange={(event) => changeCalendarAllDay(event.target.checked)} />
+                      <span>Ganztägig</span>
+                      <input aria-label="Ganztags-Kalenderveranstaltung" type="checkbox" checked={draft.allDay} onChange={(event) => changeCalendarAllDay(event.target.checked)} />
                       <i aria-hidden="true"><b /></i>
                     </label>
                   </div>
@@ -1097,11 +1097,11 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                 <div className="calendar-edit-meta">
                   <div className="calendar-meta-field calendar-select-field">
                     <Select disabled={Boolean(draft.id)} value={draft.calendarId} onValueChange={(calendarId) => updateCalendarDraft({ calendarId })}>
-                      <SelectTrigger className="calendar-calendar-select-trigger" aria-label="日历">
+                      <SelectTrigger className="calendar-calendar-select-trigger" aria-label="Kalender">
                         <SelectValue>
                           <span className="calendar-calendar-select-value">
                             <i className="calendar-meta-dot" aria-hidden="true" style={{ background: draftCalendar?.color ?? "#86bdf5" }} />
-                            <span>{draftCalendar?.name ?? "选择日历"}</span>
+                            <span>{draftCalendar?.name ?? "Kalender auswählen"}</span>
                           </span>
                         </SelectValue>
                       </SelectTrigger>
@@ -1111,7 +1111,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                             <span className="calendar-calendar-select-item-content">
                               <i className="calendar-meta-dot" aria-hidden="true" style={{ background: calendar.color ?? "#86bdf5" }} />
                               <span>{calendar.name}</span>
-                              {calendar.readOnly && <small>只读</small>}
+                              {calendar.readOnly && <small>Schreibgeschützt</small>}
                             </span>
                           </SelectItem>
                         ))}
@@ -1120,7 +1120,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                   </div>
                   <label className="calendar-meta-field">
                     <MapPin size={18} aria-hidden="true" />
-                    <input aria-label="地点" value={draft.location} maxLength={500} placeholder="添加地点" onChange={(event) => updateCalendarDraft({ location: event.target.value })} />
+                    <input aria-label="Standort" value={draft.location} maxLength={500} placeholder="Standort hinzufügen" onChange={(event) => updateCalendarDraft({ location: event.target.value })} />
                   </label>
                 </div>
                 {draftCalendar?.providerData?.providerId === "local-calendar" && (
@@ -1132,23 +1132,23 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                       onClick={() => draft.recurrence ? setRecurrenceOpen((current) => !current) : openRecurrenceSettings()}
                     >
                       <Repeat2 size={18} />
-                      <span>{draft.recurrence ? calendarRecurrenceSummary(draft.recurrence) : "不重复"}</span>
+                      <span>{draft.recurrence ? calendarRecurrenceSummary(draft.recurrence) : "Keine Wiederholung"}</span>
                       <ChevronRight className={recurrenceOpen ? "open" : ""} size={17} />
                     </button>
                     {recurrenceOpen && draft.recurrence && (
-                      <section className="calendar-recurrence-panel" aria-label="重复设置">
+                      <section className="calendar-recurrence-panel" aria-label="Doppelte Einstellungen">
                         <header>
-                          <strong>重复设置</strong>
-                          <button type="button" onClick={() => setRecurrenceOpen(false)}>完成</button>
+                          <strong>Doppelte Einstellungen</strong>
+                          <button type="button" onClick={() => setRecurrenceOpen(false)}>Erledigt</button>
                         </header>
                         <div className="calendar-recurrence-row">
-                          <span>频率</span>
+                          <span>Häufigkeit</span>
                           <div className="calendar-recurrence-segments">
                             {([
-                              ["daily", "每天"],
-                              ["weekly", "每周"],
-                              ["monthly", "每月"],
-                              ["yearly", "每年"],
+                              ["daily", "täglich"],
+                              ["weekly", "wöchentlich"],
+                              ["monthly", "monatlich"],
+                              ["yearly", "jährlich"],
                             ] as const).map(([frequency, label]) => (
                               <button
                                 type="button"
@@ -1160,10 +1160,10 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                           </div>
                         </div>
                         <div className="calendar-recurrence-row compact">
-                          <span>每</span>
+                          <span>jeweils</span>
                           <div className="calendar-recurrence-interval">
                             <input
-                              aria-label="重复间隔"
+                              aria-label="wiederholte Intervalle"
                               type="number"
                               min={1}
                               max={99}
@@ -1175,9 +1175,9 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                         </div>
                         {draft.recurrence.frequency === "weekly" && (
                           <div className="calendar-recurrence-row">
-                            <span>重复于</span>
+                            <span>Duplikat aus</span>
                             <div className="calendar-recurrence-weekdays">
-                              {["一", "二", "三", "四", "五", "六", "日"].map((label, index) => {
+                              {["I. ENTWICKLUNG DER RECHTSVORSCHRIFTEN", "II.", "III. ENTWICKLUNG DER ENTWICKLUNG DER ENTWICKLUNG DER", "IV", "Fünf", "Sechs", "Tag"].map((label, index) => {
                                 const day = index + 1;
                                 const active = draft.recurrence!.weekDays?.includes(day);
                                 return (
@@ -1198,19 +1198,19 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                           </div>
                         )}
                         <div className="calendar-recurrence-row">
-                          <span>结束</span>
+                          <span>Ende</span>
                           <div className="calendar-recurrence-end">
-                            <label><input type="radio" name="recurrence-end" checked={draft.recurrence.end === "never"} onChange={() => updateRecurrence({ end: "never", until: undefined, count: undefined })} />永不</label>
-                            <label><input type="radio" name="recurrence-end" checked={draft.recurrence.end === "until"} onChange={() => updateRecurrence({ end: "until", until: recurrenceDefaultUntil(draft), count: undefined })} />指定日期</label>
-                            <label><input type="radio" name="recurrence-end" checked={draft.recurrence.end === "count"} onChange={() => updateRecurrence({ end: "count", count: 10, until: undefined })} />重复次数</label>
+                            <label><input type="radio" name="recurrence-end" checked={draft.recurrence.end === "never"} onChange={() => updateRecurrence({ end: "never", until: undefined, count: undefined })} />Niemals</label>
+                            <label><input type="radio" name="recurrence-end" checked={draft.recurrence.end === "until"} onChange={() => updateRecurrence({ end: "until", until: recurrenceDefaultUntil(draft), count: undefined })} />Datum angeben</label>
+                            <label><input type="radio" name="recurrence-end" checked={draft.recurrence.end === "count"} onChange={() => updateRecurrence({ end: "count", count: 10, until: undefined })} />Anzahl der Wiederholungen</label>
                           </div>
                         </div>
                         {draft.recurrence.end === "until" && (
                           <div className="calendar-recurrence-detail">
-                            <span>结束日期</span>
+                            <span>Enddatum</span>
                             <DateTimeField
                               className="calendar-recurrence-date-field"
-                              ariaLabel="重复结束日期"
+                              ariaLabel="Datum des erneuten Endes"
                               mode="date"
                               min={toCalendarDateKey(recurrenceMinimumDate(draft))}
                               value={recurrenceUntilDateKey(draft.recurrence.until)}
@@ -1221,16 +1221,16 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                         )}
                         {draft.recurrence.end === "count" && (
                           <div className="calendar-recurrence-detail">
-                            <span>重复次数</span>
+                            <span>Anzahl der Wiederholungen</span>
                             <input type="number" min={1} max={999} value={draft.recurrence.count ?? 10} onChange={(event) => updateRecurrence({ count: Math.max(1, Math.min(999, Number(event.target.value) || 1)) })} />
-                            <small>次</small>
+                            <small>2-mal</small>
                           </div>
                         )}
                         <div className="calendar-recurrence-preview">
-                          <span>接下来：</span>
+                          <span>Der Nächste:</span>
                           <strong>{formatRecurrencePreview(draft)}</strong>
                         </div>
-                        {!draft.recurrenceSeriesId && <button type="button" className="calendar-recurrence-clear" onClick={() => { updateCalendarDraft({ recurrence: undefined }); setRecurrenceOpen(false); }}>改为不重复</button>}
+                        {!draft.recurrenceSeriesId && <button type="button" className="calendar-recurrence-clear" onClick={() => { updateCalendarDraft({ recurrence: undefined }); setRecurrenceOpen(false); }}>ohne Wiederholung ersetzen</button>}
                       </section>
                     )}
                   </div>
@@ -1249,15 +1249,15 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                 {draft.id && <ProjectAssociationControl kind="calendar" entityId={draft.recurrenceSeriesId ?? draft.id} onChanged={() => setRelatedVersion((current) => current + 1)} />}
                 {draft.id && <RelatedContentPanel kind="calendar" entityId={draft.recurrenceSeriesId ?? draft.id} refreshKey={relatedVersion} hideWhenEmpty />}
               </div>
-              {draft.conflicts.length > 0 && <div className="task-schedule-conflicts calendar-dialog-conflicts" role="alert"><header><AlertCircle size={16} /><strong>发现时间冲突</strong></header>{draft.conflicts.map((conflict) => <div key={conflict.id}><span>{formatTaskBlockRange(conflict.start, conflict.end)}</span><strong>{conflict.title}</strong></div>)}<p>可以返回修改时间，或者确认仍然保存。</p></div>}
+              {draft.conflicts.length > 0 && <div className="task-schedule-conflicts calendar-dialog-conflicts" role="alert"><header><AlertCircle size={16} /><strong>Zeitkonflikt erkannt</strong></header>{draft.conflicts.map((conflict) => <div key={conflict.id}><span>{formatTaskBlockRange(conflict.start, conflict.end)}</span><strong>{conflict.title}</strong></div>)}<p>Sie können entweder die Änderungszeit zurückgeben oder bestätigen, dass Sie sie noch speichern.</p></div>}
             </> : <div className="calendar-detail-content">
               <div className="calendar-detail-time">
                 <div><span className="calendar-detail-icon calendar-detail-icon-date"><CalendarDays size={17} /></span><strong>{formatCalendarDetailDate(draft)}</strong></div>
                 <div><span className="calendar-detail-icon calendar-detail-icon-time"><Clock3 size={17} /></span><strong>{formatCalendarDetailTime(draft)}</strong><small>{formatCalendarDetailDuration(draft)}</small></div>
               </div>
               <div className="calendar-detail-meta">
-                <div><span className="calendar-detail-icon"><CalendarDays size={15} /></span><strong>{draftCalendar?.name ?? "日历"}</strong></div>
-                {calendarAvailabilityLabel(draft.availability) && <div className={draft.availability === "oof" ? "calendar-detail-availability oof" : "calendar-detail-availability"}><span className="calendar-detail-icon"><Circle size={15} /></span><strong>显示为：{calendarAvailabilityLabel(draft.availability)}</strong></div>}
+                <div><span className="calendar-detail-icon"><CalendarDays size={15} /></span><strong>{draftCalendar?.name ?? "Kalender"}</strong></div>
+                {calendarAvailabilityLabel(draft.availability) && <div className={draft.availability === "oof" ? "calendar-detail-availability oof" : "calendar-detail-availability"}><span className="calendar-detail-icon"><Circle size={15} /></span><strong>angezeigt als:{calendarAvailabilityLabel(draft.availability)}</strong></div>}
                 {draft.location && <div><span className="calendar-detail-icon"><MapPin size={15} /></span><strong>{draft.location}</strong></div>}
                 {draft.recurrence && <div><span className="calendar-detail-icon"><Repeat2 size={15} /></span><strong>{calendarRecurrenceSummary(draft.recurrence)}</strong></div>}
                 <div><span className="calendar-detail-icon"><BellRing size={15} /></span><strong>{formatCalendarReminder(draft.reminderMinutesBefore)}</strong></div>
@@ -1275,7 +1275,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
               ) : null}
               {draft.description.trim() && (
                 <section className="calendar-detail-notes">
-                  <h3>备注</h3>
+                  <h3>Notizen</h3>
                   <CalendarDescriptionView
                     eventKey={draft.recurrenceSeriesId ?? draft.id ?? "calendar-event"}
                     content={draft.descriptionContent}
@@ -1286,12 +1286,12 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
               {draft.id && <RelatedContentPanel kind="calendar" entityId={draft.recurrenceSeriesId ?? draft.id} refreshKey={relatedVersion} hideWhenEmpty />}
             </div>}
             {(draftEditing || !draftReadOnly) && <footer className={draftEditing ? "calendar-edit-footer" : "calendar-detail-footer"}>
-              {draftEditing && draft.id ? <button className="ghost-button danger-button" disabled={busy} onClick={() => { const event = events.find((item) => item.id === draft.id); if (event) void deleteEvent(event); }}><Trash2 size={15} />删除</button> : null}
+              {draftEditing && draft.id ? <button className="ghost-button danger-button" disabled={busy} onClick={() => { const event = events.find((item) => item.id === draft.id); if (event) void deleteEvent(event); }}><Trash2 size={15} />Löschen</button> : null}
               <div>{draftEditing ? <>
-                <button className="secondary-button" disabled={busy} onClick={() => { if (draftEvent) openEditDraft(draftEvent, "view"); else setDraft(undefined); }}>取消</button>
-                <button className={draft.conflicts.length ? "danger-confirm-button" : "primary-button"} disabled={busy} onClick={() => void saveDraft(draft.conflicts.length > 0)}>{busy && <LoaderCircle className="spin" size={15} />}{draft.conflicts.length ? "仍然保存" : draft.id ? "保存修改" : "创建日程"}</button>
+                <button className="secondary-button" disabled={busy} onClick={() => { if (draftEvent) openEditDraft(draftEvent, "view"); else setDraft(undefined); }}>Abbrechen</button>
+                <button className={draft.conflicts.length ? "danger-confirm-button" : "primary-button"} disabled={busy} onClick={() => void saveDraft(draft.conflicts.length > 0)}>{busy && <LoaderCircle className="spin" size={15} />}{draft.conflicts.length ? "Trotzdem speichern" : draft.id ? "Änderungen speichern" : "Termin erstellen"}</button>
               </> : <>
-                <button className="secondary-button" onClick={() => setDraftMode("edit")}><Pencil size={14} />编辑</button>
+                <button className="secondary-button" onClick={() => setDraftMode("edit")}><Pencil size={14} />Bearbeiten</button>
               </>}</div>
             </footer>}
           </section>
@@ -1303,17 +1303,17 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
           <section className="calendar-recurrence-scope-dialog" role="dialog" aria-modal="true" aria-labelledby="calendar-recurrence-scope-title">
             <header>
               <div>
-                <h2 id="calendar-recurrence-scope-title">{recurrenceScopePrompt.action}重复日程</h2>
+                <h2 id="calendar-recurrence-scope-title">{recurrenceScopePrompt.action}Doppelter Zeitplan</h2>
                 <p>{recurrenceScopePrompt.title}</p>
               </div>
-              <button aria-label="关闭" onClick={() => resolveRecurrenceScope(undefined)}><X size={18} /></button>
+              <button aria-label="Schließen" onClick={() => resolveRecurrenceScope(undefined)}><X size={18} /></button>
             </header>
             <div className="calendar-recurrence-scope-options">
-              <button onClick={() => resolveRecurrenceScope("occurrence")}><strong>仅此次</strong><small>其他日期保持不变</small></button>
-              <button className="recommended" onClick={() => resolveRecurrenceScope("following")}><strong>此次及以后</strong><small>之前的日程保持不变</small></button>
-              <button onClick={() => resolveRecurrenceScope("series")}><strong>整个系列</strong><small>应用到这个系列的所有日期</small></button>
+              <button onClick={() => resolveRecurrenceScope("occurrence")}><strong>nur dies</strong><small>Sonstige Termine bleiben unverändert</small></button>
+              <button className="recommended" onClick={() => resolveRecurrenceScope("following")}><strong>dies und darüber hinaus</strong><small>das vorherige Kalenderereignis bleibt unverändert</small></button>
+              <button onClick={() => resolveRecurrenceScope("series")}><strong>gesamte Serie</strong><small>Anwenden auf alle Termine dieser Reihe</small></button>
             </div>
-            <footer><button className="secondary-button" onClick={() => resolveRecurrenceScope(undefined)}>取消</button></footer>
+            <footer><button className="secondary-button" onClick={() => resolveRecurrenceScope(undefined)}>Abbrechen</button></footer>
           </section>
         </div>
       )}
@@ -1321,9 +1321,9 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       {menu && contextCommands.length > 0 && (
         <ContextMenu
           anchor={{ x: menu.x, y: menu.y }}
-          ariaLabel={contextEvent ? `日程操作：${contextEvent.title}` : "空闲时间操作"}
+          ariaLabel={contextEvent ? `Planung:${contextEvent.title}` : "Freizeitbetrieb"}
           commands={contextCommands}
-          heading={contextEvent?.title ?? (menu.kind === "slot" ? formatCalendarSlotHeading(menu.startsAt) : "空闲时间")}
+          heading={contextEvent?.title ?? (menu.kind === "slot" ? formatCalendarSlotHeading(menu.startsAt) : "Freizeit")}
           returnFocus={menuReturnFocusRef.current}
           testId="calendar-context-menu"
           onClose={() => setMenu(undefined)}
@@ -1660,8 +1660,8 @@ function CalendarWeekView({
   };
 
   return (
-    <section className={`calendar-week panel ${timeSelection ? "selecting-time" : ""}`} aria-label="周视图" data-testid="calendar-week-view">
-      <div className="calendar-week-mobile-agenda" aria-label="本周日程摘要">
+    <section className={`calendar-week panel ${timeSelection ? "selecting-time" : ""}`} aria-label="wöchentliche Ansicht" data-testid="calendar-week-view">
+      <div className="calendar-week-mobile-agenda" aria-label="Zusammenfassung des Veranstaltungskalenders dieser Woche">
         {days.map((day, index) => {
           const dayEvents = events
             .filter((event) => calendarEventOverlapsDay(event, day))
@@ -1671,8 +1671,8 @@ function CalendarWeekView({
           createAt.setHours(9, 0, 0, 0);
           return <section className={isToday ? "today" : undefined} key={day.toISOString()}>
             <header>
-              <span><strong>{calendarDayNames[index]}</strong><time dateTime={toCalendarDateKey(day)}>{day.getMonth() + 1}月{day.getDate()}日</time>{isToday && <em>今天</em>}</span>
-              <button type="button" aria-label={`在${calendarDayNames[index]}新建日程`} onClick={() => onCreate(createAt)}><Plus size={15} /></button>
+              <span><strong>{calendarDayNames[index]}</strong><time dateTime={toCalendarDateKey(day)}>{day.getMonth() + 1}Monat{day.getDate()}Tag</time>{isToday && <em>Heute</em>}</span>
+              <button type="button" aria-label={`in der${calendarDayNames[index]}Neuer Zeitplan`} onClick={() => onCreate(createAt)}><Plus size={15} /></button>
             </header>
             <div>
               {dayEvents.map((event) => {
@@ -1681,16 +1681,16 @@ function CalendarWeekView({
                   <i style={{ background: calendar?.color ?? "#86bdf5" }} />
                   <span>
                     <strong>{event.title}</strong>
-                    <small>{event.allDay ? "全天" : `${formatCalendarEventTime(event.start)}–${formatCalendarEventTime(event.end)}`}{event.location ? ` · ${event.location}` : ""}</small>
+                    <small>{event.allDay ? "Ganztägig" : `${formatCalendarEventTime(event.start)}–${formatCalendarEventTime(event.end)}`}{event.location ? ` · ${event.location}` : ""}</small>
                   </span>
-                  {event.recurrence && <Repeat2 size={12} aria-label="重复日程" />}
+                  {event.recurrence && <Repeat2 size={12} aria-label="Wiederkehrender Termin" />}
                 </button>;
               })}
-              {!loading && dayEvents.length === 0 && <small className="calendar-mobile-day-empty">无安排</small>}
+              {!loading && dayEvents.length === 0 && <small className="calendar-mobile-day-empty">Keine Vereinbarung</small>}
             </div>
           </section>;
         })}
-        {loading && <div className="calendar-view-loading"><LoaderCircle className="spin" size={17} />正在读取日程</div>}
+        {loading && <div className="calendar-view-loading"><LoaderCircle className="spin" size={17} />Termine werden geladen</div>}
       </div>
       <div className="calendar-week-viewport">
         <div className="calendar-week-sticky">
@@ -1703,7 +1703,7 @@ function CalendarWeekView({
             ))}
           </div>
           <div className="calendar-all-day-row" style={{ minHeight: Math.max(38, 8 + allDayLaneCount * 28) }}>
-            <div className="calendar-all-day-label">全天</div>
+            <div className="calendar-all-day-label">Ganztägig</div>
             {days.map((day) => (
               <div
                 className={`calendar-all-day-cell ${isCalendarWeekend(day) ? "calendar-weekend" : ""} ${oofDayKeys.has(toCalendarDateKey(day)) ? "calendar-day-oof" : ""}`}
@@ -1861,7 +1861,7 @@ function CalendarWeekView({
                     className="calendar-current-time"
                     style={{ top: currentTimeTop }}
                     role="timer"
-                    aria-label={`当前时间 ${formatCalendarCurrentTime(currentTime)}`}
+                    aria-label={`Aktuelle Zeit ${formatCalendarCurrentTime(currentTime)}`}
                   >
                     <time dateTime={currentTime.toISOString()}>{formatCalendarCurrentTime(currentTime)}</time>
                   </div>
@@ -1933,12 +1933,12 @@ function CalendarWeekView({
                       <span className="calendar-week-event-heading">
                         <time>{formatCalendarEventTime(placed.event.start)}</time>
                         <strong>{placed.event.title}</strong>
-                        {placed.event.recurrence && <Repeat2 size={11} aria-label="重复日程" />}
+                        {placed.event.recurrence && <Repeat2 size={11} aria-label="Wiederkehrender Termin" />}
                       </span>
-                      {resizedHeight >= 42 && (placed.event.linkedTask ? <small className="calendar-event-task"><ListChecks size={10} />任务 · {placed.event.linkedTask.title}</small> : placed.event.location && <small>{placed.event.location}</small>)}
+                      {resizedHeight >= 42 && (placed.event.linkedTask ? <small className="calendar-event-task"><ListChecks size={10} />Aufgabe . {placed.event.linkedTask.title}</small> : placed.event.location && <small>{placed.event.location}</small>)}
                       {resizable && <span
                         className="calendar-event-resize-handle"
-                        title="拖动修改时长"
+                        title="Länge des Ziehens und Wechselns"
                         onPointerDown={(event) => beginEventResize(event, placed.event)}
                         onPointerMove={(event) => updateEventResize(event, day)}
                         onPointerUp={(event) => finishEventResize(event, day)}
@@ -1951,7 +1951,7 @@ function CalendarWeekView({
                 </div>
               );
             })}
-            {loading && <div className="calendar-view-loading"><LoaderCircle className="spin" size={17} />正在读取日程</div>}
+            {loading && <div className="calendar-view-loading"><LoaderCircle className="spin" size={17} />Termine werden geladen</div>}
           </div>
         </div>
       </div>
@@ -1983,7 +1983,7 @@ function CalendarMonthView({
   const spanningEvents = events.filter(calendarEventSpansMultipleDays);
 
   return (
-    <section className="calendar-month panel" aria-label="月视图" data-testid="calendar-month-view">
+    <section className="calendar-month panel" aria-label="Monatsansicht" data-testid="calendar-month-view">
       <div className="calendar-month-weekdays">
         {calendarDayNames.map((name, index) => <div className={index >= 5 ? "calendar-weekend" : undefined} key={name}>{name}</div>)}
       </div>
@@ -2039,7 +2039,7 @@ function CalendarMonthView({
                   onOpenSlotMenu(slotStart, event.clientX, event.clientY, event.currentTarget);
                 }}
               >
-                <header><span>{day.getDate()}</span>{day.getDate() === 1 && <small>{day.getMonth() + 1}月</small>}</header>
+                <header><span>{day.getDate()}</span>{day.getDate() === 1 && <small>{day.getMonth() + 1}Monat</small>}</header>
                 <div className="calendar-month-events">
                   {visibleEvents.map((event) => (
                     <CalendarCompactEvent
@@ -2070,7 +2070,7 @@ function CalendarMonthView({
                       if (window.matchMedia("(max-width: 760px)").matches) onOpenWeek(day);
                       else setExpandedDay(expanded ? "" : dayKey);
                     }}>
-                      {expanded ? "收起" : `还有 ${dayEvents.length - 3} 项`}
+                      {expanded ? "schließen" : `und ${dayEvents.length - 3} Eintrag`}
                     </button>
                   )}
                 </div>
@@ -2175,8 +2175,8 @@ function CalendarCompactEvent({
     >
       {!event.allDay && <time>{formatCalendarEventTime(event.start)}</time>}
       <span>{event.title}</span>
-      {event.recurrence && <Repeat2 className="calendar-compact-recurrence-icon" size={10} aria-label="重复日程" />}
-      {event.linkedTask && <ListChecks className="calendar-compact-task-icon" size={10} aria-label="关联任务" />}
+      {event.recurrence && <Repeat2 className="calendar-compact-recurrence-icon" size={10} aria-label="Wiederkehrender Termin" />}
+      {event.linkedTask && <ListChecks className="calendar-compact-task-icon" size={10} aria-label="Zugehörige Aufgaben" />}
     </button>
   );
 }
@@ -2249,8 +2249,8 @@ function CalendarSpanningEvent({
     aria-describedby={previewed ? "calendar-event-tooltip" : undefined}
   >
     <span>{event.title}</span>
-    {event.availability === "oof" && <em>外出</em>}
-    {event.recurrence && <Repeat2 size={10} aria-label="重复日程" />}
+    {event.availability === "oof" && <em>Ausflug</em>}
+    {event.recurrence && <Repeat2 size={10} aria-label="Wiederkehrender Termin" />}
   </button>;
 }
 
@@ -2274,10 +2274,10 @@ function CalendarAttendeeList({
   return (
     <section className="calendar-detail-attendees">
       <header>
-        <div><Users size={15} /><h3>参与者</h3><span>{uniqueAttendees.length}</span></div>
+        <div><Users size={15} /><h3>Teilnehmer</h3><span>{uniqueAttendees.length}</span></div>
         {uniqueAttendees.length > 4 && (
           <button type="button" aria-expanded={expanded} onClick={onToggle}>
-            {expanded ? "收起" : `查看全部 ${uniqueAttendees.length} 人`}
+            {expanded ? "schließen" : `Alle anzeigen ${uniqueAttendees.length} Person`}
             <ChevronDown className={expanded ? "expanded" : ""} size={15} />
           </button>
         )}
@@ -2337,7 +2337,7 @@ function CalendarAttendeeCard({
           readonly correspondence?: CalendarCorrespondenceSummary;
           readonly message?: string;
         };
-        if (!response.ok) throw new Error(payload.message || "无法读取往来统计");
+        if (!response.ok) throw new Error(payload.message || "Transaktionsstatistiken können nicht gelesen werden");
         setSummary(payload.correspondence);
       })
       .catch(() => setSummary(undefined))
@@ -2352,9 +2352,9 @@ function CalendarAttendeeCard({
   const copyAddress = async () => {
     try {
       await navigator.clipboard.writeText(attendee.address);
-      onFeedback("邮箱地址已复制");
+      onFeedback("Postfach-Adresse kopiert");
     } catch {
-      onFeedback("无法复制邮箱地址");
+      onFeedback("Postfachadresse kann nicht kopiert werden");
     }
   };
 
@@ -2364,7 +2364,7 @@ function CalendarAttendeeCard({
         <button
           type="button"
           className="calendar-attendee"
-          aria-label={`查看参与者信息：${name}`}
+          aria-label={`Informationen zum Teilnehmer anzeigen:${name}`}
           aria-expanded={open}
           onClick={() => {
             const nextPinned = !pinned;
@@ -2390,19 +2390,19 @@ function CalendarAttendeeCard({
         <header>
           <i aria-hidden="true" style={{ background: calendarAttendeeAvatarColor(attendee.address, name) }}>{calendarAttendeeInitials(name)}</i>
           <div><strong>{name}</strong><small>{attendee.address}</small></div>
-          <span>参与者</span>
-          {pinned && <button type="button" aria-label="关闭参与者信息" title="关闭" onClick={closeCard}><X size={14} /></button>}
+          <span>Teilnehmer</span>
+          {pinned && <button type="button" aria-label="enge Teilnehmerinformationen" title="Schließen" onClick={closeCard}><X size={14} /></button>}
         </header>
         <div className="calendar-attendee-card-meta">
-          <span><b>{summary?.totalCount ?? (loading ? "…" : "0")}</b>封往来</span>
-          <span><b>{summary?.unreadCount ?? (loading ? "…" : "0")}</b>封未读</span>
-          <span><b>{summary?.lastContactAt ? formatCalendarContactTime(summary.lastContactAt) : "—"}</b>最近联系</span>
+          <span><b>{summary?.totalCount ?? (loading ? "…" : "0")}</b> E-Mails</span>
+          <span><b>{summary?.unreadCount ?? (loading ? "…" : "0")}</b> ungelesen</span>
+          <span><b>{summary?.lastContactAt ? formatCalendarContactTime(summary.lastContactAt) : "—"}</b> letzter Kontakt</span>
         </div>
         {domain && <p>{domain}</p>}
         <footer>
-          <button type="button" onClick={() => onCompose(attendee.address)}><Pencil size={14} />写邮件</button>
-          <button type="button" onClick={() => onOpenCorrespondence(attendee.address)}><MailOpen size={14} />查看往来</button>
-          <button type="button" aria-label="复制邮箱地址" title="复制邮箱地址" onClick={() => void copyAddress()}><Copy size={14} /></button>
+          <button type="button" onClick={() => onCompose(attendee.address)}><Pencil size={14} />E-Mail schreiben</button>
+          <button type="button" onClick={() => onOpenCorrespondence(attendee.address)}><MailOpen size={14} />Korrespondenz anzeigen</button>
+          <button type="button" aria-label="Mailbox-Adressen kopieren" title="Mailbox-Adressen kopieren" onClick={() => void copyAddress()}><Copy size={14} /></button>
         </footer>
       </HoverCardContent>
     </HoverCard>
@@ -2418,7 +2418,7 @@ function CalendarEventTooltip({
   readonly calendar?: CalendarListItem;
   readonly event: CalendarViewEvent;
 }) {
-  const statusLabel = event.status === "tentative" ? "暂定" : event.status === "cancelled" ? "已取消" : undefined;
+  const statusLabel = event.status === "tentative" ? "vorläufig" : event.status === "cancelled" ? "Annulliert" : undefined;
   const availabilityLabel = calendarAvailabilityLabel(event.availability);
   return (
     <aside
@@ -2428,7 +2428,7 @@ function CalendarEventTooltip({
       style={{ left: anchor.x, top: anchor.y }}
     >
       <header>
-        <span><i style={{ background: calendar?.color ?? "#86bdf5" }} />{calendar?.name ?? "日历"}{calendar?.readOnly ? " · 只读" : ""}</span>
+        <span><i style={{ background: calendar?.color ?? "#86bdf5" }} />{calendar?.name ?? "Kalender"}{calendar?.readOnly ? " · Nur lesen" : ""}</span>
         {(availabilityLabel || statusLabel) && <em className={event.availability === "oof" ? "availability-oof" : `status-${event.status}`}>{availabilityLabel ?? statusLabel}</em>}
       </header>
       <strong>{event.title}</strong>
@@ -2439,8 +2439,8 @@ function CalendarEventTooltip({
         {event.meetingUrl && <span><Link2 size={13} />{formatCalendarMeetingHost(event.meetingUrl)}</span>}
       </div>
       {event.description && <p>{event.description}</p>}
-      {event.attendees?.length ? <small>{event.attendees.length} 位参与者</small> : null}
-      {event.linkedTask && <small><ListChecks size={12} />关联任务：{event.linkedTask.title}</small>}
+      {event.attendees?.length ? <small>{event.attendees.length} nach Teilnehmer</small> : null}
+      {event.linkedTask && <small><ListChecks size={12} />Zugehörige Aufgaben:{event.linkedTask.title}</small>}
     </aside>
   );
 }
@@ -2579,10 +2579,10 @@ function toLocalDateTimeInput(value: Date): string {
 }
 
 function recurrenceUnitLabel(frequency: CalendarRecurrenceRule["frequency"]): string {
-  if (frequency === "daily") return "天";
-  if (frequency === "weekly") return "周";
-  if (frequency === "monthly") return "个月";
-  return "年";
+  if (frequency === "daily") return "Tage";
+  if (frequency === "weekly") return "Woche";
+  if (frequency === "monthly") return "Monate";
+  return "Jahr";
 }
 
 function recurrenceUntilIso(dateValue: string): string | undefined {
@@ -2619,14 +2619,14 @@ function recurrenceMinimumDate(draft: CalendarEventDraft): Date {
 
 function formatRecurrenceEndDate(value?: string): string {
   const date = recurrenceDateValue(value);
-  if (!date) return "选择日期";
-  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+  if (!date) return "Datum der Auswahl";
+  return `${date.getFullYear()}Jahr${date.getMonth() + 1}Monat${date.getDate()}Tag`;
 }
 
 function formatRecurrencePreview(draft: CalendarEventDraft): string {
   if (!draft.recurrence) return "";
   const start = new Date(draft.allDay ? `${draft.startLocal}T00:00` : draft.startLocal);
-  if (Number.isNaN(start.getTime())) return "请先设置有效的开始时间";
+  if (Number.isNaN(start.getTime())) return "Bitte legen Sie zuerst eine gültige Startzeit fest";
   try {
     const preview = calendarRecurrencePreview({
       start: start.toISOString(),
@@ -2635,26 +2635,26 @@ function formatRecurrencePreview(draft: CalendarEventDraft): string {
       recurrence: draft.recurrence,
       count: 4,
     });
-    if (!preview.length) return "当前规则没有后续日期";
+    if (!preview.length) return "die aktuelle Regel hat kein Datum zu folgen";
     return preview.map((value) => {
       const date = new Date(value);
-      return `${date.getMonth() + 1}月${date.getDate()}日`;
-    }).join("、");
+      return `${date.getMonth() + 1}Monat${date.getDate()}Tag`;
+    }).join(", ");
   } catch {
-    return "请完善重复规则";
+    return "Verfeinern Sie bitte die Duplikat-Regeln";
   }
 }
 
 function formatCalendarEventTime(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
+  return new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
 }
 
 function formatCalendarReminder(value?: CalendarEventReminderMinutes): string {
-  if (value === undefined) return "使用桌面默认提醒";
-  if (value === 0) return "不提醒";
-  if (value === 60) return "提前 1 小时提醒";
-  if (value === 1440) return "提前 1 天提醒";
-  return `提前 ${value} 分钟提醒`;
+  if (value === undefined) return "Desktop-Standardalarme verwenden";
+  if (value === 0) return "Keine Erinnerung";
+  if (value === 60) return "1 Stunde im Voraus";
+  if (value === 1440) return "1 Tag im Voraus";
+  return `Vorschuss ${value} eine Minute Erinnerung`;
 }
 
 function calendarAvailabilityClass(event: CalendarViewEvent): string {
@@ -2662,10 +2662,10 @@ function calendarAvailabilityClass(event: CalendarViewEvent): string {
 }
 
 function calendarAvailabilityLabel(value?: CalendarViewEvent["availability"]): string | undefined {
-  if (value === "free") return "空闲";
-  if (value === "tentative") return "暂定";
-  if (value === "oof") return "外出";
-  if (value === "working_elsewhere") return "在其他地点办公";
+  if (value === "free") return "frei";
+  if (value === "tentative") return "vorläufig";
+  if (value === "oof") return "Ausflug";
+  if (value === "working_elsewhere") return "Sonstige Orte";
   return undefined;
 }
 
@@ -2726,18 +2726,18 @@ function formatCalendarContactTime(value: string): string {
   if (Number.isNaN(date.getTime())) return "—";
   const now = new Date();
   if (date.toDateString() === now.toDateString()) {
-    return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+    return new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
   }
   if (date.getFullYear() === now.getFullYear()) {
-    return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(date);
+    return new Intl.DateTimeFormat("de-DE", { month: "numeric", day: "numeric" }).format(date);
   }
-  return new Intl.DateTimeFormat("zh-CN", { year: "2-digit", month: "numeric", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat("de-DE", { year: "2-digit", month: "numeric", day: "numeric" }).format(date);
 }
 
 function formatCalendarDetailDate(draft: CalendarEventDraft): string {
   const start = new Date(draft.allDay ? `${draft.startLocal}T00:00:00` : draft.startLocal);
   const end = new Date(draft.allDay ? `${draft.endLocal}T00:00:00` : draft.endLocal);
-  const format = (value: Date) => new Intl.DateTimeFormat("zh-CN", {
+  const format = (value: Date) => new Intl.DateTimeFormat("de-DE", {
     month: "long",
     day: "numeric",
     weekday: "short",
@@ -2748,16 +2748,16 @@ function formatCalendarDetailDate(draft: CalendarEventDraft): string {
 }
 
 function formatCalendarDetailTime(draft: CalendarEventDraft): string {
-  if (draft.allDay) return "全天";
+  if (draft.allDay) return "Ganztägig";
   const start = new Date(draft.startLocal);
   const end = new Date(draft.endLocal);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return `${draft.startLocal} — ${draft.endLocal}`;
-  const format = (value: Date) => new Intl.DateTimeFormat("zh-CN", {
+  const format = (value: Date) => new Intl.DateTimeFormat("de-DE", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   }).format(value);
-  return calendarDatesMatch(start, end) ? `${format(start)} — ${format(end)}` : `${format(start)} — ${new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(end)}`;
+  return calendarDatesMatch(start, end) ? `${format(start)} — ${format(end)}` : `${format(start)} — ${new Intl.DateTimeFormat("de-DE", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(end)}`;
 }
 
 function formatCalendarDetailDuration(draft: CalendarEventDraft): string {
@@ -2766,13 +2766,13 @@ function formatCalendarDetailDuration(draft: CalendarEventDraft): string {
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return "";
   if (draft.allDay) {
     const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
-    return days === 1 ? "全天" : `${days} 天`;
+    return days === 1 ? "Ganztägig" : `${days} Tage`;
   }
   const minutes = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60_000));
-  if (minutes < 60) return `${minutes} 分钟`;
+  if (minutes < 60) return `${minutes} Minuten`;
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
-  return remainingMinutes ? `${hours} 小时 ${remainingMinutes} 分钟` : `${hours} 小时`;
+  return remainingMinutes ? `${hours} Stunden ${remainingMinutes} Minuten` : `${hours} Stunden`;
 }
 
 function formatCalendarEventRange(event: CalendarViewEvent): string {
@@ -2780,11 +2780,11 @@ function formatCalendarEventRange(event: CalendarViewEvent): string {
   const end = event.allDay ? new Date(new Date(event.end).getTime() - 1) : new Date(event.end);
   const sameDay = calendarDatesMatch(start, end);
   const date = (value: Date, includeWeekday = false) => {
-    const weekday = includeWeekday ? new Intl.DateTimeFormat("zh-CN", { weekday: "short" }).format(value) : "";
-    return `${value.getMonth() + 1}月${value.getDate()}日${weekday}`;
+    const weekday = includeWeekday ? new Intl.DateTimeFormat("de-DE", { weekday: "short" }).format(value) : "";
+    return `${value.getMonth() + 1}Monat${value.getDate()}Tag${weekday}`;
   };
-  if (event.allDay) return sameDay ? `${date(start, true)} · 全天` : `${date(start)} – ${date(end)} · 全天`;
-  const time = (value: Date) => new Intl.DateTimeFormat("zh-CN", {
+  if (event.allDay) return sameDay ? `${date(start, true)} . . . . . . . . . . .` : `${date(start)} – ${date(end)} . . . . . . . . . . .`;
+  const time = (value: Date) => new Intl.DateTimeFormat("de-DE", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -2796,23 +2796,23 @@ function formatCalendarMeetingHost(value: string): string {
   try {
     return new URL(value).hostname.replace(/^www\./, "");
   } catch {
-    return "在线会议";
+    return "Online-Sitzungen";
   }
 }
 
 function formatCalendarCurrentTime(value: Date): string {
-  return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(value);
+  return new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", hour12: false }).format(value);
 }
 
 function formatCalendarWeekRange(start: Date, end: Date): string {
   const inclusiveEnd = addCalendarDays(end, -1);
-  const startLabel = new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(start);
-  const endLabel = new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric", year: start.getFullYear() === inclusiveEnd.getFullYear() ? undefined : "numeric" }).format(inclusiveEnd);
+  const startLabel = new Intl.DateTimeFormat("de-DE", { month: "short", day: "numeric" }).format(start);
+  const endLabel = new Intl.DateTimeFormat("de-DE", { month: "short", day: "numeric", year: start.getFullYear() === inclusiveEnd.getFullYear() ? undefined : "numeric" }).format(inclusiveEnd);
   return `${startLabel} – ${endLabel}`;
 }
 
 function formatCalendarMonth(value: Date): string {
-  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long" }).format(value);
+  return new Intl.DateTimeFormat("de-DE", { year: "numeric", month: "long" }).format(value);
 }
 
 function formatTimezoneOffset(value: Date): string {
@@ -2825,5 +2825,5 @@ function formatTimezoneOffset(value: Date): string {
 
 function formatCalendarSlotHeading(value: string): string {
   const date = new Date(value);
-  return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  return new Intl.DateTimeFormat("de-DE", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
 }

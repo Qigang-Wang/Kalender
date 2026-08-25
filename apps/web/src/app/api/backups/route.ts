@@ -16,7 +16,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const actor = await getCurrentAppUser();
-    if (!actor) throw new AuthError("请先登录", 401);
+    if (!actor) throw new AuthError("Bitte melden Sie sich zuerst an", 401);
     const body = await request.json().catch(() => null) as {
       readonly encrypted?: unknown;
       readonly mailPolicy?: unknown;
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   try {
     const actor = await getCurrentAppUser();
-    if (!actor) throw new AuthError("请先登录", 401);
+    if (!actor) throw new AuthError("Bitte melden Sie sich zuerst an", 401);
     const body = await request.json().catch(() => null) as {
       readonly enabled?: unknown;
       readonly intervalHours?: unknown;
@@ -56,6 +56,6 @@ export async function PUT(request: Request) {
 }
 
 function backupErrorResponse(error: unknown) {
-  const normalized = error instanceof BackupError || error instanceof AuthError ? error : new BackupError("备份操作失败", 500);
+  const normalized = error instanceof BackupError || error instanceof AuthError ? error : new BackupError("Sicherungsoperation fehlgeschlagen", 500);
   return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
 }

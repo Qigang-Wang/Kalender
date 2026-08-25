@@ -25,7 +25,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const input = parseAiProviderInput(await request.json().catch(() => null));
-    if (!input.apiKey) throw new AiProviderError("请输入 API Key", "AI_API_KEY_REQUIRED");
+    if (!input.apiKey) throw new AiProviderError("API-Schlüssel eingeben", "AI_API_KEY_REQUIRED");
     const result = await testAiProviderConnection(input, { apiKey: input.apiKey });
     const provider = await saveAiProvider(input);
     await updateAiProviderTestStatus(provider.id, { status: "passed", latencyMs: result.latencyMs });

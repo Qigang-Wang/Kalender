@@ -8,5 +8,5 @@ export function entityLinkErrorResponse(error: unknown) {
     return NextResponse.json({ ok: false, message: error.message }, { status: error.status });
   }
   console.error("Entity link operation failed", error);
-  return NextResponse.json({ ok: false, message: "对象关联操作失败" }, { status: 500 });
+  return NextResponse.json({ ok: false, message: "Objekt-Verbindungsoperation fehlgeschlagen" }, { status: 500 });
 }

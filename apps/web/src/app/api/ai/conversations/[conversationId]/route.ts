@@ -20,7 +20,7 @@ export async function GET(_request: Request, context: RouteContext) {
 export async function DELETE(_request: Request, context: RouteContext) {
   const { conversationId } = await context.params;
   try {
-    if (!await deleteAiConversation(conversationId)) throw new AiProviderError("AI 会话不存在", "AI_CONVERSATION_NOT_FOUND", 404);
+    if (!await deleteAiConversation(conversationId)) throw new AiProviderError("Die AI-Sitzung existiert nicht", "AI_CONVERSATION_NOT_FOUND", 404);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return aiProviderErrorResponse(error);

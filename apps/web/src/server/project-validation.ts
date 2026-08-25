@@ -41,23 +41,23 @@ export function parseProjectGanttReorderInput(
   projectId: string,
 ): ReorderProjectGanttItemInput {
   if (!body || (body.kind !== "task" && body.kind !== "milestone")) {
-    throw new ProjectValidationError("甘特拖放类型无效");
+    throw new ProjectValidationError("Gant-Drag-and-Drop-Typ ungültig");
   }
   if (typeof body.itemId !== "string" || !body.itemId.trim() || body.itemId.length > 100) {
-    throw new ProjectValidationError("甘特拖放项目无效");
+    throw new ProjectValidationError("Gant-Drag-and-Drop-Projekt ist ungültig");
   }
   let phaseId: string | null;
   if (body.phaseId === null || body.phaseId === "" || body.phaseId === undefined) phaseId = null;
   else if (typeof body.phaseId === "string" && body.phaseId.trim() && body.phaseId.length <= 100) phaseId = body.phaseId.trim();
-  else throw new ProjectValidationError("项目阶段无效");
+  else throw new ProjectValidationError("Projektphase ungültig");
   let beforeId: string | undefined;
   if (body.beforeId !== undefined && body.beforeId !== null && body.beforeId !== "") {
     if (typeof body.beforeId !== "string" || !body.beforeId.trim() || body.beforeId.length > 100) {
-      throw new ProjectValidationError("甘特拖放目标无效");
+      throw new ProjectValidationError("Gant-Drag-and-Drop-Ziel ist ungültig");
     }
     beforeId = body.beforeId.trim();
   }
-  if (beforeId === body.itemId) throw new ProjectValidationError("不能将项目拖放到自身");
+  if (beforeId === body.itemId) throw new ProjectValidationError("Projekte können nicht in sich hineingezogen werden");
   return { projectId, kind: body.kind, itemId: body.itemId.trim(), phaseId, beforeId };
 }
 
@@ -66,27 +66,27 @@ export function parseProjectTaskPlanInput(
   projectId: string,
   taskId: string,
 ): SaveProjectTaskPlanInput {
-  if (!body) throw new ProjectValidationError("缺少任务计划");
-  const plannedStart = parseOptionalDate(body.plannedStart, "计划开始日期");
-  const plannedEnd = parseOptionalDate(body.plannedEnd, "计划结束日期");
+  if (!body) throw new ProjectValidationError("kein Aufgabenplan verfügbar ist");
+  const plannedStart = parseOptionalDate(body.plannedStart, "planmäßiges Startdatum");
+  const plannedEnd = parseOptionalDate(body.plannedEnd, "planmäßiges Enddatum");
   if ((plannedStart && !plannedEnd) || (!plannedStart && plannedEnd)) {
-    throw new ProjectValidationError("计划开始和结束日期需要同时填写");
+    throw new ProjectValidationError("geplante Start- und Endtermine müssen gleichzeitig abgeschlossen werden");
   }
   if (plannedStart && plannedEnd && plannedEnd < plannedStart) {
-    throw new ProjectValidationError("计划结束日期不能早于开始日期");
+    throw new ProjectValidationError("planmäßiges Enddatum sollte nicht früher als Anfangsdatum sein");
   }
   if (plannedStart && plannedEnd) {
     const duration = new Date(`${plannedEnd}T00:00:00.000Z`).getTime() - new Date(`${plannedStart}T00:00:00.000Z`).getTime();
     if (duration > 5 * 366 * 24 * 60 * 60 * 1000) {
-      throw new ProjectValidationError("单个任务的计划跨度不能超过 5 年");
+      throw new ProjectValidationError("Die geplante Dauer einer einzelnen Aufgabe darf 5 Jahre nicht überschreiten");
     }
   }
   if (!Array.isArray(body.dependencyIds) || body.dependencyIds.length > 100) {
-    throw new ProjectValidationError("任务依赖无效");
+    throw new ProjectValidationError("Aufgabenabhängigkeit ist ungültig");
   }
   const dependencyIds = body.dependencyIds.map((value) => {
     if (typeof value !== "string" || !value.trim() || value.length > 100) {
-      throw new ProjectValidationError("任务依赖无效");
+      throw new ProjectValidationError("Aufgabenabhängigkeit ist ungültig");
     }
     return value.trim();
   });
@@ -94,7 +94,7 @@ export function parseProjectTaskPlanInput(
   if (body.phaseId === null || body.phaseId === "") phaseId = null;
   else if (body.phaseId !== undefined) {
     if (typeof body.phaseId !== "string" || !body.phaseId.trim() || body.phaseId.length > 100) {
-      throw new ProjectValidationError("项目阶段无效");
+      throw new ProjectValidationError("Projektphase ungültig");
     }
     phaseId = body.phaseId.trim();
   }
@@ -102,11 +102,11 @@ export function parseProjectTaskPlanInput(
   if (body.durationWorkdays !== undefined) {
     durationWorkdays = Number(body.durationWorkdays);
     if (!Number.isInteger(durationWorkdays) || durationWorkdays < 1 || durationWorkdays > 2600) {
-      throw new ProjectValidationError("任务工期需要在 1–2600 天之间");
+      throw new ProjectValidationError("Aufgabenplan im Bereich von 1-2600 Tagen");
     }
   }
   if (body.autoSchedule !== undefined && typeof body.autoSchedule !== "boolean") {
-    throw new ProjectValidationError("自动排期设置无效");
+    throw new ProjectValidationError("Ungültige AutoScheduling-Einstellungen");
   }
   return {
     projectId,
@@ -125,15 +125,15 @@ export function parseProjectPhaseInput(
   projectId: string,
   id?: string,
 ): SaveProjectPhaseInput {
-  if (!body || typeof body.name !== "string") throw new ProjectValidationError("请填写阶段名称");
+  if (!body || typeof body.name !== "string") throw new ProjectValidationError("Bitte füllen Sie den Künstlernamen aus");
   const name = body.name.trim();
-  if (!name || name.length > 120) throw new ProjectValidationError("阶段名称需要 1–120 个字符");
+  if (!name || name.length > 120) throw new ProjectValidationError("Name der Bühne erfordert 1–120 Zeichen");
   const color = typeof body.color === "string" && /^#[0-9a-f]{6}$/i.test(body.color)
     ? body.color
     : "#86bdf5";
   const sortOrder = body.sortOrder === undefined ? undefined : Number(body.sortOrder);
   if (sortOrder !== undefined && (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 100_000)) {
-    throw new ProjectValidationError("阶段顺序无效");
+    throw new ProjectValidationError("stage order ist ungültig");
   }
   return { id, projectId, name, color, sortOrder };
 }
@@ -143,17 +143,17 @@ export function parseProjectMilestoneInput(
   projectId: string,
   id?: string,
 ): SaveProjectMilestoneInput {
-  if (!body || typeof body.title !== "string") throw new ProjectValidationError("请填写里程碑标题");
+  if (!body || typeof body.title !== "string") throw new ProjectValidationError("Bitte füllen Sie den Meilenstein-Titel aus");
   const title = body.title.trim();
-  if (!title || title.length > 240) throw new ProjectValidationError("里程碑标题需要 1–240 个字符");
+  if (!title || title.length > 240) throw new ProjectValidationError("Meilenstein-Titel erfordert 1–240 Zeichen");
   let dueOn: string | undefined;
   if (body.dueOn !== undefined && body.dueOn !== null && body.dueOn !== "") {
     if (typeof body.dueOn !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(body.dueOn)) {
-      throw new ProjectValidationError("里程碑日期无效");
+      throw new ProjectValidationError("Meilenstein-Datum ungültig");
     }
     const date = new Date(`${body.dueOn}T00:00:00.000Z`);
     if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== body.dueOn) {
-      throw new ProjectValidationError("里程碑日期无效");
+      throw new ProjectValidationError("Meilenstein-Datum ungültig");
     }
     dueOn = body.dueOn;
   }
@@ -162,13 +162,13 @@ export function parseProjectMilestoneInput(
     : "planned";
   const sortOrder = body.sortOrder === undefined ? undefined : Number(body.sortOrder);
   if (sortOrder !== undefined && (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 100_000)) {
-    throw new ProjectValidationError("里程碑顺序无效");
+    throw new ProjectValidationError("ist die Meilenstein-Reihenfolge ungültig");
   }
   let phaseId: string | null | undefined;
   if (body.phaseId === null || body.phaseId === "") phaseId = null;
   else if (body.phaseId !== undefined) {
     if (typeof body.phaseId !== "string" || !body.phaseId.trim() || body.phaseId.length > 100) {
-      throw new ProjectValidationError("项目阶段无效");
+      throw new ProjectValidationError("Projektphase ungültig");
     }
     phaseId = body.phaseId.trim();
   }
@@ -186,11 +186,11 @@ export class ProjectValidationError extends Error {
 function parseOptionalDate(value: unknown, label: string): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    throw new ProjectValidationError(`${label}无效`);
+    throw new ProjectValidationError(`${label}ungültig`);
   }
   const date = new Date(`${value}T00:00:00.000Z`);
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
-    throw new ProjectValidationError(`${label}无效`);
+    throw new ProjectValidationError(`${label}ungültig`);
   }
   return value;
 }

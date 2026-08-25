@@ -140,13 +140,13 @@ export async function getJob(actor: AppUser, jobId: string): Promise<AppJob> {
     actor.role === "admin" ? [jobId] : [jobId, actor.id],
   );
   const job = result.rows[0];
-  if (!job) throw new JobError("任务不存在", 404);
+  if (!job) throw new JobError("Aufgabe existiert nicht", 404);
   return mapJob(job);
 }
 
 export async function cancelJob(actor: AppUser, jobId: string): Promise<AppJob> {
   const job = await getJob(actor, jobId);
-  if (job.status !== "queued") throw new JobError("只能取消尚未开始的任务", 409);
+  if (job.status !== "queued") throw new JobError("kann nur Aufgaben stornieren, die noch nicht begonnen haben", 409);
   const database = await getDatabase();
   const result = await database.query<JobRow>(
     `UPDATE app_jobs
@@ -161,7 +161,7 @@ export async function cancelJob(actor: AppUser, jobId: string): Promise<AppJob> 
 export async function deleteJob(actor: AppUser, jobId: string): Promise<void> {
   const job = await getJob(actor, jobId);
   if (job.status === "queued" || job.status === "running") {
-    throw new JobError("排队或运行中的任务不能删除", 409);
+    throw new JobError("Aufgaben in Warteschlange oder Ausführung können nicht gelöscht werden", 409);
   }
   const database = await getDatabase();
   const result = await database.query<{ readonly id: string }>(
@@ -172,12 +172,12 @@ export async function deleteJob(actor: AppUser, jobId: string): Promise<void> {
       RETURNING id`,
     actor.role === "admin" ? [job.id] : [job.id, actor.id],
   );
-  if (!result.rows[0]) throw new JobError("任务状态已变化，请刷新后重试", 409);
+  if (!result.rows[0]) throw new JobError("Aufgabenstatus geändert, bitte nach dem Erfrischen erneut versuchen", 409);
 }
 
 export async function retryJob(actor: AppUser, jobId: string): Promise<AppJob> {
   const job = await getJob(actor, jobId);
-  if (job.status !== "failed" && job.status !== "cancelled") throw new JobError("只能重试失败或已取消任务", 409);
+  if (job.status !== "failed" && job.status !== "cancelled") throw new JobError("nur fehlgeschlagen oder storniert", 409);
   const database = await getDatabase();
   const result = await database.query<JobRow>(
     `UPDATE app_jobs
@@ -264,15 +264,7 @@ async function recoverInterruptedJobs(): Promise<void> {
     globalThis.qgwJobRecovery = (async () => {
       const database = await getDatabase();
       const result = await database.query<{ readonly id: string }>(
-        `UPDATE app_jobs
-            SET status = 'failed',
-                progress = 100,
-                error_message = '服务重启导致任务中断，请重试',
-                log_lines = log_lines || jsonb_build_array('任务因服务重启而中断'),
-                finished_at = now(),
-                updated_at = now()
-          WHERE status = 'running' AND updated_at < $1
-          RETURNING id`,
+        "UPDATE app_jobs\n            SET status = 'failed',\n                progress = 100,\n                error_message = 'Die Aufgabe wurde durch einen Neustart des Dienstes unterbrochen. Bitte versuchen Sie es erneut.',\n                log_lines = log_lines || jsonb_build_array('Aufgabe durch Neustart des Dienstes unterbrochen'),\n                finished_at = now(),\n                updated_at = now()\n          WHERE status = 'running' AND updated_at < $1\n          RETURNING id",
         [JOB_RUNNER_STARTED_AT],
       );
       if (result.rows.length > 0) {
@@ -343,11 +335,11 @@ async function claimNextJob(): Promise<AppJob | undefined> {
 
 async function runClaimedJob(job: AppJob): Promise<void> {
   try {
-    await appendJobLog(job.id, `任务开始：${job.title}`);
+    await appendJobLog(job.id, `Aufgabenstart:${job.title}`);
     const result = await executeJob(job);
     await finishJob(job.id, "succeeded", result);
   } catch (error) {
-    const message = error instanceof Error && error.message ? error.message : "任务执行失败";
+    const message = error instanceof Error && error.message ? error.message : "Ausführung der Aufgabe fehlgeschlagen";
     await appendJobLog(job.id, message).catch(() => undefined);
     if (job.attempts < job.maxAttempts) {
       const database = await getDatabase();
@@ -376,7 +368,7 @@ async function executeJob(job: AppJob): Promise<Readonly<Record<string, unknown>
   if (job.kind === "mail.sync") {
     const { runMailSync } = await import("./mail-sync");
     const accountId = stringPayload(job.payload.accountId);
-    if (!accountId) throw new JobError("缺少邮箱账户");
+    if (!accountId) throw new JobError("fehlende Postfachkonten");
     await runMailSync(accountId, 100);
     return { accountId };
   }
@@ -389,7 +381,7 @@ async function executeJob(job: AppJob): Promise<Readonly<Record<string, unknown>
     await cleanupMailBodyCache();
     return { maintenance: "mail-body-cache" };
   }
-  await appendJobLog(job.id, "该任务类型尚未接入执行器");
+  await appendJobLog(job.id, "dieser Aufgabentyp wurde nicht mit dem Executor verbunden");
   return {};
 }
 
@@ -411,14 +403,14 @@ async function finishJob(
 
 function normalizeTitle(value: string): string {
   const title = value.trim();
-  if (!title || title.length > 160) throw new JobError("任务标题无效");
+  if (!title || title.length > 160) throw new JobError("der Aufgabentitel ist ungültig");
   return title;
 }
 
 function normalizeIdempotencyKey(value?: string): string | null {
   if (!value) return null;
   const trimmed = value.trim();
-  if (!/^[a-zA-Z0-9._:-]{8,160}$/.test(trimmed)) throw new JobError("幂等键格式无效");
+  if (!/^[a-zA-Z0-9._:-]{8,160}$/.test(trimmed)) throw new JobError("Ungültiges typografisches Format");
   return trimmed;
 }
 

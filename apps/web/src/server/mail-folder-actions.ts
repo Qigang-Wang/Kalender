@@ -48,10 +48,10 @@ export async function createMailFolder(input: {
 }): Promise<MailFolderActionResult> {
   const name = validateFolderName(input.name);
   const account = await getAccount(input.accountId);
-  if (!account) throw new MailFolderActionError("NOT_FOUND", "邮箱账户不存在", 404);
+  if (!account) throw new MailFolderActionError("NOT_FOUND", "Mailbox-Konten existieren nicht", 404);
   const parent = input.parentFolderId ? await getMailFolder(input.parentFolderId) : undefined;
   if (input.parentFolderId && (!parent || parent.accountId !== account.id)) {
-    throw new MailFolderActionError("NOT_FOUND", "父文件夹不存在", 404);
+    throw new MailFolderActionError("NOT_FOUND", "Parent-Ordner existiert nicht", 404);
   }
   return withFolderAction(account.id, async () => {
     if (account.providerId === "exchange-ews") {
@@ -72,7 +72,7 @@ export async function renameMailFolder(folderId: string, rawName: string): Promi
   const name = validateFolderName(rawName);
   const folder = await requireMutableFolder(folderId);
   const account = await getAccount(folder.accountId);
-  if (!account) throw new MailFolderActionError("NOT_FOUND", "邮箱账户不存在", 404);
+  if (!account) throw new MailFolderActionError("NOT_FOUND", "Mailbox-Konten existieren nicht", 404);
   return withFolderAction(account.id, async () => {
     if (account.providerId === "exchange-ews") {
       const credential = await loadExchangeMailCredential(account.id);
@@ -93,16 +93,16 @@ export async function renameMailFolder(folderId: string, rawName: string): Promi
 export async function moveMailFolder(folderId: string, parentFolderId?: string): Promise<MailFolderActionResult> {
   const folder = await requireMutableFolder(folderId);
   const account = await getAccount(folder.accountId);
-  if (!account) throw new MailFolderActionError("NOT_FOUND", "邮箱账户不存在", 404);
+  if (!account) throw new MailFolderActionError("NOT_FOUND", "Mailbox-Konten existieren nicht", 404);
   const parent = parentFolderId ? await getMailFolder(parentFolderId) : undefined;
   if (parentFolderId && (!parent || parent.accountId !== folder.accountId)) {
-    throw new MailFolderActionError("NOT_FOUND", "目标文件夹不存在", 404);
+    throw new MailFolderActionError("NOT_FOUND", "Zielordner existiert nicht", 404);
   }
   if (parent?.id === folder.id || await isDescendant(folder.id, parent?.id)) {
-    throw new MailFolderActionError("INVALID_MOVE", "不能把文件夹移动到自身或其子文件夹中", 409);
+    throw new MailFolderActionError("INVALID_MOVE", "ein Ordner kann nicht auf sich oder seine Unterordner verschoben werden", 409);
   }
   if (folder.parentId === parent?.id || (!folder.parentId && !parent)) {
-    throw new MailFolderActionError("INVALID_MOVE", "文件夹已经位于该位置", 409);
+    throw new MailFolderActionError("INVALID_MOVE", "Ordner befindet sich bereits in dieser Position", 409);
   }
   return withFolderAction(account.id, async () => {
     if (account.providerId === "exchange-ews") {
@@ -125,7 +125,7 @@ export async function moveMailFolder(folderId: string, parentFolderId?: string):
 export async function deleteMailFolder(folderId: string): Promise<MailFolderActionResult> {
   const folder = await requireMutableFolder(folderId);
   const account = await getAccount(folder.accountId);
-  if (!account) throw new MailFolderActionError("NOT_FOUND", "邮箱账户不存在", 404);
+  if (!account) throw new MailFolderActionError("NOT_FOUND", "Mailbox-Konten existieren nicht", 404);
   return withFolderAction(account.id, async () => {
     if (account.providerId === "exchange-ews") {
       const credential = await loadExchangeMailCredential(account.id);
@@ -136,7 +136,7 @@ export async function deleteMailFolder(folderId: string): Promise<MailFolderActi
         const current = folderByProviderId(folders, folder.providerFolderId);
         const trash = trashPath ? folderByProviderId(folders, trashPath) : undefined;
         if (!trash || folder.providerFolderId === trash.path || folder.providerFolderId.startsWith(`${trash.path}${trash.delimiter}`)) {
-          throw new MailFolderActionError("INVALID_MOVE", "该文件夹已在已删除邮件中，或邮箱没有可用的已删除文件夹", 409);
+          throw new MailFolderActionError("INVALID_MOVE", "Dieser Ordner wurde gelöscht oder kein gelöschter Ordner ist im Postfach verfügbar", 409);
         }
         const basePath = `${trash.path}${trash.delimiter}${folder.name}`;
         const occupied = new Set(folders.map((item) => item.path.toLocaleLowerCase()));
@@ -151,9 +151,9 @@ export async function deleteMailFolder(folderId: string): Promise<MailFolderActi
 
 async function requireMutableFolder(folderId: string): Promise<StoredMailFolder> {
   const folder = await getMailFolder(folderId);
-  if (!folder) throw new MailFolderActionError("NOT_FOUND", "邮件文件夹不存在", 404);
+  if (!folder) throw new MailFolderActionError("NOT_FOUND", "Der Mail-Ordner existiert nicht", 404);
   if (!isMutableFolder(folder)) {
-    throw new MailFolderActionError("PROTECTED_FOLDER", "系统特殊文件夹不能重命名、移动或删除", 409);
+    throw new MailFolderActionError("PROTECTED_FOLDER", "Systemspezifischer Ordner kann nicht umbenannt, verschoben oder gelöscht werden", 409);
   }
   return folder;
 }
@@ -177,21 +177,21 @@ async function isDescendant(folderId: string, possibleDescendantId?: string): Pr
 function validateFolderName(value: string): string {
   const name = value.trim();
   if (!name || name.length > 120 || /[\u0000-\u001f\u007f]/.test(name)) {
-    throw new MailFolderActionError("INVALID_NAME", "文件夹名称必须为 1–120 个有效字符", 400);
+    throw new MailFolderActionError("INVALID_NAME", "Ordnername muss 1–120 gültige Zeichen sein", 400);
   }
   return name;
 }
 
 async function withFolderAction<T>(accountId: string, task: () => Promise<T>): Promise<T> {
   const active = globalThis.kalenderActiveFolderActions ??= new Set<string>();
-  if (active.has(accountId)) throw new MailFolderActionError("ACTION_BUSY", "该邮箱正在执行其他文件夹操作", 409);
+  if (active.has(accountId)) throw new MailFolderActionError("ACTION_BUSY", "dieses Postfach führt andere Ordneroperationen durch", 409);
   active.add(accountId);
   try {
     return await task();
   } catch (error) {
     if (error instanceof MailFolderActionError) throw error;
     console.error("Mail folder action failed", error);
-    throw new MailFolderActionError("REMOTE_ERROR", error instanceof Error && error.message ? error.message : "邮箱服务器没有完成文件夹操作", 502);
+    throw new MailFolderActionError("REMOTE_ERROR", error instanceof Error && error.message ? error.message : "der Mailbox-Server hat den Ordner-Betrieb nicht abgeschlossen", 502);
   } finally {
     active.delete(accountId);
   }

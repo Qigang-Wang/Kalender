@@ -167,18 +167,18 @@ function parseChatRequest(value: unknown): {
   readonly userMessageId: string;
   readonly prompt: string;
 } {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new AiProviderError("请求格式无效", "INVALID_REQUEST");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new AiProviderError("Ungültiges angefordertes Format", "INVALID_REQUEST");
   const body = value as Record<string, unknown>;
-  if (!Array.isArray(body.messages) || !body.messages.length) throw new AiProviderError("请输入消息", "AI_PROMPT_REQUIRED");
+  if (!Array.isArray(body.messages) || !body.messages.length) throw new AiProviderError("Bitte geben Sie eine Nachricht ein", "AI_PROMPT_REQUIRED");
   const last = body.messages[body.messages.length - 1];
-  if (!last || typeof last !== "object" || Array.isArray(last)) throw new AiProviderError("消息格式无效", "INVALID_REQUEST");
+  if (!last || typeof last !== "object" || Array.isArray(last)) throw new AiProviderError("Nachrichtenformat ist nicht gültig", "INVALID_REQUEST");
   const message = last as Record<string, unknown>;
-  if (message.role !== "user" || !Array.isArray(message.parts)) throw new AiProviderError("最后一条消息必须来自用户", "INVALID_REQUEST");
+  if (message.role !== "user" || !Array.isArray(message.parts)) throw new AiProviderError("letzte Nachricht muss vom Benutzer kommen", "INVALID_REQUEST");
   const prompt = message.parts
     .filter((part): part is { type: "text"; text: string } => Boolean(part && typeof part === "object" && !Array.isArray(part) && (part as Record<string, unknown>).type === "text" && typeof (part as Record<string, unknown>).text === "string"))
     .map((part) => part.text).join("\n").trim();
-  if (!prompt) throw new AiProviderError("请输入消息", "AI_PROMPT_REQUIRED");
-  if (prompt.length > 20_000) throw new AiProviderError("单条消息不能超过 20,000 个字符", "AI_PROMPT_TOO_LONG", 413);
+  if (!prompt) throw new AiProviderError("Bitte geben Sie eine Nachricht ein", "AI_PROMPT_REQUIRED");
+  if (prompt.length > 20_000) throw new AiProviderError("eine einzige Nachricht 20.000 Zeichen nicht überschreiten kann", "AI_PROMPT_TOO_LONG", 413);
   return {
     conversationId: safeId(body.conversationId),
     requestedModelId: safeId(body.requestedModelId),
@@ -190,7 +190,7 @@ function parseChatRequest(value: unknown): {
 function safeId(value: unknown): string | undefined {
   if (typeof value !== "string" || !value.trim()) return undefined;
   const id = value.trim();
-  if (id.length > 100 || !/^[A-Za-z0-9._:-]+$/.test(id)) throw new AiProviderError("ID 格式无效", "INVALID_REQUEST");
+  if (id.length > 100 || !/^[A-Za-z0-9._:-]+$/.test(id)) throw new AiProviderError("Ungültiges ID-Format", "INVALID_REQUEST");
   return id;
 }
 
@@ -200,7 +200,7 @@ function buildModelMessages(
 ): readonly AiChatInputMessage[] {
   const system: AiChatInputMessage = {
     role: "system",
-    content: "你是 Dayline 的 AI 助手。当前阶段只提供对话，不读取用户的邮件、日历、任务或笔记，也不能执行或声称已经执行任何操作。请使用用户所用的语言，给出清晰、诚实且简洁的回答。",
+    content: "Sie sind der KI-Assistent von Dayline. Die aktuelle Phase bietet nur Dialog, liest die Mail, den Kalender, die Aufgabe oder Notizen des Benutzers nicht und führt keine Operation durch oder behauptet, sie durchgeführt zu haben. Verwenden Sie die vom Benutzer verwendete Sprache, um eine klare, ehrliche und prägnante Antwort zu geben.",
   };
   const maxCharacters = Math.min(160_000, Math.max(4_000, contextBudgetTokens * 4));
   const selected: AiChatInputMessage[] = [];

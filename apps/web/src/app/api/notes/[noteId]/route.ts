@@ -23,7 +23,7 @@ export async function PATCH(request: Request, context: NoteRouteContext) {
 export async function DELETE(_request: Request, context: NoteRouteContext) {
   const { noteId } = await context.params;
   try {
-    if (!await deleteStoredNote(noteId)) throw new NoteRepositoryError("NOTE_NOT_FOUND", "笔记不存在", 404);
+    if (!await deleteStoredNote(noteId)) throw new NoteRepositoryError("NOTE_NOT_FOUND", "Notiz nicht gefunden", 404);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return noteErrorResponse(error);

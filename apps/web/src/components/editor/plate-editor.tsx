@@ -68,7 +68,7 @@ export function PlateNoteEditor({ noteId, content, onChange }: PlateNoteEditorPr
         <Editor
           className="note-plate-content"
           variant="fullWidth"
-          aria-label="笔记正文"
+          aria-label="Notizkörper"
         />
       </EditorContainer>
     </Plate>

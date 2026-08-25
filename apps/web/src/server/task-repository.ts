@@ -226,7 +226,7 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
         scope.active ? [input.id, scope.userId] : [input.id],
       )
     : undefined;
-  if (input.id && !existing?.rows[0]) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404);
+  if (input.id && !existing?.rows[0]) throw new TaskRepositoryError("TASK_NOT_FOUND", "Aufgabe existiert nicht", 404);
   const project = await resolveTaskProject(input);
   const projectId = project?.id ?? null;
   const projectName = project?.name ?? input.projectName ?? null;
@@ -238,7 +238,7 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
       "SELECT id FROM app_users WHERE id = $1 AND disabled_at IS NULL LIMIT 1",
       [input.assigneeUserId],
     );
-    if (!assignee.rows[0]) throw new TaskRepositoryError("ASSIGNEE_NOT_FOUND", "指派用户不存在", 404);
+    if (!assignee.rows[0]) throw new TaskRepositoryError("ASSIGNEE_NOT_FOUND", "Der zugewiesene Benutzer existiert nicht", 404);
   }
 
   await database.transaction(async (transaction) => {
@@ -314,7 +314,7 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
   });
 
   const saved = await getStoredTask(id);
-  if (!saved) throw new TaskRepositoryError("TASK_SAVE_FAILED", "无法保存任务", 500);
+  if (!saved) throw new TaskRepositoryError("TASK_SAVE_FAILED", "Aufgabe kann nicht gespeichert werden", 500);
   return saved;
 }
 
@@ -460,7 +460,7 @@ async function resolveTaskProject(input: SaveTaskInput): Promise<
     );
     const selectedProject = result.rows[0];
     if (!selectedProject) {
-      throw new TaskRepositoryError("PROJECT_NOT_FOUND", "项目不存在或已归档", 404);
+      throw new TaskRepositoryError("PROJECT_NOT_FOUND", "Projekt existiert nicht oder wird archiviert", 404);
     }
     if (selectedProject.status === "archived") {
       const existingLink = input.id
@@ -470,7 +470,7 @@ async function resolveTaskProject(input: SaveTaskInput): Promise<
           )
         : undefined;
       if (existingLink?.rows[0]?.project_id !== selectedProject.id) {
-        throw new TaskRepositoryError("PROJECT_NOT_FOUND", "项目不存在或已归档", 404);
+        throw new TaskRepositoryError("PROJECT_NOT_FOUND", "Projekt existiert nicht oder wird archiviert", 404);
       }
     }
   } else if (input.projectName) {

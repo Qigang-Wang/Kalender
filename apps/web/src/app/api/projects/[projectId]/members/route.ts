@@ -46,6 +46,6 @@ function parseMembers(value: unknown): readonly { readonly userId: string; reado
 }
 
 function memberErrorResponse(error: unknown) {
-  const normalized = error instanceof AuthError ? error : new AuthError("项目成员操作失败", 500);
+  const normalized = error instanceof AuthError ? error : new AuthError("Projektmitgliedsoperation fehlgeschlagen", 500);
   return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
 }

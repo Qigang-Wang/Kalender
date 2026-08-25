@@ -60,7 +60,7 @@ export async function stopMailSyncScheduler(): Promise<void> {
   while (globalThis.kalenderMailSyncTickRunning && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  if (globalThis.kalenderMailSyncTickRunning) throw new Error("邮件同步仍在运行，请稍后再恢复备份");
+  if (globalThis.kalenderMailSyncTickRunning) throw new Error("Mail-Synchronisation läuft noch, bitte Backup später fortsetzen");
   globalThis.kalenderMailSyncBackoff?.clear();
   globalThis.kalenderMailBodyMaintenanceAt = undefined;
 }

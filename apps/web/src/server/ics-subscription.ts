@@ -30,17 +30,17 @@ export class IcsSubscriptionError extends Error {
 
 export function parseIcsSubscriptionCredential(input: unknown): IcsSubscriptionCredential {
   if (!input || typeof input !== "object" || typeof (input as Record<string, unknown>).feedUrl !== "string") {
-    throw new PublicConnectionError("INVALID_REQUEST", "请输入 ICS 日历订阅链接", 400);
+    throw new PublicConnectionError("INVALID_REQUEST", "Bitte geben Sie den ICS Kalender-Abonnement-Link ein", 400);
   }
   let url: URL;
   try {
     const rawUrl = (input as { feedUrl: string }).feedUrl.trim().replace(/^webcal:/i, "https:");
     url = new URL(rawUrl);
   } catch {
-    throw new PublicConnectionError("INVALID_URL", "ICS 日历订阅链接无效", 400);
+    throw new PublicConnectionError("INVALID_URL", "Ungültiger ICS-Kalender-Abonnement-Link", 400);
   }
   if (url.protocol !== "https:" && process.env.KALENDER_ALLOW_INSECURE_CALDAV !== "1") {
-    throw new PublicConnectionError("HTTPS_REQUIRED", "ICS 日历订阅链接必须使用 HTTPS", 400);
+    throw new PublicConnectionError("HTTPS_REQUIRED", "ICS Kalender-Abonnement-Links müssen HTTPS verwenden", 400);
   }
   url.hash = "";
   return { kind: "ics", feedUrl: url.toString() };
@@ -53,7 +53,7 @@ export async function fetchIcsSubscription(
   let url = new URL(credential.feedUrl);
   for (let redirects = 0; redirects <= 3; redirects += 1) {
     if (url.protocol !== "https:" && process.env.KALENDER_ALLOW_INSECURE_CALDAV !== "1") {
-      throw new IcsSubscriptionError("HTTPS_REQUIRED", "ICS 日历订阅链接必须使用 HTTPS", 400);
+      throw new IcsSubscriptionError("HTTPS_REQUIRED", "ICS Kalender-Abonnement-Links müssen HTTPS verwenden", 400);
     }
     await assertPublicMailHost(url.hostname);
     const response = await fetch(url, {
@@ -64,21 +64,21 @@ export async function fetchIcsSubscription(
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
-      if (!location) throw new IcsSubscriptionError("INVALID_REDIRECT", "ICS 服务器返回了无效跳转", 502);
+      if (!location) throw new IcsSubscriptionError("INVALID_REDIRECT", "ICS Server gab ungültigen Sprung zurück", 502);
       url = new URL(location, url);
       continue;
     }
     if (response.status === 401 || response.status === 403) {
-      throw new IcsSubscriptionError("ACCESS_DENIED", "日历链接已失效或服务器拒绝访问", 401);
+      throw new IcsSubscriptionError("ACCESS_DENIED", "Kalenderlinks sind deaktiviert oder der Server verweigert Zugriff", 401);
     }
     if (!response.ok) {
-      throw new IcsSubscriptionError("REMOTE_ERROR", `ICS 服务器返回 HTTP ${response.status}`, 502);
+      throw new IcsSubscriptionError("REMOTE_ERROR", `ICS-Server gibt HTTP zurück ${response.status}`, 502);
     }
     const declaredSize = Number(response.headers.get("content-length") ?? 0);
-    if (declaredSize > 5_000_000) throw new IcsSubscriptionError("FEED_TOO_LARGE", "ICS 日历文件超过 5 MB", 413);
+    if (declaredSize > 5_000_000) throw new IcsSubscriptionError("FEED_TOO_LARGE", "ICS-Kalenderdatei größer als 5 MB", 413);
     const content = await response.text();
     if (Buffer.byteLength(content, "utf8") > 5_000_000) {
-      throw new IcsSubscriptionError("FEED_TOO_LARGE", "ICS 日历文件超过 5 MB", 413);
+      throw new IcsSubscriptionError("FEED_TOO_LARGE", "ICS-Kalenderdatei größer als 5 MB", 413);
     }
     return parseIcsSubscriptionContent(
       content,
@@ -87,7 +87,7 @@ export async function fetchIcsSubscription(
       response.headers.get("last-modified") ?? undefined,
     );
   }
-  throw new IcsSubscriptionError("TOO_MANY_REDIRECTS", "ICS 服务器跳转次数过多", 502);
+  throw new IcsSubscriptionError("TOO_MANY_REDIRECTS", "ICS-Server springt zu oft", 502);
 }
 
 export function parseIcsSubscriptionContent(
@@ -98,7 +98,7 @@ export function parseIcsSubscriptionContent(
   range: IcsSubscriptionRange = defaultSubscriptionRange(),
 ): IcsSubscriptionSnapshot {
   if (!/BEGIN:VCALENDAR/i.test(content) || !/END:VCALENDAR/i.test(content)) {
-    throw new IcsSubscriptionError("INVALID_ICS", "链接返回的内容不是有效的 ICS 日历", 422);
+    throw new IcsSubscriptionError("INVALID_ICS", "Der vom Link zurückgegebene Inhalt ist kein gültiger ICS-Kalender", 422);
   }
   const unfolded = content.replace(/\r?\n[ \t]/g, "");
   const nameMatch = unfolded.match(/^(?:X-WR-CALNAME|NAME)(?:;[^:]*)?:(.+)$/im);
@@ -110,7 +110,7 @@ export function parseIcsSubscriptionContent(
     return { calendarName: calendarName || undefined, events, etag, lastModified };
   } catch (error) {
     if (error instanceof IcsSubscriptionError) throw error;
-    throw new IcsSubscriptionError("INVALID_ICS", "ICS 日历内容无法解析", 422);
+    throw new IcsSubscriptionError("INVALID_ICS", "ICS-Kalenderinhalt kann nicht parsiert werden", 422);
   }
 }
 
@@ -129,9 +129,9 @@ export function toIcsSubscriptionPublicError(error: unknown): { readonly code: s
     return { code: error.code, message: error.message, status: error.status };
   }
   if (error instanceof Error && error.name === "AbortError") {
-    return { code: "TIMEOUT", message: "ICS 日历连接或同步超时", status: 504 };
+    return { code: "TIMEOUT", message: "ICS-Kalenderverbindung oder Synchronisations-Timeout", status: 504 };
   }
-  return { code: "ICS_ERROR", message: "无法读取 ICS 日历订阅", status: 502 };
+  return { code: "ICS_ERROR", message: "ICS-Kalender-Abonnement kann nicht gelesen werden", status: 502 };
 }
 
 function icsSourceId(feedUrl: string): string {
@@ -188,7 +188,7 @@ function mapIcalOccurrence(
     id: providerEventId,
     providerEventId,
     calendarId: sourceUrl.slice(0, sourceUrl.lastIndexOf("/") + 1),
-    title: event.summary || "（无标题）",
+    title: event.summary || "Kein Titel",
     description: event.description || undefined,
     location: event.location || undefined,
     start: startDate.toJSDate().toISOString(),

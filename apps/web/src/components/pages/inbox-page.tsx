@@ -70,7 +70,7 @@ interface SavedMailAccount {
 }
 
 function mailFolderLabel(folder: { readonly role: string; readonly name: string }): string {
-  return ({ inbox: "收件箱", drafts: "草稿", sent: "已发送", archive: "归档", all: "所有邮件", junk: "垃圾邮件", spam: "垃圾邮件", trash: "已删除" } as Record<string, string>)[folder.role] ?? folder.name;
+  return ({ inbox: "Posteingang", drafts: "Entwürfe", sent: "Gesendet", archive: "Archiv", all: "Alle E-Mails", junk: "Spam", spam: "Spam", trash: "Gelöscht" } as Record<string, string>)[folder.role] ?? folder.name;
 }
 
 function mailMessageHref(messageId: string): string {
@@ -107,7 +107,7 @@ function EditorLoading({ label }: { readonly label: string }) {
 
 const MailComposerEditor = dynamic(
   () => import("../editor/mail-composer-editor").then((module) => module.MailComposerEditor),
-  { loading: () => <EditorLoading label="正在加载邮件编辑器…" />, ssr: false },
+  { loading: () => <EditorLoading label="Mail-Editor wird geladen..." />, ssr: false },
 );
 
 function mailSenderAvatarColor(senderAddress: string, senderName: string): string {
@@ -317,10 +317,10 @@ function mailDraftHasContent(draft: ClientMailDraft): boolean {
 }
 
 function composerSaveLabel(state: ComposerSaveState, inline = false): string {
-  if (state === "idle") return "尚未保存";
-  if (state === "saving") return "正在保存…";
-  if (state === "error") return "保存失败";
-  return inline ? "草稿自动保存" : "已保存草稿";
+  if (state === "idle") return "nicht gespeichert";
+  if (state === "saving") return "Speichern...";
+  if (state === "error") return "Speichern fehlgeschlagen";
+  return inline ? "automatisch gespeicherte Entwürfe" : "gespeicherter Entwurf";
 }
 
 function formatFileSize(bytes: number): string {
@@ -331,7 +331,7 @@ function formatFileSize(bytes: number): string {
 
 function prefixedMailSubject(subject: string, prefix: "Re" | "Fwd"): string {
   const withoutPrefix = subject.replace(/^\s*(?:re|fwd|fw)\s*:\s*/i, "").trim();
-  return `${prefix}: ${withoutPrefix || "（无主题）"}`;
+  return `${prefix}: ${withoutPrefix || "Software-Interface-Text (kein Thema)"}`;
 }
 
 function mapInboxApiItems(items: readonly InboxApiItem[]): readonly InboxDisplayItem[] {
@@ -344,7 +344,7 @@ function mapInboxApiItems(items: readonly InboxApiItem[]): readonly InboxDisplay
     sender: item.senderName,
     senderAddress: item.senderAddress,
     subject: item.subject,
-    preview: item.snippet || "正文将在打开邮件时按需下载",
+    preview: item.snippet || "Körper wird auf Anfrage beim Öffnen der Mail heruntergeladen werden",
     receivedAt: item.receivedAt,
     time: formatMailTime(item.receivedAt),
     accountName: item.accountName,
@@ -468,14 +468,14 @@ function MailPaneResizeHandle({
     <div
       className="mail-pane-resize-handle"
       role="separator"
-      aria-label="调整邮件列表与邮件详情的宽度"
+      aria-label="Passen Sie die Breite der Mailingliste an die Mail-Details an"
       aria-orientation="vertical"
       aria-valuemin={MIN_MAIL_LIST_WIDTH}
       aria-valuemax={MAX_MAIL_LIST_WIDTH}
       aria-valuenow={width}
-      aria-valuetext={width ? `${width} 像素` : "自动比例"}
+      aria-valuetext={width ? `${width} Pixel` : "automatische Skala"}
       tabIndex={0}
-      title="拖动调整宽度；双击恢复默认"
+      title="Ziehen, um die Breite anzupassen; Doppelklicken, um die Standardeinstellung wiederherzustellen"
       onDoubleClick={resetWidth}
       onKeyDown={handleKeyDown}
       onPointerCancel={handlePointerEnd}
@@ -506,7 +506,7 @@ export function InboxPage({
   const [mailPageLoading, setMailPageLoading] = useState(false);
   const [hasAccounts, setHasAccounts] = useState(false);
   const [mailLoadError, setMailLoadError] = useState<string>();
-  const [mailboxLabel, setMailboxLabel] = useState("收件箱");
+  const [mailboxLabel, setMailboxLabel] = useState("Posteingang");
   const [correspondenceSummary, setCorrespondenceSummary] = useState<MailCorrespondenceSummary>();
   const [selectedId, setSelectedId] = useState(initialMessageId ?? "");
   const [bodies, setBodies] = useState<Readonly<Record<string, InboxBodyState>>>({});
@@ -590,7 +590,7 @@ export function InboxPage({
   const refreshMailDrafts = useCallback(async () => {
     const response = await fetch("/api/mail-drafts", { cache: "no-store" });
     const payload = await response.json() as { readonly drafts?: readonly ClientMailDraft[]; readonly message?: string };
-    if (!response.ok) throw new Error(payload.message || "无法读取邮件草稿");
+    if (!response.ok) throw new Error(payload.message || "E-Mail-Entwurf kann nicht gelesen werden");
     setMailDrafts(payload.drafts ?? []);
   }, []);
 
@@ -607,7 +607,7 @@ export function InboxPage({
         body: JSON.stringify(mailDraftPayload(draft)),
       });
       const payload = await response.json() as { readonly draft?: ClientMailDraft; readonly message?: string };
-      if (!response.ok || !payload.draft) throw new Error(payload.message || "草稿保存失败");
+      if (!response.ok || !payload.draft) throw new Error(payload.message || "Entwurfsspeicher fehlgeschlagen");
       setMailDrafts((current) => [payload.draft!, ...current.filter((item) => item.id !== payload.draft!.id)]);
       if (draft.localOnly) {
         setComposer((current) => {
@@ -635,17 +635,17 @@ export function InboxPage({
     void Promise.all([
       workspaceFetch("/api/mail-accounts").then(async (response) => {
         const payload = await response.json() as { readonly accounts?: readonly SavedMailAccount[] };
-        if (!response.ok) throw new Error("无法读取邮箱账户");
+        if (!response.ok) throw new Error("Postfachkonten können nicht gelesen werden");
         return payload.accounts ?? [];
       }),
       workspaceFetch("/api/mail-drafts").then(async (response) => {
         const payload = await response.json() as { readonly drafts?: readonly ClientMailDraft[]; readonly message?: string };
-        if (!response.ok) throw new Error(payload.message || "无法读取邮件草稿");
+        if (!response.ok) throw new Error(payload.message || "E-Mail-Entwurf kann nicht gelesen werden");
         return payload.drafts ?? [];
       }),
       fetch("/api/mail-signatures", { cache: "no-store" }).then(async (response) => {
         const payload = await response.json() as { readonly signatures?: readonly ClientMailSignature[]; readonly message?: string };
-        if (!response.ok) throw new Error(payload.message || "无法读取邮件签名");
+        if (!response.ok) throw new Error(payload.message || "E-Mail-Signatur kann nicht gelesen werden");
         return payload.signatures ?? [];
       }),
     ]).then(([accounts, drafts, signatures]) => {
@@ -654,7 +654,7 @@ export function InboxPage({
       setMailDrafts(drafts);
       setMailSignatures(signatures);
     }).catch((error: unknown) => {
-      if (!cancelled) setMailNotice(error instanceof Error ? error.message : "无法读取邮件写作数据");
+      if (!cancelled) setMailNotice(error instanceof Error ? error.message : "E-Mail-Schreibdaten können nicht gelesen werden");
     });
     return () => { cancelled = true; };
   }, []);
@@ -718,8 +718,8 @@ export function InboxPage({
       setSelectedId((current) => current === detail.messageId ? nextItems[0]?.id ?? "" : current);
       setDraggedMessageId(undefined);
       setMailNotice(detail.movedCount > 1
-        ? `会话中的 ${detail.movedCount} 封邮件已移动到“${detail.destinationName}”`
-        : `邮件已移动到“${detail.destinationName}”`);
+        ? `${detail.movedCount} E-Mails wurden nach „${detail.destinationName}“ verschoben`
+        : `E-Mail wurde nach „${detail.destinationName}“ verschoben`);
     };
     window.addEventListener(MAIL_MESSAGE_MOVED_EVENT, handleMovedMessage);
     return () => window.removeEventListener(MAIL_MESSAGE_MOVED_EVENT, handleMovedMessage);
@@ -749,19 +749,19 @@ export function InboxPage({
     recipient?: { readonly address: string; readonly accountId?: string },
   ) => {
     if (mailAccounts.length === 0) {
-      setMailNotice("请先在设置中连接一个可发送邮件的账户");
+      setMailNotice("Bitte verbinden Sie zunächst ein Konto mit dem Mail in den Einstellungen gesendet werden kann.");
       return;
     }
     const account = message
       ? mailAccounts.find((item) => item.id === message.accountId)
       : mailAccounts.find((item) => item.id === recipient?.accountId) ?? mailAccounts[0];
     if (!account) {
-      setMailNotice("找不到这封邮件对应的发件账户，请检查账户连接");
+      setMailNotice("Für diese E-Mail wurde kein Sendekonto gefunden.");
       return;
     }
     const currentBody = message ? bodies[message.id] : undefined;
     const forwardText = message && mode === "forward"
-      ? `\n\n--- 转发邮件 ---\n发件人：${message.sender} <${message.senderAddress}>\n主题：${message.subject}\n\n${currentBody?.status === "ready" ? currentBody.text || message.preview : message.preview}`
+      ? `\n\n- -- E-Mail weiterleiten --\n Absender:${message.sender} <${message.senderAddress}>\n Thema:${message.subject}\n\n${currentBody?.status === "ready" ? currentBody.text || message.preview : message.preview}`
       : initialText;
     const bodyContent = encodeNoteContent(decodeNoteContent(forwardText));
     const replySource = message && mode === "reply"
@@ -838,14 +838,14 @@ export function InboxPage({
           const response = await fetch(`/api/mail-drafts/${encodeURIComponent(composer.id)}`, { method: "DELETE" });
           if (!response.ok && response.status !== 404) {
             const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
-            throw new Error(payload?.message || "无法删除空草稿");
+            throw new Error(payload?.message || "Leere Entwürfe können nicht gelöscht werden");
           }
           setMailDrafts((current) => current.filter((item) => item.id !== composer.id));
         }
         setComposer(undefined);
         setSendConfirmationKey(undefined);
       } catch (error) {
-        setMailNotice(error instanceof Error ? error.message : "无法关闭空草稿");
+        setMailNotice(error instanceof Error ? error.message : "Leere Entwürfe können nicht geschlossen werden");
       }
       return;
     }
@@ -854,7 +854,7 @@ export function InboxPage({
       setComposer(undefined);
       setSendConfirmationKey(undefined);
     } catch (error) {
-      setMailNotice(error instanceof Error ? error.message : "草稿保存失败，请稍后重试");
+      setMailNotice(error instanceof Error ? error.message : "Entwurf speichern fehlgeschlagen, bitte versuchen Sie es später noch einmal");
     }
   };
 
@@ -868,13 +868,13 @@ export function InboxPage({
     try {
       const response = await fetch(`/api/mail-drafts/${encodeURIComponent(composer.id)}`, { method: "DELETE" });
       const payload = await response.json() as { readonly message?: string };
-      if (!response.ok) throw new Error(payload.message || "无法删除草稿");
+      if (!response.ok) throw new Error(payload.message || "Entwurf kann nicht gelöscht werden");
       setMailDrafts((current) => current.filter((item) => item.id !== composer.id));
       setComposer(undefined);
       setSendConfirmationKey(undefined);
-      setMailNotice("草稿已删除");
+      setMailNotice("Gestrichener Entwurf");
     } catch (error) {
-      setMailNotice(error instanceof Error ? error.message : "无法删除草稿");
+      setMailNotice(error instanceof Error ? error.message : "Entwurf kann nicht gelöscht werden");
     }
   };
 
@@ -891,13 +891,13 @@ export function InboxPage({
         body: formData,
       });
       const payload = await response.json() as { readonly attachments?: readonly ClientMailAttachment[]; readonly draft?: ClientMailDraft; readonly message?: string };
-      if (!response.ok || !payload.draft) throw new Error(payload.message || "无法添加附件");
+      if (!response.ok || !payload.draft) throw new Error(payload.message || "Es können keine Anhänge hinzugefügt werden");
       setComposer(payload.draft);
       setMailDrafts((current) => [payload.draft!, ...current.filter((item) => item.id !== payload.draft!.id)]);
-      setMailNotice(inline ? `已在正文插入 ${files.length} 张图片` : `已添加 ${files.length} 个附件`);
+      setMailNotice(inline ? `Eingefügt in Text ${files.length} ein Bild` : `hinzugefügt ${files.length} eine Anlage`);
       return (payload.attachments ?? []).map((attachment) => ({ ...attachment, draftId: saved.id }));
     } catch (error) {
-      setMailNotice(error instanceof Error ? error.message : "无法添加附件");
+      setMailNotice(error instanceof Error ? error.message : "Es können keine Anhänge hinzugefügt werden");
       return [];
     } finally {
       setAttachmentBusy(false);
@@ -914,16 +914,16 @@ export function InboxPage({
         { method: "DELETE" },
       );
       const payload = await response.json() as { readonly draft?: ClientMailDraft; readonly message?: string };
-      if (!response.ok || !payload.draft) throw new Error(payload.message || "无法删除附件");
+      if (!response.ok || !payload.draft) throw new Error(payload.message || "keine Anhänge können gelöscht werden");
       setComposer((current) => current?.id === payload.draft!.id
         ? { ...current, attachments: payload.draft!.attachments }
         : current);
       setMailDrafts((current) => current.map((item) => item.id === payload.draft!.id
         ? { ...item, attachments: payload.draft!.attachments }
         : item));
-      setMailNotice("附件已删除");
+      setMailNotice("Anhang gelöscht");
     } catch (error) {
-      setMailNotice(error instanceof Error ? error.message : "无法删除附件");
+      setMailNotice(error instanceof Error ? error.message : "keine Anhänge können gelöscht werden");
     } finally {
       setAttachmentBusy(false);
     }
@@ -932,11 +932,11 @@ export function InboxPage({
   const requestSendConfirmation = async () => {
     if (!composer || sendBusy || attachmentBusy) return;
     if (composer.to.length + composer.cc.length + composer.bcc.length === 0) {
-      setMailNotice("请至少填写一位收件人");
+      setMailNotice("Bitte füllen Sie mindestens einen Empfänger aus");
       return;
     }
     if (!composer.subject.trim()) {
-      setMailNotice("请填写邮件主题");
+      setMailNotice("Bitte füllen Sie das E-Mail-Thema aus");
       return;
     }
     try {
@@ -944,7 +944,7 @@ export function InboxPage({
       setComposer(saved);
       setSendConfirmationKey(`mail:${crypto.randomUUID()}`);
     } catch (error) {
-      setMailNotice(error instanceof Error ? error.message : "草稿保存失败，暂时无法发送");
+      setMailNotice(error instanceof Error ? error.message : "Entwurf spare fehlgeschlagen und kann nicht für den Moment gesendet werden");
     }
   };
 
@@ -958,15 +958,15 @@ export function InboxPage({
         body: JSON.stringify({ confirmed: true, accountId: composer.accountId, idempotencyKey: sendConfirmationKey }),
       });
       const payload = await response.json() as { readonly result?: { readonly providerMessageId?: string }; readonly message?: string };
-      if (!response.ok || !payload.result) throw new Error(payload.message || "邮件发送失败");
+      if (!response.ok || !payload.result) throw new Error(payload.message || "E-Mail-Sendung fehlgeschlagen");
       setComposer(undefined);
       setSendConfirmationKey(undefined);
       await refreshMailDrafts();
-      setMailNotice("邮件已发送");
+      setMailNotice("E-Mail gesendet");
     } catch (error) {
       setSendConfirmationKey(undefined);
       await refreshMailDrafts().catch(() => undefined);
-      setMailNotice(error instanceof Error ? error.message : "邮件发送失败，草稿已保留");
+      setMailNotice(error instanceof Error ? error.message : "E-Mail gesendet fehlgeschlagen, Entwurf beibehalten");
     } finally {
       setSendBusy(false);
     }
@@ -1006,8 +1006,8 @@ export function InboxPage({
         setHasAccounts(Boolean(result.hasAccounts));
         setCorrespondenceSummary(result.correspondence);
         setMailboxLabel(result.correspondence
-          ? `与 ${result.correspondence.name} 的往来`
-          : result.folder ? `${result.folder.accountName} / ${mailFolderLabel(result.folder)}` : "统一收件箱");
+          ? `mit ${result.correspondence.name} Transaktionen`
+          : result.folder ? `${result.folder.accountName} / ${mailFolderLabel(result.folder)}` : "Einheitlicher Posteingang");
         setMailLoadError(undefined);
         setRemoteItems(mapped);
         setNextInboxCursor(result.nextCursor);
@@ -1023,16 +1023,16 @@ export function InboxPage({
           if (cancelled) return;
           if (target) {
             setSelectedId(target.id);
-            setMailNotice("已打开任务关联的邮件线程");
+            setMailNotice("Aufgabengebundene Mail-Threads");
           } else if (mapped[0]) {
             setSelectedId(mapped[0].id);
-            setMailNotice("关联邮件已归档、删除或尚未同步");
+            setMailNotice("assoziierte Mail archiviert, gelöscht oder nicht synchronisiert");
           }
         } else setSelectedId(mapped[0]?.id ?? "");
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setMailLoadError(error instanceof Error ? error.message : "无法读取收件箱");
+          setMailLoadError(error instanceof Error ? error.message : "Posteingang kann nicht gelesen werden");
           setRemoteItems([]);
         }
       });
@@ -1051,13 +1051,13 @@ export function InboxPage({
       readonly items?: readonly InboxApiItem[];
       readonly message?: string;
     };
-    if (!response.ok) throw new Error(payload.message || "无法刷新收件箱");
+    if (!response.ok) throw new Error(payload.message || "Inbox kann nicht aktualisiert werden");
     const refreshed = mapInboxApiItems(payload.items ?? []);
     setHasAccounts(Boolean(payload.hasAccounts));
     setCorrespondenceSummary(payload.correspondence);
     setMailboxLabel(payload.correspondence
-      ? `与 ${payload.correspondence.name} 的往来`
-      : payload.folder ? `${payload.folder.accountName} / ${mailFolderLabel(payload.folder)}` : "统一收件箱");
+      ? `mit ${payload.correspondence.name} Transaktionen`
+      : payload.folder ? `${payload.folder.accountName} / ${mailFolderLabel(payload.folder)}` : "Einheitlicher Posteingang");
     setMailLoadError(undefined);
     setRemoteItems((current) => mergeRefreshedInboxPage(current, refreshed));
   }, [initialCorrespondent, initialFolderId]);
@@ -1086,7 +1086,7 @@ export function InboxPage({
         readonly nextCursor?: InboxPageCursor;
         readonly message?: string;
       };
-      if (!response.ok) throw new Error(payload.message || "无法继续加载邮件");
+      if (!response.ok) throw new Error(payload.message || "E-Mail kann nicht weiter geladen werden");
       const additions = mapInboxApiItems(payload.items ?? []);
       setRemoteItems((current) => {
         const existing = new Set(current?.map((item) => item.id) ?? []);
@@ -1094,7 +1094,7 @@ export function InboxPage({
       });
       setNextInboxCursor(payload.nextCursor);
     } catch (error) {
-      setMailNotice(error instanceof Error ? error.message : "无法继续加载邮件");
+      setMailNotice(error instanceof Error ? error.message : "E-Mail kann nicht weiter geladen werden");
     } finally {
       setMailPageLoading(false);
     }
@@ -1111,7 +1111,7 @@ export function InboxPage({
     void fetch(`/api/messages/${encodeURIComponent(selectedId)}/thread`, { cache: "no-store" })
       .then(async (response) => {
         const result = await response.json() as { readonly messages?: readonly MailThreadDisplayMessage[]; readonly message?: string };
-        if (!response.ok || !result.messages?.length) throw new Error(result.message || "无法读取邮件线程");
+        if (!response.ok || !result.messages?.length) throw new Error(result.message || "Mail-Threads können nicht gelesen werden");
         return result.messages;
       })
       .then((thread) => {
@@ -1142,8 +1142,8 @@ export function InboxPage({
           const result = await readApiJson<{
             readonly message?: string;
             readonly body?: { readonly text?: string; readonly html?: string; readonly snippet: string; readonly cached: boolean; readonly hasBlockedRemoteImages: boolean };
-          }>(response, "无法读取邮件正文");
-          if (!response.ok || !result.body) throw new Error(result.message || "无法读取邮件正文");
+          }>(response, "E-Mail-Text kann nicht gelesen werden");
+          if (!response.ok || !result.body) throw new Error(result.message || "E-Mail-Text kann nicht gelesen werden");
           return result.body;
         })
         .then((body) => {
@@ -1151,7 +1151,7 @@ export function InboxPage({
           setRemoteItems((current) => current?.map((item) => item.id === messageId ? { ...item, preview: body.snippet } : item) ?? current);
         })
         .catch((error: unknown) => {
-          setBodies((current) => ({ ...current, [messageId]: { status: "error", message: error instanceof Error ? error.message : "无法读取邮件正文" } }));
+          setBodies((current) => ({ ...current, [messageId]: { status: "error", message: error instanceof Error ? error.message : "E-Mail-Text kann nicht gelesen werden" } }));
         });
     }
   }, [bodyRetry, expandedThreadMessages, hasAccounts, selectedId, threadMessages]);
@@ -1171,8 +1171,8 @@ export function InboxPage({
           readonly cached: boolean;
           readonly hasBlockedRemoteImages: boolean;
         };
-      }>(response, "无法重新读取邮件正文");
-      if (!response.ok || !result.body) throw new Error(result.message || "无法重新读取邮件正文");
+      }>(response, "E-Mail-Text kann nicht wieder gelesen werden");
+      if (!response.ok || !result.body) throw new Error(result.message || "E-Mail-Text kann nicht wieder gelesen werden");
       const body = result.body;
       setBodies((current) => ({
         ...current,
@@ -1190,9 +1190,9 @@ export function InboxPage({
         next.delete(messageId);
         return next;
       });
-      setMailNotice("已更新本地缓存");
+      setMailNotice("aktualisierter lokaler Cache");
     } catch (error) {
-      setMailNotice(`${error instanceof Error ? error.message : "无法获取邮件正文"}；继续显示原本地缓存`);
+      setMailNotice(`${error instanceof Error ? error.message : "E-Mail-Stelle kann nicht abgerufen werden"}; fortlaufende Anzeige der ursprünglichen Caches`);
     } finally {
       setBodyRefreshBusyId(undefined);
     }
@@ -1254,7 +1254,7 @@ export function InboxPage({
     void fetch(`/api/inbox?${params}`, { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json() as { readonly correspondence?: MailCorrespondenceSummary; readonly message?: string };
-        if (!response.ok) throw new Error(payload.message || "无法读取往来统计");
+        if (!response.ok) throw new Error(payload.message || "Transaktionsstatistiken können nicht gelesen werden");
         return payload.correspondence;
       })
       .then((summary) => {
@@ -1285,9 +1285,9 @@ export function InboxPage({
   const copyMailAddress = async (address: string) => {
     try {
       await navigator.clipboard.writeText(address);
-      setMailNotice("邮箱地址已复制");
+      setMailNotice("Postfach-Adresse kopiert");
     } catch {
-      setMailNotice("无法复制邮箱地址");
+      setMailNotice("Postfachadresse kann nicht kopiert werden");
     }
   };
   const displayedThreadMessages = [...threadMessages].reverse();
@@ -1311,10 +1311,10 @@ export function InboxPage({
     ? `${composer.signatureId}:${composer.signatureVariant}`
     : "none";
   const composerSignatureOptions = [
-    { value: "none", label: "无签名" },
+    { value: "none", label: "keine Unterschrift" },
     ...composerSignatures.flatMap((signature) => [
-      { value: `${signature.id}:full`, label: `${signature.name} · 完整` },
-      { value: `${signature.id}:short`, label: `${signature.name} · 简短` },
+      { value: `${signature.id}:full`, label: `${signature.name} . vollständig` },
+      { value: `${signature.id}:short`, label: `${signature.name} . . . . . . . . . . .` },
     ]),
   ];
   const composerHasContent = Boolean(composer && mailDraftHasContent(composer));
@@ -1360,7 +1360,7 @@ export function InboxPage({
     if (!hasAccounts || messageActionBusy) return;
     closeContextMenu();
     setMessageActionBusy(true);
-    setMailNotice("正在同步到邮箱服务器…");
+    setMailNotice("Synchronisieren mit dem Postfachserver...");
     try {
       const response = await fetch(`/api/messages/${encodeURIComponent(message.id)}/actions`, {
         method: "PATCH",
@@ -1376,7 +1376,7 @@ export function InboxPage({
           readonly alreadyRemoved?: boolean;
         };
       };
-      if (!response.ok || !payload.result) throw new Error(payload.message || "邮件操作失败");
+      if (!response.ok || !payload.result) throw new Error(payload.message || "Mail-Operation fehlgeschlagen");
       if (payload.result.removedFromInbox) {
         const remaining = (remoteItems ?? []).filter((item) => item.id !== message.id);
         setRemoteItems(remaining);
@@ -1390,9 +1390,9 @@ export function InboxPage({
         setMailNotice(
           action === "delete"
             ? payload.result.alreadyRemoved
-              ? "邮件已从服务器删除，本地记录已清理"
-              : "邮件已移至已删除邮件"
-            : "邮件已归档",
+              ? "Mail vom Server entfernt und lokale Datensätze gereinigt"
+              : "E-Mail auf gelöschte E-Mail verschoben"
+            : "E-Mail archiviert",
         );
       } else {
         setRemoteItems((current) => current?.map((item) => item.id === message.id ? {
@@ -1400,10 +1400,10 @@ export function InboxPage({
           isRead: payload.result?.isRead ?? item.isRead,
           isStarred: payload.result?.isStarred ?? item.isStarred,
         } : item) ?? current);
-        setMailNotice(action === "mark-read" || action === "mark-unread" ? "已更新已读状态" : "已更新星标状态");
+        setMailNotice(action === "mark-read" || action === "mark-unread" ? "aktualisierter Lesezustand" : "aktualisierter Sternchenstatus");
       }
     } catch (error) {
-      setMailNotice(error instanceof Error ? error.message : "邮件操作失败");
+      setMailNotice(error instanceof Error ? error.message : "Mail-Operation fehlgeschlagen");
     } finally {
       setMessageActionBusy(false);
     }
@@ -1457,7 +1457,7 @@ export function InboxPage({
     if (!hasAccounts || batchActionBusy || targets.length === 0) return;
     setBatchDeletePending(false);
     setBatchActionBusy(action);
-    setMailNotice(`正在处理 ${targets.length} 封邮件…`);
+    setMailNotice(`Verarbeitung ${targets.length} E-Mail...`);
     try {
       const response = await fetch("/api/messages/actions", {
         method: "PATCH",
@@ -1475,7 +1475,7 @@ export function InboxPage({
         }[];
         readonly failures?: readonly { readonly messageId: string; readonly message: string }[];
       };
-      if (!payload.results || !payload.failures) throw new Error(payload.message || "批量邮件操作失败");
+      if (!payload.results || !payload.failures) throw new Error(payload.message || "Bulk-Mail-Operation fehlgeschlagen");
       const results = new Map(payload.results.map((result) => [result.messageId, result]));
       const removedIds = new Set(payload.results.filter((result) => result.removedFromInbox).map((result) => result.messageId));
       setRemoteItems((current) => current?.flatMap((item) => {
@@ -1494,26 +1494,26 @@ export function InboxPage({
         setSelectedId(remaining[0]?.id ?? "");
       }
       if (payload.failures.length > 0) {
-        setMailNotice(`${payload.results.length} 封操作成功，${payload.failures.length} 封失败；失败邮件仍保持选中`);
+        setMailNotice(`${payload.results.length} erfolgreiche Versiegelung,${payload.failures.length} Siegel fehlgeschlagen; fehlgeschlagene Mail bleibt ausgewählt`);
       } else {
         const alreadyRemovedCount = payload.results.filter((result) => result.alreadyRemoved).length;
         if (action === "delete" && alreadyRemovedCount > 0) {
           setMailNotice(
             alreadyRemovedCount === payload.results.length
-              ? `已清理 ${alreadyRemovedCount} 封服务器中不存在的邮件记录`
-              : `已删除 ${payload.results.length} 封邮件，其中 ${alreadyRemovedCount} 封仅清理了本地记录`,
+              ? `gereinigt ${alreadyRemovedCount} Verkapselung von E-Mail-Datensätzen, die auf dem Server nicht existieren`
+              : `gestrichen ${payload.results.length} eine E-Mail, davon ${alreadyRemovedCount} Siegel reinigt nur lokale Aufzeichnungen`,
           );
           return;
         }
-        const label = action === "delete" ? "移至已删除邮件"
-          : action === "archive" ? "归档"
-          : action === "mark-read" ? "标为已读"
-          : action === "mark-unread" ? "标为未读"
-          : action === "star" ? "添加星标" : "取消星标";
-        setMailNotice(`已将 ${payload.results.length} 封邮件${label}`);
+        const label = action === "delete" ? "In gelöschte Mail verschieben"
+          : action === "archive" ? "Archiv"
+          : action === "mark-read" ? "als gelesen markiert"
+          : action === "mark-unread" ? "als ungelesen markiert"
+          : action === "star" ? "Ein Sternchen hinzufügen" : "Entkopplung von Sternchen";
+        setMailNotice(`${payload.results.length} E-Mail(s) ${label}`);
       }
     } catch (error) {
-      setMailNotice(error instanceof Error ? error.message : "批量邮件操作失败");
+      setMailNotice(error instanceof Error ? error.message : "Bulk-Mail-Operation fehlgeschlagen");
     } finally {
       setBatchActionBusy(undefined);
     }
@@ -1582,14 +1582,14 @@ export function InboxPage({
     if (messageActionBusy) return;
     closeContextMenu();
     setMessageActionBusy(true);
-    setMailNotice("正在创建关联任务…");
+    setMailNotice("die Erstellung von zugehörigen Aufgaben...");
     try {
       const response = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: message.subject,
-          notes: `来自 ${message.sender} <${message.senderAddress}>`,
+          notes: `von ${message.sender} <${message.senderAddress}>`,
           status: "inbox",
           important: false,
           urgencyMode: "auto",
@@ -1603,11 +1603,11 @@ export function InboxPage({
         }),
       });
       const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "无法创建任务");
+      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "Aufgabe kann nicht erstellt werden");
       setMailRelatedVersion((current) => current + 1);
-      setMailNotice("已创建任务，可在 Tasks · Inbox 中整理");
+      setMailNotice("erstellte Aufgabe, die in Aufgaben sortiert werden kann. Infox");
     } catch (error) {
-      setMailNotice(error instanceof Error ? error.message : "无法创建任务");
+      setMailNotice(error instanceof Error ? error.message : "Aufgabe kann nicht erstellt werden");
     } finally {
       setMessageActionBusy(false);
     }
@@ -1631,7 +1631,7 @@ export function InboxPage({
         readonly result?: Omit<MailAiViewResult, "messageId">;
         readonly message?: string;
       };
-      if (!response.ok || !payload.result) throw new Error(payload.message || "AI 邮件处理失败");
+      if (!response.ok || !payload.result) throw new Error(payload.message || "KI-Mail-Verarbeitung fehlgeschlagen");
       if (action === "draft-reply") {
         if (isInlineReplyComposer && composer) {
           const generatedContent = encodeNoteContent(decodeNoteContent(payload.result.text));
@@ -1649,20 +1649,20 @@ export function InboxPage({
             textBody: noteContentToPlainText(bodyContent),
           } : current);
           setMailAiResult(undefined);
-          setMailNotice(replyInstruction ? "AI 已根据您的要求替换回复正文" : "AI 已生成回复正文");
+          setMailNotice(replyInstruction ? "AI hat den Text der Antwort wie von Ihnen angefordert ersetzt" : "KI hat den Text der Antwort generiert");
           window.requestAnimationFrame(() => document.querySelector<HTMLElement>(".inline-reply-composer [contenteditable='true']")?.focus());
           return;
         }
         if (replyTarget) {
           await openComposer(replyTarget, "reply", payload.result.text);
           setMailAiResult(undefined);
-          setMailNotice("AI 已生成回复正文，发送前仍可修改");
+          setMailNotice("KI hat den Text der Antwort generiert, der vor dem Senden noch modifiziert werden kann");
           return;
         }
       }
       setMailAiResult({ messageId: message.id, ...payload.result });
     } catch (error) {
-      setMailNotice(error instanceof Error ? error.message : "AI 邮件处理失败");
+      setMailNotice(error instanceof Error ? error.message : "KI-Mail-Verarbeitung fehlgeschlagen");
     } finally {
       setMailAiBusy(undefined);
     }
@@ -1743,68 +1743,68 @@ export function InboxPage({
       <section className="message-list" aria-keyshortcuts="ArrowUp ArrowDown Shift+ArrowUp Shift+ArrowDown Control+A Meta+A Enter Delete Escape">
         {correspondenceSummary && (
           <div className="correspondence-header">
-            <button aria-label="返回收件箱" title="返回收件箱" onClick={() => router.push("/inbox")}><ChevronLeft size={18} /></button>
+            <button aria-label="gibt den Posteingang zurück" title="gibt den Posteingang zurück" onClick={() => router.push("/inbox")}><ChevronLeft size={18} /></button>
             <span className="correspondence-avatar" style={{ background: mailSenderAvatarColor(correspondenceSummary.address, correspondenceSummary.name) }}>
               {correspondenceSummary.name.slice(0, 1).toLocaleUpperCase()}
             </span>
             <div>
               <strong>{correspondenceSummary.name}</strong>
               <small>{correspondenceSummary.address}</small>
-              <em>{correspondenceSummary.totalCount} 封往来 · {correspondenceSummary.unreadCount} 封未读</em>
+              <em>{correspondenceSummary.totalCount} Sie decken die Transaktionen ab . {correspondenceSummary.unreadCount} Abdeckung ungelesen</em>
             </div>
-            <button aria-label={`给 ${correspondenceSummary.name} 写邮件`} title="写邮件" onClick={() => void openComposer(undefined, "reply", "", { address: correspondenceSummary.address })}><Pencil size={16} /></button>
+            <button aria-label={`Hierher ${correspondenceSummary.name} E-Mail schreiben`} title="E-Mail schreiben" onClick={() => void openComposer(undefined, "reply", "", { address: correspondenceSummary.address })}><Pencil size={16} /></button>
           </div>
         )}
         <div className="list-toolbar">
           <div className="mail-list-summary">
-            <label className="mail-select-all" title={allVisibleSelected ? "取消全选" : "全选当前列表"}>
+            <label className="mail-select-all" title={allVisibleSelected ? "Alle auswählen" : "Wählen Sie die aktuelle Liste"}>
               <input
                 ref={selectAllRef}
                 type="checkbox"
                 checked={allVisibleSelected}
-                aria-label={allVisibleSelected ? "取消全选当前列表" : "全选当前列表"}
+                aria-label={allVisibleSelected ? "Wählen Sie die aktuelle Liste aus" : "Wählen Sie die aktuelle Liste"}
                 onChange={toggleSelectAll}
               />
             </label>
             <AppSelect
-              ariaLabel="筛选邮箱账户"
+              ariaLabel="Filtern von Mailbox-Konten"
               className="mail-account-select"
               size="compact"
               value={mailAccountFilter}
               onValueChange={setMailAccountFilter}
               options={[
-                { value: "all", label: "所有账户" },
+                { value: "all", label: "alle Konten" },
                 ...Array.from(new Map(allItems.map((item) => [item.accountId, item])).values())
                   .map((item) => ({ value: item.accountId, label: item.accountName })),
               ]}
             />
-            <span className="mail-list-title">{selectedBatchItems.length > 0 ? `已选 ${selectedBatchItems.length} 封` : mailboxLabel}</span>
-            {selectedBatchItems.length === 0 && <span className="mail-list-count" aria-label={`${items.length} 封邮件`}>{items.length}</span>}
+            <span className="mail-list-title">{selectedBatchItems.length > 0 ? `ausgewählt ${selectedBatchItems.length} Versiegelung` : mailboxLabel}</span>
+            {selectedBatchItems.length === 0 && <span className="mail-list-count" aria-label={`${items.length} E-Mails`}>{items.length}</span>}
           </div>
           <div className="mail-list-actions">
             {selectedBatchItems.length > 0 ? <>
-              <button disabled={Boolean(batchActionBusy)} aria-label="批量归档" title="归档" onClick={() => void runBatchMessageAction("archive")}>{batchActionBusy === "archive" ? <LoaderCircle className="spin" size={15} /> : <Archive size={15} />}</button>
+              <button disabled={Boolean(batchActionBusy)} aria-label="Batch-Archiv" title="Archiv" onClick={() => void runBatchMessageAction("archive")}>{batchActionBusy === "archive" ? <LoaderCircle className="spin" size={15} /> : <Archive size={15} />}</button>
               <button
                 disabled={Boolean(batchActionBusy)}
-                aria-label={selectedBatchItems.some((item) => !item.isRead) ? "批量标为已读" : "批量标为未读"}
-                title={selectedBatchItems.some((item) => !item.isRead) ? "标为已读" : "标为未读"}
+                aria-label={selectedBatchItems.some((item) => !item.isRead) ? "Los als gelesen markiert" : "als ungelesen markierte Partie"}
+                title={selectedBatchItems.some((item) => !item.isRead) ? "als gelesen markiert" : "als ungelesen markiert"}
                 onClick={() => void runBatchMessageAction(selectedBatchItems.some((item) => !item.isRead) ? "mark-read" : "mark-unread")}
               >{batchActionBusy === "mark-read" || batchActionBusy === "mark-unread" ? <LoaderCircle className="spin" size={15} /> : <MailOpen size={15} />}</button>
               <button
                 disabled={Boolean(batchActionBusy)}
-                aria-label={selectedBatchItems.some((item) => !item.isStarred) ? "批量添加星标" : "批量取消星标"}
-                title={selectedBatchItems.some((item) => !item.isStarred) ? "添加星标" : "取消星标"}
+                aria-label={selectedBatchItems.some((item) => !item.isStarred) ? "Batch Sterne hinzufügen" : "Losdecal"}
+                title={selectedBatchItems.some((item) => !item.isStarred) ? "Ein Sternchen hinzufügen" : "Entkopplung von Sternchen"}
                 onClick={() => void runBatchMessageAction(selectedBatchItems.some((item) => !item.isStarred) ? "star" : "unstar")}
               >{batchActionBusy === "star" || batchActionBusy === "unstar" ? <LoaderCircle className="spin" size={15} /> : <Star size={15} />}</button>
-              <button className="batch-danger" disabled={Boolean(batchActionBusy)} aria-label="批量删除" title="删除" onClick={() => setBatchDeletePending(true)}><Trash2 size={15} /></button>
-              <button disabled={Boolean(batchActionBusy)} aria-label="清除选择" title="清除选择" onClick={() => { setSelectedMessageIds(new Set()); setSelectionAnchorId(undefined); }}><X size={15} /></button>
+              <button className="batch-danger" disabled={Boolean(batchActionBusy)} aria-label="Los löschen" title="Löschen" onClick={() => setBatchDeletePending(true)}><Trash2 size={15} /></button>
+              <button disabled={Boolean(batchActionBusy)} aria-label="Auswahl löschen" title="Auswahl löschen" onClick={() => { setSelectedMessageIds(new Set()); setSelectionAnchorId(undefined); }}><X size={15} /></button>
             </> : <>
             {mailDrafts.length > 0 && (
               <button className="mail-drafts-button" onClick={() => { setComposer(mailDrafts[0]); setComposerSaveState("saved"); }}>
-                草稿 {mailDrafts.length}
+                Entwürfe {mailDrafts.length}
               </button>
             )}
-            <button aria-label="撰写邮件" title="撰写邮件" onClick={() => void openComposer()}><Pencil size={15} /></button>
+            <button aria-label="Schreiben von E-Mails" title="Schreiben von E-Mails" onClick={() => void openComposer()}><Pencil size={15} /></button>
             </>}
           </div>
         </div>
@@ -1812,17 +1812,17 @@ export function InboxPage({
           <div className="mail-filter-tabs">{(initialCorrespondent
             ? (["all", "incoming", "outgoing", "attachments"] as const)
             : (["all", "unread", "starred"] as const)
-          ).map((filter) => <button className={mailFilter === filter ? "active" : ""} key={filter} onClick={() => setMailFilter(filter)}>{filter === "all" ? "全部" : filter === "unread" ? "未读" : filter === "starred" ? "星标" : filter === "incoming" ? "收件" : filter === "outgoing" ? "已发送" : "附件"}</button>)}</div>
-          <label className="mail-filter-search"><Search size={14} /><input aria-label="搜索当前邮件" value={mailQuery} onChange={(event) => setMailQuery(event.target.value)} placeholder="筛选邮件…" /></label>
+          ).map((filter) => <button className={mailFilter === filter ? "active" : ""} key={filter} onClick={() => setMailFilter(filter)}>{filter === "all" ? "Alle" : filter === "unread" ? "Ungelesen" : filter === "starred" ? "Sternchen" : filter === "incoming" ? "Eintreffen" : filter === "outgoing" ? "Gesendet" : "Befestigung"}</button>)}</div>
+          <label className="mail-filter-search"><Search size={14} /><input aria-label="Suche nach aktuellen Mails" value={mailQuery} onChange={(event) => setMailQuery(event.target.value)} placeholder="E-Mail filtern..." /></label>
         </div>
         <div className="message-list-scroll">
-          {remoteItems === null && <div className="mail-empty"><LoaderCircle className="spin" size={18} />正在读取本地邮件…</div>}
+          {remoteItems === null && <div className="mail-empty"><LoaderCircle className="spin" size={18} />lokale E-Mail lesen...</div>}
           {remoteItems !== null && mailLoadError && <div className="mail-empty">{mailLoadError}</div>}
-          {remoteItems !== null && !mailLoadError && !hasAccounts && <div className="mail-empty">尚未连接邮箱，请前往设置添加真实邮箱账户。</div>}
-          {remoteItems !== null && !mailLoadError && hasAccounts && items.length === 0 && <div className="mail-empty">{initialCorrespondent ? "没有找到符合当前筛选条件的往来邮件。" : "当前文件夹没有已同步的邮件。"}</div>}
+          {remoteItems !== null && !mailLoadError && !hasAccounts && <div className="mail-empty">Verbinden Sie sich nicht mit dem Postfach. Gehen Sie zu den Einstellungen, um ein echtes Postfachkonto hinzuzufügen.</div>}
+          {remoteItems !== null && !mailLoadError && hasAccounts && items.length === 0 && <div className="mail-empty">{initialCorrespondent ? "Es wurde keine eingehende oder ausgehende Mail gefunden, die die aktuellen Filterbedingungen erfüllt." : "Der aktuelle Ordner hat keine synchronisierte Mail."}</div>}
           {dateGroups.map((group) => {
             const collapsed = collapsedDateGroups.has(group.id);
-            return <section className={`mail-date-group ${collapsed ? "collapsed" : ""}`} aria-label={`${group.label}，${group.items.length} 封邮件`} key={group.id}>
+            return <section className={`mail-date-group ${collapsed ? "collapsed" : ""}`} aria-label={`${group.label}, ${group.items.length} E-Mails`} key={group.id}>
               <button
                 className="mail-date-group-header"
                 aria-expanded={!collapsed}
@@ -1840,7 +1840,7 @@ export function InboxPage({
                 const batchSelected = selectedMessageIds.has(message.id);
                 const listSender = initialCorrespondent
                   ? message.direction === "outgoing"
-                    ? `我 → ${message.correspondentName || correspondenceSummary?.name || initialCorrespondent}`
+                    ? `Ich... ${message.correspondentName || correspondenceSummary?.name || initialCorrespondent}`
                     : message.correspondentName || message.sender
                   : message.sender;
                 return (
@@ -1848,7 +1848,7 @@ export function InboxPage({
                   className={`message-item ${message.id === selected?.id ? "active" : ""} ${batchSelected ? "batch-selected" : ""} ${message.isRead ? "read" : ""} ${draggedMessageId === message.id ? "dragging" : ""}`}
                   key={message.id}
                   draggable={!messageActionBusy}
-                  title="拖到左侧文件夹移动"
+                  title="Ziehen Sie zum linken Ordner zum Verschieben"
                   onDragStart={(event) => {
                     event.dataTransfer.effectAllowed = "move";
                     event.dataTransfer.setData(MAIL_MESSAGE_DRAG_TYPE, JSON.stringify({
@@ -1872,11 +1872,11 @@ export function InboxPage({
                     );
                   }}
                 >
-                  <label className="message-select" draggable={false} title={batchSelected ? "取消选择" : "选择邮件"} onClick={(event) => event.stopPropagation()}>
+                  <label className="message-select" draggable={false} title={batchSelected ? "Auswählen" : "Mail auswählen"} onClick={(event) => event.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={batchSelected}
-                      aria-label={`${batchSelected ? "取消选择" : "选择"}：${message.subject}`}
+                      aria-label={`${batchSelected ? "Auswählen" : "Auswahl"}: ${message.subject}`}
                       onChange={() => undefined}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -1894,16 +1894,16 @@ export function InboxPage({
                       openMessageContextMenu(message, bounds.right - 12, bounds.top + 28, event.currentTarget);
                     }}
                   >
-                    <span><strong>{listSender}</strong><span className="message-meta">{message.threadCount > 1 && <em className="thread-count">{message.threadCount} 封</em>}{digitallySigned && <span className="smime-signature-badge" role="img" aria-label="数字签名邮件" title="数字签名邮件"><Award size={13} aria-hidden="true" /></span>}{message.isStarred && <Star size={12} fill="currentColor" aria-label="已星标" />}<time>{message.time}</time></span></span>
+                    <span><strong>{listSender}</strong><span className="message-meta">{message.threadCount > 1 && <em className="thread-count">{message.threadCount} Versiegelung</em>}{digitallySigned && <span className="smime-signature-badge" role="img" aria-label="digitale Signatur E-Mail" title="digitale Signatur E-Mail"><Award size={13} aria-hidden="true" /></span>}{message.isStarred && <Star size={12} fill="currentColor" aria-label="bereits markierte Sternchen" />}<time>{message.time}</time></span></span>
                     <b>{message.subject}</b><small>{message.preview}</small>
                   </button>
                   <button
                     className="message-menu-trigger"
                     draggable={false}
-                    aria-label={`更多邮件操作：${message.subject}`}
+                    aria-label={`mehr E-Mail-Operationen:${message.subject}`}
                     aria-haspopup="menu"
                     aria-expanded={contextMenu?.messageId === message.id}
-                    title="更多邮件操作"
+                    title="mehr E-Mail-Operationen"
                     onClick={(event) => {
                       event.stopPropagation();
                       const bounds = event.currentTarget.getBoundingClientRect();
@@ -1922,41 +1922,41 @@ export function InboxPage({
             disabled={mailPageLoading}
             onClick={() => void loadMoreMail()}
           >
-            {mailPageLoading ? <><LoaderCircle className="spin" size={14} />正在加载…</> : "加载更多邮件"}
+            {mailPageLoading ? <><LoaderCircle className="spin" size={14} />Laden...</> : "Mehr E-Mail laden"}
           </button>}
         </div>
       </section>
       <MailPaneResizeHandle width={mailListWidth} onChange={setMailListWidth} />
       {selected ? <article className="message-detail" ref={messageDetailRef}>
         <header>
-          <button className="mobile-detail-back" aria-label="返回邮件列表" onClick={() => setMobileMailDetail(false)}><ChevronLeft size={20} /></button>
+          <button className="mobile-detail-back" aria-label="gibt die Mailingliste zurück" onClick={() => setMobileMailDetail(false)}><ChevronLeft size={20} /></button>
           <div className="sender-card-anchor" onMouseEnter={showSenderCard} onMouseLeave={scheduleSenderCardClose}>
             <button
               className="sender-avatar"
-              aria-label={`查看发件人信息：${selected.sender}`}
+              aria-label={`Informationen zum Absender anzeigen:${selected.sender}`}
               aria-expanded={senderCardOpen}
               onFocus={showSenderCard}
               onBlur={scheduleSenderCardClose}
               style={{ background: mailSenderAvatarColor(selected.senderAddress, selected.sender) }}
             >{selected.sender.slice(0, 1).toLocaleUpperCase()}</button>
             {senderCardOpen && (
-              <section className="sender-card" aria-label={`${selected.sender} 的联系信息`} onFocus={showSenderCard} onBlur={scheduleSenderCardClose}>
+              <section className="sender-card" aria-label={`${selected.sender} Kontaktinformationen`} onFocus={showSenderCard} onBlur={scheduleSenderCardClose}>
                 <header>
                   <span className="sender-card-avatar" style={{ background: mailSenderAvatarColor(selected.senderAddress, selected.sender) }}>{selected.sender.slice(0, 1).toLocaleUpperCase()}</span>
                   <div><strong>{selected.sender}</strong><small>{selected.senderAddress}</small></div>
-                  {selectedSenderIsOwnAccount ? <em>当前账户</em> : selectedSenderSharesAccountDomain && <em>同域</em>}
+                  {selectedSenderIsOwnAccount ? <em>Eigenes Konto</em> : selectedSenderSharesAccountDomain && <em>Gleiche Domain</em>}
                 </header>
                 {!selectedSenderIsOwnAccount && <div className="sender-card-meta">
-                  <span><b>{senderCardSummary?.totalCount ?? (senderCardLoading ? "…" : "0")}</b>封往来</span>
-                  <span><b>{senderCardSummary?.unreadCount ?? (senderCardLoading ? "…" : "0")}</b>封未读</span>
-                  <span><b>{senderCardSummary?.lastContactAt ? formatMailTime(senderCardSummary.lastContactAt) : "—"}</b>最近联系</span>
+                  <span><b>{senderCardSummary?.totalCount ?? (senderCardLoading ? "…" : "0")}</b> E-Mails</span>
+                  <span><b>{senderCardSummary?.unreadCount ?? (senderCardLoading ? "…" : "0")}</b> ungelesen</span>
+                  <span><b>{senderCardSummary?.lastContactAt ? formatMailTime(senderCardSummary.lastContactAt) : "—"}</b> letzter Kontakt</span>
                 </div>}
                 {selectedSenderDomain && <p>{selectedSenderDomain}</p>}
                 <footer>
-                  <button title="写邮件" onClick={() => void openComposer(undefined, "reply", "", { address: selected.senderAddress, accountId: selected.accountId })}><Pencil size={15} />写邮件</button>
-                  <button disabled={selectedSenderIsOwnAccount} title={selectedSenderIsOwnAccount ? "这是当前邮箱账户" : "查看往来"} onClick={() => openCorrespondence(selected.senderAddress, selected.id)}><MailOpen size={15} />查看往来</button>
-                  <button title="复制邮箱地址" onClick={() => void copyMailAddress(selected.senderAddress)}><Copy size={15} /></button>
-                  <button title="从邮件创建任务" onClick={() => void createTaskFromMessage(selected)}><CheckSquare2 size={15} /></button>
+                  <button title="E-Mail schreiben" onClick={() => void openComposer(undefined, "reply", "", { address: selected.senderAddress, accountId: selected.accountId })}><Pencil size={15} />E-Mail schreiben</button>
+                  <button disabled={selectedSenderIsOwnAccount} title={selectedSenderIsOwnAccount ? "Dies ist das aktuelle Postfachkonto" : "Korrespondenz anzeigen"} onClick={() => openCorrespondence(selected.senderAddress, selected.id)}><MailOpen size={15} />Korrespondenz anzeigen</button>
+                  <button title="Mailbox-Adressen kopieren" onClick={() => void copyMailAddress(selected.senderAddress)}><Copy size={15} /></button>
+                  <button title="Aufgaben aus der Mail erstellen" onClick={() => void createTaskFromMessage(selected)}><CheckSquare2 size={15} /></button>
                 </footer>
               </section>
             )}
@@ -1975,14 +1975,14 @@ export function InboxPage({
               }
               void openComposer(replyTarget, "reply");
             }}
-          ><Pencil size={15} />回复</button>
-          <button className="secondary-button" disabled={!hasAccounts} onClick={() => void openComposer(selected, "forward")}><Send size={15} />转发</button>
-          <button className="secondary-button danger-button" disabled={!hasAccounts || messageActionBusy} onClick={() => void runMessageAction(selected, "delete")}><Trash2 size={15} />删除</button>
-          <button className="secondary-button" disabled={messageActionBusy} onClick={() => void createTaskFromMessage(selected)}><CheckCircle2 size={15} />创建任务</button>
-          <button className="ghost-button" disabled={Boolean(mailAiBusy)} onClick={() => void runMailAi(selected, "summarize")}>{mailAiBusy === "summarize" ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}摘要</button>
-          <button className="ghost-button" disabled={Boolean(mailAiBusy)} onClick={() => void runMailAi(selected, "extract-actions")}>{mailAiBusy === "extract-actions" ? <LoaderCircle className="spin" size={15} /> : <ListChecks size={15} />}行动项</button>
-          <button className="ghost-button" disabled={Boolean(mailAiBusy)} title={isInlineReplyComposer && composer?.textBody.trim() ? "根据当前正文中的要求生成，并替换为完整回复" : "根据邮件内容生成回复正文"} onClick={() => void runMailAi(selected, "draft-reply")}>{mailAiBusy === "draft-reply" ? <LoaderCircle className="spin" size={15} /> : <WandSparkles size={15} />}回复草稿</button>
-          <button className="ghost-button message-detail-more" aria-label="更多邮件操作" title="更多邮件操作" aria-haspopup="menu" aria-expanded={contextMenu?.messageId === selected.id} onClick={(event) => { const bounds = event.currentTarget.getBoundingClientRect(); openMessageContextMenu(selected, bounds.right, bounds.bottom + 4, event.currentTarget); }}><MoreHorizontal size={16} /></button>
+          ><Pencil size={15} />Antwort</button>
+          <button className="secondary-button" disabled={!hasAccounts} onClick={() => void openComposer(selected, "forward")}><Send size={15} />Weiterleitung</button>
+          <button className="secondary-button danger-button" disabled={!hasAccounts || messageActionBusy} onClick={() => void runMessageAction(selected, "delete")}><Trash2 size={15} />Löschen</button>
+          <button className="secondary-button" disabled={messageActionBusy} onClick={() => void createTaskFromMessage(selected)}><CheckCircle2 size={15} />Aufgabe erstellen</button>
+          <button className="ghost-button" disabled={Boolean(mailAiBusy)} onClick={() => void runMailAi(selected, "summarize")}>{mailAiBusy === "summarize" ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}Zusammenfassung</button>
+          <button className="ghost-button" disabled={Boolean(mailAiBusy)} onClick={() => void runMailAi(selected, "extract-actions")}>{mailAiBusy === "extract-actions" ? <LoaderCircle className="spin" size={15} /> : <ListChecks size={15} />}Aktionspunkte</button>
+          <button className="ghost-button" disabled={Boolean(mailAiBusy)} title={isInlineReplyComposer && composer?.textBody.trim() ? "gemäß den Anforderungen im aktuellen Texttext erstellt und durch eine vollständige Antwort ersetzt" : "Erzeugt den Text einer Antwort basierend auf dem Inhalt der Mail"} onClick={() => void runMailAi(selected, "draft-reply")}>{mailAiBusy === "draft-reply" ? <LoaderCircle className="spin" size={15} /> : <WandSparkles size={15} />}Entwurf einer Antwort</button>
+          <button className="ghost-button message-detail-more" aria-label="mehr E-Mail-Operationen" title="mehr E-Mail-Operationen" aria-haspopup="menu" aria-expanded={contextMenu?.messageId === selected.id} onClick={(event) => { const bounds = event.currentTarget.getBoundingClientRect(); openMessageContextMenu(selected, bounds.right, bounds.bottom + 4, event.currentTarget); }}><MoreHorizontal size={16} /></button>
         </div>
         {isInlineReplyComposer && composer && (
           <section className="inline-reply-composer" aria-labelledby="inline-reply-title" data-testid="inline-reply-composer">
@@ -1990,27 +1990,27 @@ export function InboxPage({
               <div id="inline-reply-title">
                 <button
                   className={`inline-copy-toggle ${inlineCopyFieldsOpen ? "open" : ""}`}
-                  aria-label={inlineCopyFieldsOpen ? "收起抄送和密送" : "展开抄送和密送"}
+                  aria-label={inlineCopyFieldsOpen ? "Start, Kopie-Übernahme und Pass-Through" : "Kopieren und Passwording"}
                   aria-expanded={inlineCopyFieldsOpen}
-                  title={inlineCopyFieldsOpen ? "收起抄送和密送" : "添加抄送或密送"}
+                  title={inlineCopyFieldsOpen ? "Start, Kopie-Übernahme und Pass-Through" : "eine Kopie oder ein Geheimnis hinzufügen"}
                   onClick={() => setInlineCopyFieldsOpen((open) => !open)}
                 ><ChevronDown size={15} /></button>
-                <span>回复给</span><strong>{inlineReplyRecipient}</strong>
+                <span>Antwort auf</span><strong>{inlineReplyRecipient}</strong>
               </div>
-              <button className="composer-icon-button" aria-label={composerHasContent ? "关闭并保存回复草稿" : "关闭空白回复"} title={composerHasContent ? "关闭并保存草稿" : "关闭"} disabled={sendBusy || attachmentBusy || composerSaveState === "saving"} onClick={() => void closeComposer()}><X size={18} /></button>
+              <button className="composer-icon-button" aria-label={composerHasContent ? "schließen und speichern Sie Entwürfe von Antworten" : "Schließt die Leerantwort"} title={composerHasContent ? "Entwürfe schließen und speichern" : "Schließen"} disabled={sendBusy || attachmentBusy || composerSaveState === "saving"} onClick={() => void closeComposer()}><X size={18} /></button>
             </header>
             {inlineCopyFieldsOpen && <div className="inline-copy-fields">
-              <label><span>抄送</span><input aria-label="抄送" value={composer.cc.join(", ")} disabled={sendBusy || attachmentBusy} placeholder="name@example.com" onChange={(event) => setComposer({ ...composer, cc: splitMailAddresses(event.target.value) })} /></label>
-              <label><span>密送</span><input aria-label="密送" value={composer.bcc.join(", ")} disabled={sendBusy || attachmentBusy} placeholder="name@example.com" onChange={(event) => setComposer({ ...composer, bcc: splitMailAddresses(event.target.value) })} /></label>
+              <label><span>Kopieren</span><input aria-label="Kopieren" value={composer.cc.join(", ")} disabled={sendBusy || attachmentBusy} placeholder="name@example.com" onChange={(event) => setComposer({ ...composer, cc: splitMailAddresses(event.target.value) })} /></label>
+              <label><span>Geheimnis</span><input aria-label="Geheimnis" value={composer.bcc.join(", ")} disabled={sendBusy || attachmentBusy} placeholder="name@example.com" onChange={(event) => setComposer({ ...composer, bcc: splitMailAddresses(event.target.value) })} /></label>
             </div>}
             <div className="inline-reply-body">
               {composerFileAttachments.length > 0 && (
-                <div className="mail-attachment-list" aria-label="邮件附件">
+                <div className="mail-attachment-list" aria-label="E-Mail-Anhänger">
                   {composerFileAttachments.map((attachment) => (
                     <div key={attachment.id}>
                       <Paperclip size={14} />
                       <span><strong>{attachment.filename}</strong><small>{formatFileSize(attachment.sizeBytes)}</small></span>
-                      <button aria-label={`删除附件：${attachment.filename}`} disabled={attachmentBusy || sendBusy} onClick={() => void removeComposerAttachment(attachment.id)}><X size={14} /></button>
+                      <button aria-label={`Anhänge löschen:${attachment.filename}`} disabled={attachmentBusy || sendBusy} onClick={() => void removeComposerAttachment(attachment.id)}><X size={14} /></button>
                     </div>
                   ))}
                 </div>
@@ -2030,7 +2030,7 @@ export function InboxPage({
                   textBody: noteContentToPlainText(bodyContent),
                 } : current)}
               />
-              {composer.errorMessage && <div className="composer-error"><AlertCircle size={14} />上次发送失败：{composer.errorMessage}</div>}
+              {composer.errorMessage && <div className="composer-error"><AlertCircle size={14} />Zuletzt gesendet fehlgeschlagen:{composer.errorMessage}</div>}
             </div>
             <footer>
               <div className="inline-reply-secondary">
@@ -2039,14 +2039,14 @@ export function InboxPage({
                   className="mail-attachment-input"
                   type="file"
                   multiple
-                  aria-label="选择邮件附件"
+                  aria-label="Auswahl von E-Mail-Anhängern"
                   onChange={(event) => void uploadComposerAttachments(Array.from(event.target.files ?? []))}
                 />
                 <button className="composer-attach" disabled={sendBusy || attachmentBusy || composerSaveState === "saving" || composer.attachments.length >= 10} onClick={() => attachmentInputRef.current?.click()}>
-                  {attachmentBusy ? <LoaderCircle className="spin" size={15} /> : <Paperclip size={15} />}添加附件
+                  {attachmentBusy ? <LoaderCircle className="spin" size={15} /> : <Paperclip size={15} />}Anhänge hinzufügen
                 </button>
                 {composerSignatures.length > 0 && <AppSelect
-                  ariaLabel="回复签名"
+                  ariaLabel="Unterschrift antworten"
                   className="composer-signature-select"
                   size="compact"
                   value={composerSignatureValue}
@@ -2059,15 +2059,15 @@ export function InboxPage({
                 </span>
               </div>
               <div>
-                <button className="secondary-button" disabled={sendBusy || attachmentBusy} onClick={() => void closeComposer()}>取消</button>
-                <button className="primary-button" disabled={sendBusy || attachmentBusy || composerSaveState === "saving"} onClick={() => void requestSendConfirmation()}><Send size={15} />发送</button>
+                <button className="secondary-button" disabled={sendBusy || attachmentBusy} onClick={() => void closeComposer()}>Abbrechen</button>
+                <button className="primary-button" disabled={sendBusy || attachmentBusy || composerSaveState === "saving"} onClick={() => void requestSendConfirmation()}><Send size={15} />Senden</button>
               </div>
             </footer>
           </section>
         )}
         <div className="message-related-content"><RelatedContentPanel kind="mail" entityId={selected.id} refreshKey={mailRelatedVersion} hideWhenEmpty excludeRelations={["project-item"]} /></div>
         <div className="message-body">
-          {hasAccounts && threadLoading && <div className="body-status"><LoaderCircle className="spin" size={18} />正在整理邮件线程…</div>}
+          {hasAccounts && threadLoading && <div className="body-status"><LoaderCircle className="spin" size={18} />Organisation von Mail Threads...</div>}
           {hasAccounts && !threadLoading && <div className="mail-thread" data-testid="mail-thread">
             {displayedThreadMessages.map((threadMessage, index) => {
               const expanded = expandedThreadMessages.has(threadMessage.id);
@@ -2092,28 +2092,28 @@ export function InboxPage({
                   });
                 }}>
                   <span className="thread-avatar" style={{ background: mailSenderAvatarColor(threadMessage.senderAddress, threadMessage.senderName) }}>{threadMessage.senderName.slice(0, 1).toLocaleUpperCase()}</span>
-                  <span className="thread-message-summary"><strong>{threadMessage.senderName}</strong><small>{threadMessage.folderRole === "sent" ? "已发送" : `发送给 ${threadMessage.to.map((item) => item.name || item.address).join(", ") || "我"}`}</small>{!expanded && <em>{threadMessage.snippet || "正文将在展开时读取"}</em>}</span>
-                  <span className="thread-message-meta">{digitallySigned && <span className="smime-signature-badge" role="img" aria-label="数字签名邮件" title="数字签名邮件"><Award size={13} aria-hidden="true" /></span>}{threadMessage.isStarred && <Star size={12} fill="currentColor" />}{body?.status === "ready" && <button className="thread-refresh-button" aria-label="重新从服务器获取邮件正文" title="重新从服务器获取" disabled={Boolean(bodyRefreshBusyId)} onClick={(event) => { event.stopPropagation(); void refreshMessageBody(threadMessage.id); }}>{bodyRefreshBusyId === threadMessage.id ? <LoaderCircle className="spin" size={12} /> : <RefreshCw size={12} />}</button>}{body?.status === "ready" && <span className="thread-cache-state"><ShieldCheck size={12} />{body.cached ? "本地缓存" : "已安全读取并缓存"}</span>}<time>{formatMailTime(threadMessage.receivedAt)}</time><ChevronDown size={15} /></span>
+                  <span className="thread-message-summary"><strong>{threadMessage.senderName}</strong><small>{threadMessage.folderRole === "sent" ? "Gesendet" : `Senden ${threadMessage.to.map((item) => item.name || item.address).join(", ") || "I. ENTWICKLUNG DER RECHTSVORSCHRIFTEN"}`}</small>{!expanded && <em>{threadMessage.snippet || "der Körper wird auf dem Rollout gelesen"}</em>}</span>
+                  <span className="thread-message-meta">{digitallySigned && <span className="smime-signature-badge" role="img" aria-label="digitale Signatur E-Mail" title="digitale Signatur E-Mail"><Award size={13} aria-hidden="true" /></span>}{threadMessage.isStarred && <Star size={12} fill="currentColor" />}{body?.status === "ready" && <button className="thread-refresh-button" aria-label="E-Mail-Text vom Server abrufen" title="Abrufen vom Server" disabled={Boolean(bodyRefreshBusyId)} onClick={(event) => { event.stopPropagation(); void refreshMessageBody(threadMessage.id); }}>{bodyRefreshBusyId === threadMessage.id ? <LoaderCircle className="spin" size={12} /> : <RefreshCw size={12} />}</button>}{body?.status === "ready" && <span className="thread-cache-state"><ShieldCheck size={12} />{body.cached ? "Lokaler Cache" : "sicher gelesen und zwischengespeichert"}</span>}<time>{formatMailTime(threadMessage.receivedAt)}</time><ChevronDown size={15} /></span>
                 </div>
                 {expanded && <div className="thread-message-content">
-                  {(!body || body.status === "loading") && <div className="body-status" data-testid="mail-body-loading"><LoaderCircle className="spin" size={17} />正在安全读取正文…</div>}
-                  {body?.status === "error" && <div className="body-error" data-testid="mail-body-error"><p>{body.message}</p><button className="secondary-button" onClick={() => setBodyRetry((value) => value + 1)}>重试</button></div>}
+                  {(!body || body.status === "loading") && <div className="body-status" data-testid="mail-body-loading"><LoaderCircle className="spin" size={17} />Text sicher lesen...</div>}
+                  {body?.status === "error" && <div className="body-error" data-testid="mail-body-error"><p>{body.message}</p><button className="secondary-button" onClick={() => setBodyRetry((value) => value + 1)}>Erneut versuchen</button></div>}
                   {body?.status === "ready" && <div data-testid={index === 0 ? "mail-body-content" : undefined}>
-                    {body.hasBlockedRemoteImages && !remoteImagesAllowed.has(threadMessage.id) && <div className="body-security-bar"><button className="ghost-button show-mail-images" onClick={() => setRemoteImagesAllowed((current) => new Set([...current, threadMessage.id]))}><ImageIcon size={14} />显示图片</button></div>}
-                    {html ? <div className="mail-body-html" dangerouslySetInnerHTML={{ __html: html }} /> : <div className="mail-body-text">{body.text || "（邮件正文为空）"}</div>}
+                    {body.hasBlockedRemoteImages && !remoteImagesAllowed.has(threadMessage.id) && <div className="body-security-bar"><button className="ghost-button show-mail-images" onClick={() => setRemoteImagesAllowed((current) => new Set([...current, threadMessage.id]))}><ImageIcon size={14} />Bilder anzeigen</button></div>}
+                    {html ? <div className="mail-body-html" dangerouslySetInnerHTML={{ __html: html }} /> : <div className="mail-body-text">{body.text || "(E-Mail-Stelle leer)"}</div>}
                   </div>}
-                  {visibleAttachments.length > 0 && <section className="incoming-attachments" aria-label="邮件附件"><header><Paperclip size={14} /><strong>附件</strong><span>{visibleAttachments.length}</span></header><div>{threadMessage.attachments.map((attachment, attachmentIndex) => attachment.inline || isSmimeSignatureAttachment(attachment) ? null : <a href={`/api/messages/${encodeURIComponent(threadMessage.id)}/attachments/${attachmentIndex}`} key={`${attachment.filename}:${attachmentIndex}`}><FileText size={16} /><span><strong>{attachment.filename}</strong><small>{attachment.contentType} · {formatFileSize(attachment.sizeBytes)}</small></span><em>下载</em></a>)}</div></section>}
+                  {visibleAttachments.length > 0 && <section className="incoming-attachments" aria-label="E-Mail-Anhänger"><header><Paperclip size={14} /><strong>Befestigung</strong><span>{visibleAttachments.length}</span></header><div>{threadMessage.attachments.map((attachment, attachmentIndex) => attachment.inline || isSmimeSignatureAttachment(attachment) ? null : <a href={`/api/messages/${encodeURIComponent(threadMessage.id)}/attachments/${attachmentIndex}`} key={`${attachment.filename}:${attachmentIndex}`}><FileText size={16} /><span><strong>{attachment.filename}</strong><small>{attachment.contentType} · {formatFileSize(attachment.sizeBytes)}</small></span><em>herunterladen</em></a>)}</div></section>}
                 </div>}
               </section>;
             })}
           </div>}
         </div>
-      </article> : <article className="message-detail empty-detail" ref={messageDetailRef}><Mail size={30} /><p>选择一封邮件查看内容</p></article>}
+      </article> : <article className="message-detail empty-detail" ref={messageDetailRef}><Mail size={30} /><p>Wählen Sie eine E-Mail, um Inhalte anzuzeigen</p></article>}
     </div>
     {contextMenu && contextMessage && (
       <ContextMenu
         anchor={{ x: contextMenu.x, y: contextMenu.y }}
-        ariaLabel={`邮件操作：${contextMessage.subject}`}
+        ariaLabel={`E-Mail-Betrieb:${contextMessage.subject}`}
         commands={contextCommands}
         heading={contextMessage.subject}
         returnFocus={menuReturnFocusRef.current}
@@ -2125,12 +2125,12 @@ export function InboxPage({
     {mailProjectTarget && (
       <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setMailProjectTargetId(undefined); }}>
         <section className="calendar-dialog mail-project-dialog panel" role="dialog" aria-modal="true" aria-labelledby="mail-project-dialog-title">
-          <header><div><h2 id="mail-project-dialog-title">关联到项目</h2></div><button aria-label="关闭" onClick={() => setMailProjectTargetId(undefined)}><X size={18} /></button></header>
+          <header><div><h2 id="mail-project-dialog-title">Link zum Projekt</h2></div><button aria-label="Schließen" onClick={() => setMailProjectTargetId(undefined)}><X size={18} /></button></header>
           <p className="mail-project-dialog-subject">{mailProjectTarget.subject}</p>
           <ProjectAssociationControl kind="mail" entityId={mailProjectTarget.id} onChanged={() => {
             setMailRelatedVersion((current) => current + 1);
             setMailProjectTargetId(undefined);
-            setMailNotice("已更新邮件项目关联");
+            setMailNotice("aktualisierte E-Mail-Projekt-Assoziation");
           }} />
         </section>
       </div>
@@ -2140,18 +2140,18 @@ export function InboxPage({
         <section className="mail-composer" role="dialog" aria-modal="true" aria-labelledby="mail-composer-title" data-testid="mail-composer">
           <header>
             <div>
-              <h2 id="mail-composer-title">{composer.replyToMessageId ? "回复邮件" : "撰写邮件"}</h2>
+              <h2 id="mail-composer-title">{composer.replyToMessageId ? "Auf E-Mail antworten" : "Schreiben von E-Mails"}</h2>
               <span className={`composer-save-state ${composerSaveState}`}>
                 {composerSaveLabel(composerSaveState)}
               </span>
             </div>
-            <button className="composer-icon-button" aria-label={composerHasContent ? "关闭并保存草稿" : "关闭空白邮件"} title={composerHasContent ? "关闭并保存草稿" : "关闭"} disabled={sendBusy || attachmentBusy || composerSaveState === "saving"} onClick={() => void closeComposer()}><X size={18} /></button>
+            <button className="composer-icon-button" aria-label={composerHasContent ? "Entwürfe schließen und speichern" : "Leere E-Mail schließen"} title={composerHasContent ? "Entwürfe schließen und speichern" : "Schließen"} disabled={sendBusy || attachmentBusy || composerSaveState === "saving"} onClick={() => void closeComposer()}><X size={18} /></button>
           </header>
           <div className="mail-composer-fields">
             <label>
-              <span>发件人</span>
+              <span>Von</span>
               <AppSelect
-                ariaLabel="发件账户"
+                ariaLabel="Konto des Abgangskontos"
                 value={composer.accountId}
                 disabled={Boolean(composer.replyToMessageId) || sendBusy || attachmentBusy}
                 variant="ghost"
@@ -2163,25 +2163,25 @@ export function InboxPage({
               />
             </label>
             <label>
-              <span>收件人</span>
-              <input aria-label="收件人" value={composer.to.join(", ")} disabled={sendBusy || attachmentBusy} placeholder="name@example.com" onChange={(event) => setComposer({ ...composer, to: splitMailAddresses(event.target.value) })} />
+              <span>Empfänger</span>
+              <input aria-label="Empfänger" value={composer.to.join(", ")} disabled={sendBusy || attachmentBusy} placeholder="name@example.com" onChange={(event) => setComposer({ ...composer, to: splitMailAddresses(event.target.value) })} />
             </label>
             <details className="composer-copy-fields" open={composer.cc.length > 0 || composer.bcc.length > 0}>
-              <summary>抄送 / 密送</summary>
-              <label><span>抄送</span><input aria-label="抄送" value={composer.cc.join(", ")} disabled={sendBusy || attachmentBusy} onChange={(event) => setComposer({ ...composer, cc: splitMailAddresses(event.target.value) })} /></label>
-              <label><span>密送</span><input aria-label="密送" value={composer.bcc.join(", ")} disabled={sendBusy || attachmentBusy} onChange={(event) => setComposer({ ...composer, bcc: splitMailAddresses(event.target.value) })} /></label>
+              <summary>Kopie/Geheimnis</summary>
+              <label><span>Kopieren</span><input aria-label="Kopieren" value={composer.cc.join(", ")} disabled={sendBusy || attachmentBusy} onChange={(event) => setComposer({ ...composer, cc: splitMailAddresses(event.target.value) })} /></label>
+              <label><span>Geheimnis</span><input aria-label="Geheimnis" value={composer.bcc.join(", ")} disabled={sendBusy || attachmentBusy} onChange={(event) => setComposer({ ...composer, bcc: splitMailAddresses(event.target.value) })} /></label>
             </details>
             <label>
-              <span>主题</span>
-              <input aria-label="邮件主题" value={composer.subject} disabled={sendBusy || attachmentBusy} placeholder="邮件主题" onChange={(event) => setComposer({ ...composer, subject: event.target.value })} />
+              <span>Thema</span>
+              <input aria-label="E-Mail-Design" value={composer.subject} disabled={sendBusy || attachmentBusy} placeholder="E-Mail-Design" onChange={(event) => setComposer({ ...composer, subject: event.target.value })} />
             </label>
             {composerFileAttachments.length > 0 && (
-              <div className="mail-attachment-list" aria-label="邮件附件">
+              <div className="mail-attachment-list" aria-label="E-Mail-Anhänger">
                 {composerFileAttachments.map((attachment) => (
                   <div key={attachment.id}>
                     <Paperclip size={14} />
                     <span><strong>{attachment.filename}</strong><small>{formatFileSize(attachment.sizeBytes)}</small></span>
-                    <button aria-label={`删除附件：${attachment.filename}`} disabled={attachmentBusy || sendBusy} onClick={() => void removeComposerAttachment(attachment.id)}><X size={14} /></button>
+                    <button aria-label={`Anhänge löschen:${attachment.filename}`} disabled={attachmentBusy || sendBusy} onClick={() => void removeComposerAttachment(attachment.id)}><X size={14} /></button>
                   </div>
                 ))}
               </div>
@@ -2201,24 +2201,24 @@ export function InboxPage({
                 textBody: noteContentToPlainText(bodyContent),
               } : current)}
             />
-            {composer.errorMessage && <div className="composer-error"><AlertCircle size={14} />上次发送失败：{composer.errorMessage}</div>}
+            {composer.errorMessage && <div className="composer-error"><AlertCircle size={14} />Zuletzt gesendet fehlgeschlagen:{composer.errorMessage}</div>}
           </div>
           <footer>
             <div className="mail-compose-secondary-actions">
-              <button className="composer-discard" disabled={sendBusy || attachmentBusy || composerSaveState === "saving"} onClick={() => void discardComposer()}><Trash2 size={15} />{composer.localOnly ? "放弃邮件" : "删除草稿"}</button>
+              <button className="composer-discard" disabled={sendBusy || attachmentBusy || composerSaveState === "saving"} onClick={() => void discardComposer()}><Trash2 size={15} />{composer.localOnly ? "E-Mail aufgeben" : "Entwurf streichen"}</button>
               <input
                 ref={attachmentInputRef}
                 className="mail-attachment-input"
                 type="file"
                 multiple
-                aria-label="选择邮件附件"
+                aria-label="Auswahl von E-Mail-Anhängern"
                 onChange={(event) => void uploadComposerAttachments(Array.from(event.target.files ?? []))}
               />
               <button className="composer-attach" disabled={sendBusy || attachmentBusy || composerSaveState === "saving" || composer.attachments.length >= 10} onClick={() => attachmentInputRef.current?.click()}>
-                {attachmentBusy ? <LoaderCircle className="spin" size={15} /> : <Paperclip size={15} />}添加附件
+                {attachmentBusy ? <LoaderCircle className="spin" size={15} /> : <Paperclip size={15} />}Anhänge hinzufügen
               </button>
               {composerSignatures.length > 0 && <AppSelect
-                ariaLabel="邮件签名"
+                ariaLabel="E-Mail-Signatur"
                 className="composer-signature-select"
                 size="compact"
                 value={composerSignatureValue}
@@ -2228,8 +2228,8 @@ export function InboxPage({
               />}
             </div>
             <div>
-              <button className="secondary-button" disabled={sendBusy || attachmentBusy} onClick={() => void closeComposer()}>稍后发送</button>
-              <button className="primary-button" disabled={sendBusy || attachmentBusy || composerSaveState === "saving"} onClick={() => void requestSendConfirmation()}><Send size={15} />检查并发送</button>
+              <button className="secondary-button" disabled={sendBusy || attachmentBusy} onClick={() => void closeComposer()}>später senden</button>
+              <button className="primary-button" disabled={sendBusy || attachmentBusy || composerSaveState === "saving"} onClick={() => void requestSendConfirmation()}><Send size={15} />überprüfen und senden</button>
             </div>
           </footer>
         </section>
@@ -2239,18 +2239,18 @@ export function InboxPage({
       <div className="mail-send-confirmation-backdrop">
         <section className="mail-send-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="mail-send-confirmation-title" data-testid="mail-send-confirmation">
           <div className="confirmation-icon"><Send size={20} /></div>
-          <h2 id="mail-send-confirmation-title">发送邮件？</h2>
+          <h2 id="mail-send-confirmation-title">E-Mail senden?</h2>
           <dl>
-            <div><dt>发件人</dt><dd>{composerAccount?.displayName} &lt;{composerAccount?.emailAddress}&gt;</dd></div>
-            <div><dt>收件人</dt><dd>{[...composer.to, ...composer.cc, ...composer.bcc].join(", ")}</dd></div>
-            <div><dt>主题</dt><dd>{composer.subject}</dd></div>
-            {composerFileAttachments.length > 0 && <div><dt>附件</dt><dd>{composerFileAttachments.length} 个 · {formatFileSize(composerFileAttachments.reduce((total, item) => total + item.sizeBytes, 0))}</dd></div>}
-            {composerInlineImages.length > 0 && <div><dt>正文图片</dt><dd>{composerInlineImages.length} 张</dd></div>}
+            <div><dt>Von</dt><dd>{composerAccount?.displayName} &lt;{composerAccount?.emailAddress}&gt;</dd></div>
+            <div><dt>Empfänger</dt><dd>{[...composer.to, ...composer.cc, ...composer.bcc].join(", ")}</dd></div>
+            <div><dt>Thema</dt><dd>{composer.subject}</dd></div>
+            {composerFileAttachments.length > 0 && <div><dt>Befestigung</dt><dd>{composerFileAttachments.length} Eins... {formatFileSize(composerFileAttachments.reduce((total, item) => total + item.sizeBytes, 0))}</dd></div>}
+            {composerInlineImages.length > 0 && <div><dt>Körperbilder</dt><dd>{composerInlineImages.length} Änderung</dd></div>}
           </dl>
-          <p>发送后无法撤回。</p>
+          <p>kann nach dem Versand nicht zurückgezogen werden.</p>
           <footer>
-            <button className="secondary-button" disabled={sendBusy} onClick={() => setSendConfirmationKey(undefined)}>返回修改</button>
-            <button className="primary-button" disabled={sendBusy} onClick={() => void confirmSend()}>{sendBusy ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}发送</button>
+            <button className="secondary-button" disabled={sendBusy} onClick={() => setSendConfirmationKey(undefined)}>gibt Änderungen zurück</button>
+            <button className="primary-button" disabled={sendBusy} onClick={() => void confirmSend()}>{sendBusy ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}Senden</button>
           </footer>
         </section>
       </div>
@@ -2261,12 +2261,12 @@ export function InboxPage({
       }}>
         <section className="mail-send-confirmation batch-delete-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="batch-delete-confirmation-title">
           <div className="confirmation-icon danger"><Trash2 size={20} /></div>
-          <h2 id="batch-delete-confirmation-title">删除选中的 {selectedBatchItems.length} 封邮件？</h2>
-          <p>邮件将移至各自账户的“已删除邮件”文件夹；失败项会保持选中。</p>
+          <h2 id="batch-delete-confirmation-title">Ausgewählte löschen {selectedBatchItems.length} Eine E-Mail?</h2>
+          <p>Die E-Mail wird in den Ordner " Gelöschte E-Mail " des jeweiligen Kontos verschoben; das fehlgeschlagene Element bleibt ausgewählt.</p>
           <footer>
-            <button className="secondary-button" disabled={Boolean(batchActionBusy)} onClick={() => setBatchDeletePending(false)}>取消</button>
+            <button className="secondary-button" disabled={Boolean(batchActionBusy)} onClick={() => setBatchDeletePending(false)}>Abbrechen</button>
             <button className="danger-confirm-button" disabled={Boolean(batchActionBusy)} onClick={() => void runBatchMessageAction("delete")}>
-              {batchActionBusy === "delete" ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}确认删除
+              {batchActionBusy === "delete" ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}Löschung bestätigen
             </button>
           </footer>
         </section>
@@ -2294,7 +2294,7 @@ function formatMailTime(value: string): string {
   if (Number.isNaN(date.getTime())) return "";
   const today = new Date();
   if (date.toDateString() === today.toDateString()) {
-    return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+    return new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
   }
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");

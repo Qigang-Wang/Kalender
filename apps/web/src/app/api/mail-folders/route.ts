@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   } | null;
   if (typeof input?.accountId !== "string" || typeof input.name !== "string" ||
       (input.parentFolderId !== undefined && typeof input.parentFolderId !== "string")) {
-    return NextResponse.json({ message: "文件夹参数无效" }, { status: 400 });
+    return NextResponse.json({ message: "Ungültiger Ordner-Parameter" }, { status: 400 });
   }
   try {
     const result = await createMailFolder({
@@ -37,5 +37,5 @@ function folderErrorResponse(error: unknown) {
   if (error instanceof MailFolderActionError) {
     return NextResponse.json({ ok: false, code: error.code, message: error.message }, { status: error.status });
   }
-  return NextResponse.json({ ok: false, message: "邮件文件夹操作失败" }, { status: 500 });
+  return NextResponse.json({ ok: false, message: "Mail-Ordner-Operation fehlgeschlagen" }, { status: 500 });
 }

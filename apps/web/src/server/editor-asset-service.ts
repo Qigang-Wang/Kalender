@@ -80,15 +80,15 @@ async function normalizeEditorAsset(file: File): Promise<{
   readonly mimeType: string;
   readonly content: Uint8Array;
 }> {
-  if (!(file instanceof File)) throw new EditorAssetError("上传文件格式无效");
-  if (file.size <= 0) throw new EditorAssetError("上传文件不能为空");
-  if (file.size > MAX_EDITOR_ASSET_BYTES) throw new EditorAssetError("编辑器文件不能超过 10 MB", 413);
+  if (!(file instanceof File)) throw new EditorAssetError("das Upload-Dateiformat ist nicht gültig");
+  if (file.size <= 0) throw new EditorAssetError("Datei hochladen kann nicht leer sein");
+  if (file.size > MAX_EDITOR_ASSET_BYTES) throw new EditorAssetError("die Editordatei darf 10 MB nicht überschreiten", 413);
   const filename = file.name.normalize("NFC").replace(/[\u0000-\u001f\u007f]/g, "").trim();
-  if (!filename || filename.length > 240) throw new EditorAssetError("文件名称无效或过长");
+  if (!filename || filename.length > 240) throw new EditorAssetError("der Dateiname ist ungültig oder zu lang");
   const mimeType = file.type.trim().toLocaleLowerCase() || "application/octet-stream";
-  if (mimeType === "image/svg+xml") throw new EditorAssetError("暂不支持 SVG 图片，请使用 PNG、JPEG、GIF 或 WebP");
+  if (mimeType === "image/svg+xml") throw new EditorAssetError("SVG-Bilder werden nicht unterstützt, bitte verwenden Sie PNG, JPEG, GIF oder WebP");
   if (mimeType.startsWith("image/") && !INLINE_MIME_TYPES.has(mimeType)) {
-    throw new EditorAssetError("图片格式不受支持，请使用 PNG、JPEG、GIF 或 WebP");
+    throw new EditorAssetError("Fotoformate werden nicht unterstützt. Verwenden Sie PNG, JPEG, GIF oder WebP");
   }
   return { filename, mimeType, content: new Uint8Array(await file.arrayBuffer()) };
 }

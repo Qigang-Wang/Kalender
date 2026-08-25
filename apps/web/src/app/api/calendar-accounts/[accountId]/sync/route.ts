@@ -18,8 +18,8 @@ interface CalendarSyncRouteContext {
 export async function POST(_request: Request, context: CalendarSyncRouteContext) {
   const { accountId } = await context.params;
   const account = await getCalendarAccount(accountId);
-  if (!account) return NextResponse.json({ ok: false, message: "日历账户不存在" }, { status: 404 });
-  if (account.syncStatus === "syncing") return NextResponse.json({ ok: false, message: "该日历账户正在同步" }, { status: 409 });
+  if (!account) return NextResponse.json({ ok: false, message: "Kalenderkonten existieren nicht" }, { status: 404 });
+  if (account.syncStatus === "syncing") return NextResponse.json({ ok: false, message: "Kalender-Konto synchronisiert sich" }, { status: 409 });
   try {
     const sync = account.calendarEnabled
       ? await syncCalDavAccount(accountId)

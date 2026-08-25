@@ -18,7 +18,7 @@ export async function GET() {
       },
     });
   } catch (error) {
-    const normalized = error instanceof BackupError ? error : new BackupError("无法创建完整备份", 500);
+    const normalized = error instanceof BackupError ? error : new BackupError("kann kein vollständiges Backup erstellen", 500);
     return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
   }
 }

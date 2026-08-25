@@ -12,7 +12,7 @@ export const maxDuration = 60;
 export async function POST(request: Request) {
   try {
     const input = parseAiProviderInput(await request.json().catch(() => null));
-    if (!input.apiKey && !input.providerId) throw new AiProviderError("请输入 API Key", "AI_API_KEY_REQUIRED");
+    if (!input.apiKey && !input.providerId) throw new AiProviderError("API-Schlüssel eingeben", "AI_API_KEY_REQUIRED");
     const credential = input.apiKey
       ? { apiKey: input.apiKey }
       : await loadAiProviderCredential(input.providerId!);
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       latencyMs: result.latencyMs,
-      message: `连接成功，发现 ${result.models.length} 个模型`,
+      message: `erfolgreich verbunden, gefunden ${result.models.length} ein Modell`,
       discoveredModels: result.models,
     });
   } catch (error) {

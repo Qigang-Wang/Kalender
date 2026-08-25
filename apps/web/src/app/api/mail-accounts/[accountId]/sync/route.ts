@@ -15,12 +15,12 @@ interface SyncRouteContext {
 export async function POST(_request: Request, context: SyncRouteContext) {
   const { accountId } = await context.params;
   const account = await getAccount(accountId);
-  if (!account) return NextResponse.json({ ok: false, message: "邮箱账户不存在" }, { status: 404 });
+  if (!account) return NextResponse.json({ ok: false, message: "Mailbox-Konten existieren nicht" }, { status: 404 });
   if (account.syncStatus === "paused") {
-    return NextResponse.json({ ok: false, message: "请先启用该邮箱账户" }, { status: 409 });
+    return NextResponse.json({ ok: false, message: "bitte aktivieren Sie zuerst das Postfach-Konto" }, { status: 409 });
   }
   if (account.syncStatus === "syncing") {
-    return NextResponse.json({ ok: false, message: "该账户正在同步" }, { status: 409 });
+    return NextResponse.json({ ok: false, message: "dieses Konto synchronisiert" }, { status: 409 });
   }
   try {
     const sync = await runMailSync(accountId, 100);

@@ -15,7 +15,7 @@ export async function GET(_request: Request, context: ProjectRouteContext) {
   const { projectId } = await context.params;
   try {
     const overview = await getStoredProjectOverview(projectId);
-    if (!overview) throw new NoteRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
+    if (!overview) throw new NoteRepositoryError("PROJECT_NOT_FOUND", "Projekt existiert nicht", 404);
     return NextResponse.json({ ok: true, overview });
   } catch (error) {
     return noteErrorResponse(error);
@@ -35,7 +35,7 @@ export async function PATCH(request: Request, context: ProjectRouteContext) {
 export async function DELETE(_request: Request, context: ProjectRouteContext) {
   const { projectId } = await context.params;
   try {
-    if (!await deleteStoredProject(projectId)) throw new NoteRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
+    if (!await deleteStoredProject(projectId)) throw new NoteRepositoryError("PROJECT_NOT_FOUND", "Projekt existiert nicht", 404);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return noteErrorResponse(error);

@@ -50,7 +50,7 @@ export async function performMailMessageAction(
   destinationFolderId?: string,
 ): Promise<MailMessageActionResult> {
   const active = globalThis.kalenderActiveMessageActions ??= new Set<string>();
-  if (active.has(messageId)) throw new MailMessageActionError("ACTION_BUSY", "这封邮件正在执行其他操作", 409);
+  if (active.has(messageId)) throw new MailMessageActionError("ACTION_BUSY", "Diese Mail führt andere Operationen durch", 409);
   active.add(messageId);
   try {
     return await executeMailMessageAction(messageId, action, destinationFolderId);
@@ -67,20 +67,20 @@ async function executeMailMessageAction(
   const target = await getMessageActionTarget(messageId);
   if (!target) {
     if (action === "delete") return removedMessageResult(messageId, true);
-    throw new MailMessageActionError("NOT_FOUND", "邮件不存在或已被移动", 404);
+    throw new MailMessageActionError("NOT_FOUND", "E-Mail existiert nicht oder wurde verschoben", 404);
   }
   const account = await getAccount(target.accountId);
   if (!account || account.syncStatus === "paused") {
-    throw new MailMessageActionError("ACCOUNT_UNAVAILABLE", "请先启用该邮箱账户", 409);
+    throw new MailMessageActionError("ACCOUNT_UNAVAILABLE", "bitte aktivieren Sie zuerst das Postfach-Konto", 409);
   }
   if (action === "move") return moveMailThreadFromFolder(messageId, target, account.providerId, destinationFolderId);
   const storedArchiveFolder = action === "archive" ? await getArchiveFolderPath(target.accountId) : undefined;
   const storedTrashFolder = action === "delete" ? await getTrashFolderPath(target.accountId) : undefined;
   if (action === "archive" && (!storedArchiveFolder || storedArchiveFolder === target.providerFolderId)) {
-    throw new MailMessageActionError("ARCHIVE_UNAVAILABLE", "该邮箱没有可用的归档文件夹", 409);
+    throw new MailMessageActionError("ARCHIVE_UNAVAILABLE", "es gibt keinen Archivordner in dieser Mailbox", 409);
   }
   if (action === "delete" && (!storedTrashFolder || storedTrashFolder === target.providerFolderId)) {
-    throw new MailMessageActionError("TRASH_UNAVAILABLE", "该邮件已在已删除文件夹中，或邮箱没有可用的已删除文件夹", 409);
+    throw new MailMessageActionError("TRASH_UNAVAILABLE", "die Mail wurde im Ordner gelöscht, oder der Ordner wurde nicht in der Mailbox gelöscht", 409);
   }
 
   if (account.providerId === "exchange-ews") {
@@ -117,7 +117,7 @@ async function executeMailMessageAction(
         return removedMessageResult(messageId, true);
       }
       console.error("Exchange mail action failed", error);
-      throw new MailMessageActionError("REMOTE_ERROR", "Exchange 没有完成该邮件操作，请稍后重试", 502);
+      throw new MailMessageActionError("REMOTE_ERROR", "Exchange hat den Mail-Betrieb nicht abgeschlossen, bitte versuchen Sie es später noch einmal", 502);
     }
   }
 
@@ -152,10 +152,10 @@ async function executeMailMessageAction(
         )?.path
       : undefined;
     if (action === "archive" && (!archiveFolder || archiveFolder === target.providerFolderId)) {
-      throw new MailMessageActionError("ARCHIVE_UNAVAILABLE", "该邮箱没有可用的归档文件夹", 409);
+      throw new MailMessageActionError("ARCHIVE_UNAVAILABLE", "es gibt keinen Archivordner in dieser Mailbox", 409);
     }
     if (action === "delete" && (!trashFolder || trashFolder === target.providerFolderId)) {
-      throw new MailMessageActionError("TRASH_UNAVAILABLE", "该邮件已在已删除文件夹中，或邮箱没有可用的已删除文件夹", 409);
+      throw new MailMessageActionError("TRASH_UNAVAILABLE", "die Mail wurde im Ordner gelöscht, oder der Ordner wurde nicht in der Mailbox gelöscht", 409);
     }
     await client.mailboxOpen(target.providerFolderId);
     let isRead = target.isRead;
@@ -165,7 +165,7 @@ async function executeMailMessageAction(
       const changed = await (isRead
         ? client.messageFlagsAdd([target.providerUid], ["\\Seen"], { uid: true })
         : client.messageFlagsRemove([target.providerUid], ["\\Seen"], { uid: true }));
-      if (!changed) throw new MailMessageActionError("NOT_FOUND", "邮件不存在或已被移动", 404);
+      if (!changed) throw new MailMessageActionError("NOT_FOUND", "E-Mail existiert nicht oder wurde verschoben", 404);
       await updateMessageFlags(
         target.accountId,
         target.providerFolderId,
@@ -178,7 +178,7 @@ async function executeMailMessageAction(
       const changed = await (isStarred
         ? client.messageFlagsAdd([target.providerUid], ["\\Flagged"], { uid: true })
         : client.messageFlagsRemove([target.providerUid], ["\\Flagged"], { uid: true }));
-      if (!changed) throw new MailMessageActionError("NOT_FOUND", "邮件不存在或已被移动", 404);
+      if (!changed) throw new MailMessageActionError("NOT_FOUND", "E-Mail existiert nicht oder wurde verschoben", 404);
       await updateMessageFlags(
         target.accountId,
         target.providerFolderId,
@@ -189,7 +189,7 @@ async function executeMailMessageAction(
     } else {
       const destination = action === "archive" ? archiveFolder! : trashFolder!;
       const moved = await client.messageMove([target.providerUid], destination, { uid: true });
-      if (!moved) throw new MailMessageActionError("NOT_FOUND", "邮件不存在或已被移动", 404);
+      if (!moved) throw new MailMessageActionError("NOT_FOUND", "E-Mail existiert nicht oder wurde verschoben", 404);
       await removeMessageFromIndex(messageId);
     }
     return {
@@ -201,7 +201,7 @@ async function executeMailMessageAction(
     };
   } catch (error) {
     if (error instanceof MailMessageActionError) throw error;
-    throw new MailMessageActionError("REMOTE_ERROR", "邮箱服务器没有完成该操作，请稍后重试", 502);
+    throw new MailMessageActionError("REMOTE_ERROR", "Der Mailbox-Server hat den Vorgang nicht abgeschlossen, bitte versuchen Sie es später noch einmal", 502);
   } finally {
     await client.logout().catch(() => undefined);
   }
@@ -222,16 +222,16 @@ async function moveMailThreadFromFolder(
   providerId: string,
   destinationFolderId?: string,
 ): Promise<MailMessageActionResult> {
-  if (!destinationFolderId) throw new MailMessageActionError("MOVE_UNAVAILABLE", "请选择目标文件夹", 400);
+  if (!destinationFolderId) throw new MailMessageActionError("MOVE_UNAVAILABLE", "Wählen Sie den Zielordner", 400);
   const destination = await getMailFolder(destinationFolderId);
   if (!destination || destination.accountId !== anchor.accountId || destination.role === "all") {
-    throw new MailMessageActionError("MOVE_UNAVAILABLE", "目标文件夹不可用，邮件只能在同一邮箱账户内移动", 409);
+    throw new MailMessageActionError("MOVE_UNAVAILABLE", "Zielordner ist nicht verfügbar und E-Mail kann nur im gleichen Postfach-Konto verschoben werden", 409);
   }
   if (destination.providerFolderId === anchor.providerFolderId) {
-    throw new MailMessageActionError("MOVE_UNAVAILABLE", "邮件已经在这个文件夹中", 409);
+    throw new MailMessageActionError("MOVE_UNAVAILABLE", "Mail ist bereits in diesem Ordner", 409);
   }
   const targets = await getMessageMoveTargets(messageId);
-  if (!targets.length) throw new MailMessageActionError("NOT_FOUND", "邮件不存在或已被移动", 404);
+  if (!targets.length) throw new MailMessageActionError("NOT_FOUND", "E-Mail existiert nicht oder wurde verschoben", 404);
 
   try {
     if (providerId === "exchange-ews") {
@@ -260,7 +260,7 @@ async function moveMailThreadFromFolder(
         await client.connect();
         await client.mailboxOpen(anchor.providerFolderId);
         const moved = await client.messageMove(targets.map((target) => target.providerUid), destination.providerFolderId, { uid: true });
-        if (!moved) throw new MailMessageActionError("NOT_FOUND", "邮件不存在或已被移动", 404);
+        if (!moved) throw new MailMessageActionError("NOT_FOUND", "E-Mail existiert nicht oder wurde verschoben", 404);
         for (const target of targets) await removeMessageFromIndex(target.id);
       } finally {
         await client.logout().catch(() => undefined);
@@ -276,6 +276,6 @@ async function moveMailThreadFromFolder(
   } catch (error) {
     if (error instanceof MailMessageActionError) throw error;
     console.error("Mail move failed", error);
-    throw new MailMessageActionError("REMOTE_ERROR", "邮箱服务器没有完成邮件移动，请稍后重试", 502);
+    throw new MailMessageActionError("REMOTE_ERROR", "Mailbox-Server schließt keine Mail-Bewegungen ab, bitte versuchen Sie es später noch einmal", 502);
   }
 }

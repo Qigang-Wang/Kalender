@@ -10,10 +10,10 @@ interface EditorAssetRouteContext {
 export async function GET(_request: Request, context: EditorAssetRouteContext) {
   try {
     const actor = await getCurrentAppUser();
-    if (!actor) throw new AuthError("请先登录", 401);
+    if (!actor) throw new AuthError("Bitte melden Sie sich zuerst an", 401);
     const { assetId } = await context.params;
     const asset = await getEditorAsset(assetId, actor.id);
-    if (!asset) throw new EditorAssetError("文件不存在", 404);
+    if (!asset) throw new EditorAssetError("Datei existiert nicht", 404);
     return new Response(Buffer.from(asset.content), {
       headers: {
         "Cache-Control": "private, no-store",
@@ -26,7 +26,7 @@ export async function GET(_request: Request, context: EditorAssetRouteContext) {
   } catch (error) {
     const normalized = error instanceof AuthError || error instanceof EditorAssetError
       ? error
-      : new EditorAssetError("无法读取编辑器文件", 500);
+      : new EditorAssetError("Editor-Datei kann nicht gelesen werden", 500);
     return Response.json({ ok: false, message: normalized.message }, { status: normalized.status });
   }
 }

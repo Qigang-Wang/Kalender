@@ -40,7 +40,7 @@ export async function runExchangeMailSync(accountId: string, maximumMessages = 1
 async function executeExchangeMailSync(accountId: string, maximumMessages: number): Promise<SyncSummary> {
   const account = await getAccount(accountId);
   if (!account) throw new Error("Account was not found");
-  if (account.syncStatus === "paused") throw new Error("邮箱账户已暂停");
+  if (account.syncStatus === "paused") throw new Error("das Postfachkonto wurde gesperrt");
   const credential = await loadExchangeMailCredential(accountId);
   const runId = await startSyncRun(accountId, account.syncMode);
   await setSyncStatus(accountId, "syncing");
@@ -141,7 +141,7 @@ async function executeExchangeMailSync(accountId: string, maximumMessages: numbe
       hasMoreHistory,
     };
   } catch (error) {
-    const message = error instanceof Error && error.message ? error.message : "Exchange 邮件同步失败";
+    const message = error instanceof Error && error.message ? error.message : "Austausch-Mail-Synchronisation fehlgeschlagen";
     await setSyncStatus(accountId, "error", message);
     await finishSyncRun(runId, "failed", foldersProcessed, messagesProcessed, message);
     throw new Error(message);

@@ -6,7 +6,7 @@ import {
 
 export interface CalendarDescriptionLink {
   readonly url: string;
-  readonly label: "Webex" | "Teams" | "Zoom" | "链接";
+  readonly label: "Webex" | "Teams" | "Zoom" | "Link";
   readonly meeting: boolean;
 }
 
@@ -31,7 +31,7 @@ function collectNodeLinks(node: PlateNode, links: string[]): void {
 }
 
 function normalizeCalendarDescriptionUrl(value: string): string | undefined {
-  const trimmed = value.trim().replace(/[),.;!?，。；！？]+$/u, "");
+  const trimmed = value.trim().replace(/[),.;!?, .; !?]+$/u, "");
   try {
     const url = new URL(trimmed);
     return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined;
@@ -55,5 +55,5 @@ function classifyCalendarDescriptionLink(url: string): CalendarDescriptionLink {
   if (hostname === "zoom.us" || hostname.endsWith(".zoom.us")) {
     return { url, label: "Zoom", meeting: true };
   }
-  return { url, label: "链接", meeting: false };
+  return { url, label: "Link", meeting: false };
 }

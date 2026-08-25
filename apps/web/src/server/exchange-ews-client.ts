@@ -45,23 +45,23 @@ export function isExchangeItemNotFoundError(error: unknown): error is ExchangeEw
 
 export function parseExchangeCredential(input: unknown): ExchangeCredential {
   if (!input || typeof input !== "object") {
-    throw new PublicConnectionError("INVALID_REQUEST", "请完整填写 Exchange 用户名和密码", 400);
+    throw new PublicConnectionError("INVALID_REQUEST", "Bitte füllen Sie den Benutzernamen und das Passwort von Exchange aus", 400);
   }
   const value = input as Record<string, unknown>;
   const rawServerUrl = typeof value.serverUrl === "string" && value.serverUrl.trim()
     ? value.serverUrl.trim()
     : RWTH_EWS_URL;
   if (typeof value.username !== "string" || typeof value.password !== "string" || !value.username.trim() || !value.password) {
-    throw new PublicConnectionError("INVALID_REQUEST", "请完整填写 Exchange 用户名和密码", 400);
+    throw new PublicConnectionError("INVALID_REQUEST", "Bitte füllen Sie den Benutzernamen und das Passwort von Exchange aus", 400);
   }
   let url: URL;
   try {
     url = new URL(rawServerUrl);
   } catch {
-    throw new PublicConnectionError("INVALID_URL", "Exchange EWS 服务地址无效", 400);
+    throw new PublicConnectionError("INVALID_URL", "Ungültige EWS-Dienstadresse für den Austausch", 400);
   }
   if (url.protocol !== "https:") {
-    throw new PublicConnectionError("HTTPS_REQUIRED", "Exchange EWS 服务必须使用 HTTPS", 400);
+    throw new PublicConnectionError("HTTPS_REQUIRED", "Exchange EWS-Dienst muss HTTPS verwenden", 400);
   }
   url.hash = "";
   return {
@@ -90,7 +90,7 @@ export async function exchangeSoapRequest(
     </s:Envelope>`;
   let url = new URL(credential.serverUrl);
   for (let redirects = 0; redirects <= 3; redirects += 1) {
-    if (url.protocol !== "https:") throw new ExchangeEwsError("HTTPS_REQUIRED", "Exchange EWS 服务必须使用 HTTPS", 400);
+    if (url.protocol !== "https:") throw new ExchangeEwsError("HTTPS_REQUIRED", "Exchange EWS-Dienst muss HTTPS verwenden", 400);
     await assertPublicMailHost(url.hostname);
     const response = await fetch(url, {
       method: "POST",
@@ -105,22 +105,22 @@ export async function exchangeSoapRequest(
     });
     if ([301, 302, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
-      if (!location) throw new ExchangeEwsError("INVALID_REDIRECT", "Exchange 服务器返回了无效跳转", 502);
+      if (!location) throw new ExchangeEwsError("INVALID_REDIRECT", "der Exchange-Server gab einen ungültigen Sprung zurück", 502);
       url = new URL(location, url);
       continue;
     }
     if (response.status === 401 || response.status === 403) {
-      throw new ExchangeEwsError("AUTH_REQUIRED", "Exchange 拒绝了登录。请检查 RWTH-E-Mail 用户名和密码", 401);
+      throw new ExchangeEwsError("AUTH_REQUIRED", "Austausch abgelehnt Login. Prüfen RWTH-E-Mail Benutzername und Passwort", 401);
     }
     const xml = await response.text();
     if (!response.ok) {
-      const message = elementText(xml, "MessageText") || `Exchange 服务器返回 HTTP ${response.status}`;
+      const message = elementText(xml, "MessageText") || `Exchange Server gibt HTTP zurück ${response.status}`;
       throw new ExchangeEwsError("REMOTE_ERROR", message, 502);
     }
     assertExchangeSuccess(xml);
     return xml;
   }
-  throw new ExchangeEwsError("TOO_MANY_REDIRECTS", "Exchange 服务器跳转次数过多", 502);
+  throw new ExchangeEwsError("TOO_MANY_REDIRECTS", "Extrachange Server springt zu oft", 502);
 }
 
 export function assertExchangeSuccess(xml: string): void {
@@ -128,12 +128,12 @@ export function assertExchangeSuccess(xml: string): void {
   const failedCode = responseCodes.find((code) => code !== "NoError");
   if (!failedCode && responseCodes.length) return;
   if (!responseCodes.length && !elementContent(xml, "Fault")) return;
-  const message = elementText(xml, "MessageText") || elementText(xml, "faultstring") || failedCode || "Exchange 返回了无法识别的错误";
+  const message = elementText(xml, "MessageText") || elementText(xml, "faultstring") || failedCode || "Exchange gab einen nicht erkennbaren Fehler zurück";
   const authError = /AccessDenied|InvalidUser|NonExistentMailbox|InvalidCredentials/i.test(`${failedCode} ${message}`);
   const conflictError = /ChangeKey|IrresolvableConflict|ItemNotFound|StaleObject/i.test(`${failedCode} ${message}`);
   throw new ExchangeEwsError(
     authError ? "AUTH_REQUIRED" : conflictError ? "REMOTE_CONFLICT" : failedCode || "SOAP_ERROR",
-    conflictError ? "RWTH 项目已在其他客户端发生变化，请先同步后重试" : message,
+    conflictError ? "RWTH hat sich von einem anderen Kunden geändert, bitte synchronisieren und erneut versuchen" : message,
     authError ? 401 : conflictError ? 409 : 502,
     failedCode,
   );
@@ -186,7 +186,7 @@ export function toExchangePublicError(error: unknown): { readonly code: string; 
     return { code: error.code, message: error.message, status: error.status };
   }
   if (error instanceof Error && (error.name === "AbortError" || /timeout|aborted/i.test(error.message))) {
-    return { code: "TIMEOUT", message: "Exchange 连接或同步超时", status: 504 };
+    return { code: "TIMEOUT", message: "Exchange verbindet oder synchronisiert Timeout", status: 504 };
   }
-  return { code: "EXCHANGE_ERROR", message: "无法连接 Exchange 服务", status: 502 };
+  return { code: "EXCHANGE_ERROR", message: "Die Verbindung zum Exchange-Service ist nicht möglich", status: 502 };
 }

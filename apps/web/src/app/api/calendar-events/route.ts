@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     const input = parseCalendarEventInput(body);
     const conflicts = await listStoredCalendarEventConflicts({ calendarId: input.calendarId, start: input.start, end: input.end });
     if (conflicts.length && body?.allowConflicts !== true) {
-      return NextResponse.json({ ok: false, message: "所选时间与现有日程冲突", conflicts }, { status: 409 });
+      return NextResponse.json({ ok: false, message: "die ausgewählten Zeitkonflikte mit dem bestehenden Kalenderereignis", conflicts }, { status: 409 });
     }
     const event = await upsertCalendarEvent(input);
     return NextResponse.json({ ok: true, event }, { status: 201 });

@@ -20,10 +20,10 @@ export async function POST(request: Request, context: SendRouteContext) {
       readonly idempotencyKey?: unknown;
       readonly confirmed?: unknown;
     } | null;
-    if (body?.confirmed !== true) throw new MailDraftValidationError("发送前必须明确确认");
-    if (typeof body.accountId !== "string" || !body.accountId) throw new MailDraftValidationError("请选择并确认发件账户");
+    if (body?.confirmed !== true) throw new MailDraftValidationError("muss vor dem Versand eindeutig bestätigt werden");
+    if (typeof body.accountId !== "string" || !body.accountId) throw new MailDraftValidationError("Bitte wählen und bestätigen Sie das Absender-Konto");
     if (typeof body.idempotencyKey !== "string" || !/^[a-zA-Z0-9._:-]{16,160}$/.test(body.idempotencyKey)) {
-      throw new MailDraftValidationError("发送确认标识无效");
+      throw new MailDraftValidationError("Senden Bestätigungszeichen ungültig");
     }
     const result = await sendMailDraft(draftId, body.accountId, body.idempotencyKey);
     const actor = await getCurrentAppUser();

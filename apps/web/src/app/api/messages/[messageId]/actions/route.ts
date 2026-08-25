@@ -20,7 +20,7 @@ export async function PATCH(request: Request, context: MessageActionRouteContext
   const { messageId } = await context.params;
   const input = await request.json().catch(() => null) as { readonly action?: unknown; readonly folderId?: unknown } | null;
   if (typeof input?.action !== "string" || !actions.has(input.action as MailMessageAction)) {
-    return NextResponse.json({ ok: false, message: "不支持的邮件操作" }, { status: 400 });
+    return NextResponse.json({ ok: false, message: "nicht unterstützte E-Mail-Operationen" }, { status: 400 });
   }
   try {
     const actor = await getCurrentAppUser();
@@ -45,6 +45,6 @@ export async function PATCH(request: Request, context: MessageActionRouteContext
         { status: error.status },
       );
     }
-    return NextResponse.json({ ok: false, message: "邮件操作失败" }, { status: 500 });
+    return NextResponse.json({ ok: false, message: "Mail-Operation fehlgeschlagen" }, { status: 500 });
   }
 }

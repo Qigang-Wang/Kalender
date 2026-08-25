@@ -4,12 +4,12 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Dayline",
     short_name: "Dayline",
-    description: "Dayline 统一管理邮箱、日历、任务和笔记",
+    description: "Dayline Mailboxen, Kalender, Aufgaben und Notizen uneinheitlich verwalten",
     start_url: "/today",
     display: "standalone",
     background_color: "#f5f7f8",
     theme_color: "#5f95d8",
-    lang: "zh-CN",
+    lang: "de-DE",
     icons: [
       {
         src: "/icon.svg",

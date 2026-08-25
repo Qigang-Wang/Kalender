@@ -2,7 +2,7 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 12_000;
 
 export class RequestTimeoutError extends Error {
   constructor() {
-    super("请求超时，请检查电脑上的开发服务后重试");
+    super("Zeitüberschreitung der Anfrage. Bitte prüfen Sie den lokalen Dienst und versuchen Sie es erneut.");
     this.name = "RequestTimeoutError";
   }
 }
@@ -48,7 +48,7 @@ export async function fetchWithTimeout(
 export async function readApiJson<T>(response: Response, fallbackMessage: string): Promise<T> {
   const text = await response.text();
   if (!text.trim()) {
-    throw new InvalidApiResponseError(`${fallbackMessage}（HTTP ${response.status || "未知"}，服务器没有返回内容）`, response.status);
+    throw new InvalidApiResponseError(`${fallbackMessage} (HTTP ${response.status || "unbekannt"}: Der Server hat keinen Inhalt zurückgegeben)`, response.status);
   }
   try {
     return JSON.parse(text) as T;
@@ -57,8 +57,8 @@ export async function readApiJson<T>(response: Response, fallbackMessage: string
     const looksLikeHtml = /^\s*(?:<!doctype\s+html|<html\b)/i.test(text)
       || response.headers.get("content-type")?.toLocaleLowerCase().includes("text/html");
     const detail = looksLikeHtml
-      ? "服务器返回了网页而不是接口数据"
-      : "服务器返回了无法识别的数据";
-    throw new InvalidApiResponseError(`${fallbackMessage}：${detail}（HTTP ${status || "未知"}）`, status);
+      ? "Der Server hat eine Webseite statt API-Daten zurückgegeben"
+      : "Der Server hat nicht erkennbare Daten zurückgegeben";
+    throw new InvalidApiResponseError(`${fallbackMessage}: ${detail} (HTTP ${status || "unbekannt"})`, status);
   }
 }

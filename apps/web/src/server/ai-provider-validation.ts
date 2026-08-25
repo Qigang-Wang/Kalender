@@ -68,21 +68,21 @@ export class AiProviderError extends Error {
 
 export function parseAiProviderInput(value: unknown): ParsedAiProviderInput {
   const body = asRecord(value);
-  const displayName = requiredText(body.displayName, "请输入 API 名称", 80);
+  const displayName = requiredText(body.displayName, "API-Name eingeben", 80);
   const providerKind: AiProviderKind = body.providerKind === undefined || body.providerKind === "openai-compatible"
     ? "openai-compatible"
-    : invalid("当前仅支持 OpenAI-compatible API");
+    : invalid("Nur OpenAI-kompatible API wird derzeit unterstützt");
   const authScheme: AiAuthScheme = body.authScheme === "custom-header" ? "custom-header" : "bearer";
   const authHeaderName = authScheme === "bearer"
     ? "Authorization"
-    : requiredText(body.authHeaderName, "请输入认证 Header 名称", 80);
+    : requiredText(body.authHeaderName, "Bitte geben Sie den Namen der Authentifizierung ein", 80);
   if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(authHeaderName)) {
-    throw new AiProviderError("认证 Header 名称无效", "INVALID_AUTH_HEADER");
+    throw new AiProviderError("Authentifizierung Header-Name ungültig", "INVALID_AUTH_HEADER");
   }
   const allowPrivateNetwork = body.allowPrivateNetwork === true;
-  const baseUrl = normalizeAiBaseUrl(requiredText(body.baseUrl, "请输入 API Base URL", 500), allowPrivateNetwork);
+  const baseUrl = normalizeAiBaseUrl(requiredText(body.baseUrl, "API Base URL eingeben", 500), allowPrivateNetwork);
   const apiKey = optionalText(body.apiKey, 8192);
-  const requestTimeoutMs = boundedInteger(body.requestTimeoutMs, 30_000, 1_000, 120_000, "请求超时");
+  const requestTimeoutMs = boundedInteger(body.requestTimeoutMs, 30_000, 1_000, 120_000, "Timeout anfordern");
   return {
     providerId: optionalId(body.providerId),
     displayName,
@@ -99,14 +99,14 @@ export function parseAiProviderInput(value: unknown): ParsedAiProviderInput {
 
 export function parseAiModelInput(value: unknown, providerIdFromRoute?: string): ParsedAiModelInput {
   const body = asRecord(value);
-  const providerId = providerIdFromRoute ?? requiredText(body.providerId, "请选择 API 提供商", 100);
+  const providerId = providerIdFromRoute ?? requiredText(body.providerId, "Wählen Sie einen API-Anbieter", 100);
   const modelKind: AiModelKind = body.modelKind === "embedding" ? "embedding" : "chat";
   const endpointKind: AiEndpointKind = modelKind === "embedding"
     ? "embeddings"
     : body.endpointKind === "responses" ? "responses" : "chat-completions";
-  const apiModelId = requiredText(body.apiModelId, "请输入 API model ID", 200);
+  const apiModelId = requiredText(body.apiModelId, "API-Modell-ID eingeben", 200);
   if (!/^[\p{L}\p{N}][\p{L}\p{N}._:/+@-]*$/u.test(apiModelId)) {
-    throw new AiProviderError("API model ID 包含不支持的字符", "INVALID_MODEL_ID");
+    throw new AiProviderError("API-Modell-ID enthält nicht unterstützte Zeichen", "INVALID_MODEL_ID");
   }
   return {
     modelId: optionalId(body.modelId),
@@ -116,8 +116,8 @@ export function parseAiModelInput(value: unknown, providerIdFromRoute?: string):
     modelKind,
     endpointKind,
     enabled: body.enabled !== false,
-    contextWindow: optionalPositiveInteger(body.contextWindow, 1_000_000, "上下文长度"),
-    maxOutputTokens: optionalPositiveInteger(body.maxOutputTokens, 1_000_000, "最大输出长度"),
+    contextWindow: optionalPositiveInteger(body.contextWindow, 1_000_000, "Kontextlänge"),
+    maxOutputTokens: optionalPositiveInteger(body.maxOutputTokens, 1_000_000, "maximale Ausgangslänge"),
     dataRegion: optionalText(body.dataRegion, 100),
   };
 }
@@ -125,20 +125,20 @@ export function parseAiModelInput(value: unknown, providerIdFromRoute?: string):
 export function parseAiFeatureBindingInput(value: unknown): ParsedAiFeatureBindingInput {
   const body = asRecord(value);
   if (typeof body.featureKey !== "string" || !aiFeatureKeys.includes(body.featureKey as AiFeatureKey)) {
-    throw new AiProviderError("AI 功能键无效", "INVALID_FEATURE_KEY");
+    throw new AiProviderError("der KI-Funktionsschlüssel ist ungültig", "INVALID_FEATURE_KEY");
   }
   const primaryModelId = optionalId(body.primaryModelId);
   const fallbackModelId = optionalId(body.fallbackModelId);
   if (primaryModelId && fallbackModelId === primaryModelId) {
-    throw new AiProviderError("主模型和备用模型不能相同", "DUPLICATE_MODEL_BINDING");
+    throw new AiProviderError("Das Hauptmodell und das Back-up-Modell können nicht identisch sein", "DUPLICATE_MODEL_BINDING");
   }
   const toolMode: AiToolMode = body.toolMode === "read" || body.toolMode === "write-proposals" ? body.toolMode : "none";
   return {
     featureKey: body.featureKey as AiFeatureKey,
     primaryModelId,
     fallbackModelId,
-    contextBudgetTokens: boundedInteger(body.contextBudgetTokens, 32_000, 1_000, 1_000_000, "上下文预算"),
-    timeoutMs: boundedInteger(body.timeoutMs, 60_000, 1_000, 180_000, "模型超时"),
+    contextBudgetTokens: boundedInteger(body.contextBudgetTokens, 32_000, 1_000, 1_000_000, "Kontexthaushalt"),
+    timeoutMs: boundedInteger(body.timeoutMs, 60_000, 1_000, 180_000, "Modell-Timeout"),
     toolMode,
   };
 }
@@ -148,16 +148,16 @@ export function normalizeAiBaseUrl(raw: string, allowPrivateNetwork: boolean): s
   try {
     url = new URL(raw);
   } catch {
-    throw new AiProviderError("API Base URL 格式无效", "INVALID_BASE_URL");
+    throw new AiProviderError("API Base URL nicht gültig", "INVALID_BASE_URL");
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new AiProviderError("API Base URL 只能使用 HTTP 或 HTTPS", "INVALID_BASE_URL");
+    throw new AiProviderError("API Base URL kann nur HTTP oder HTTPS verwenden", "INVALID_BASE_URL");
   }
   if (url.protocol === "http:" && !allowPrivateNetwork) {
-    throw new AiProviderError("公网 AI API 必须使用 HTTPS；本地服务需明确允许私有网络", "INSECURE_BASE_URL");
+    throw new AiProviderError("öffentliches Netzwerk KI API muss HTTPS verwenden; lokale Dienste müssen explizit private Netzwerke zulassen", "INSECURE_BASE_URL");
   }
   if (url.username || url.password || url.search || url.hash) {
-    throw new AiProviderError("API Base URL 不能包含用户名、密码、查询参数或片段", "INVALID_BASE_URL");
+    throw new AiProviderError("API Base URL kann keinen Benutzernamen, kein Passwort, keine Abfrageparameter oder Segmente enthalten", "INVALID_BASE_URL");
   }
   url.pathname = url.pathname.replace(/\/+$/, "");
   return url.toString().replace(/\/$/, "");
@@ -167,16 +167,16 @@ export async function assertAiEndpointAllowed(baseUrl: string, allowPrivateNetwo
   if (allowPrivateNetwork) return;
   const hostname = new URL(baseUrl).hostname;
   if (isPrivateHostname(hostname)) {
-    throw new AiProviderError("AI API 地址指向私有网络；如需连接本地模型，请明确启用私有网络访问", "PRIVATE_NETWORK_BLOCKED");
+    throw new AiProviderError("KI-API-Adressen zu privaten Netzwerken; wenn Sie eine Verbindung zu lokalen Modellen herstellen möchten, aktivieren Sie bitte explizit den privaten Netzwerkzugriff.", "PRIVATE_NETWORK_BLOCKED");
   }
   try {
     const addresses = await lookup(hostname, { all: true, verbatim: true });
     if (!addresses.length || addresses.some((item) => isPrivateAddress(item.address))) {
-      throw new AiProviderError("AI API 域名解析到了私有网络地址", "PRIVATE_NETWORK_BLOCKED");
+      throw new AiProviderError("KI-API-Domänenname parsed an private Netzwerkadresse", "PRIVATE_NETWORK_BLOCKED");
     }
   } catch (error) {
     if (error instanceof AiProviderError) throw error;
-    throw new AiProviderError("无法解析 AI API 域名", "AI_HOST_LOOKUP_FAILED", 502);
+    throw new AiProviderError("nicht in der Lage, AI API-Domänennamen zu parsen", "AI_HOST_LOOKUP_FAILED", 502);
   }
 }
 
@@ -187,16 +187,16 @@ export function buildAiEndpoint(baseUrl: string, suffix: "models" | "chat/comple
 export function toAiPublicError(error: unknown): AiProviderError {
   if (error instanceof AiProviderError) return error;
   if (error instanceof DOMException && error.name === "AbortError") {
-    return new AiProviderError("AI API 请求超时", "AI_TIMEOUT", 504);
+    return new AiProviderError("KI-API-Request-Timeout", "AI_TIMEOUT", 504);
   }
   if (error instanceof Error && /timeout|aborted/i.test(error.message)) {
-    return new AiProviderError("AI API 请求超时", "AI_TIMEOUT", 504);
+    return new AiProviderError("KI-API-Request-Timeout", "AI_TIMEOUT", 504);
   }
-  return new AiProviderError("AI API 暂时不可用", "AI_PROVIDER_UNAVAILABLE", 502);
+  return new AiProviderError("AI API ist derzeit nicht verfügbar", "AI_PROVIDER_UNAVAILABLE", 502);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new AiProviderError("请求格式无效", "INVALID_REQUEST");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new AiProviderError("Ungültiges angefordertes Format", "INVALID_REQUEST");
   return value as Record<string, unknown>;
 }
 
@@ -208,10 +208,10 @@ function requiredText(value: unknown, message: string, maxLength: number): strin
 
 function optionalText(value: unknown, maxLength: number): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;
-  if (typeof value !== "string") throw new AiProviderError("请求字段格式无效", "INVALID_REQUEST");
+  if (typeof value !== "string") throw new AiProviderError("Ungültiges Feldformat angefordert", "INVALID_REQUEST");
   const text = value.trim();
   if (!text) return undefined;
-  if (text.length > maxLength) throw new AiProviderError(`输入内容不能超过 ${maxLength} 个字符`, "INVALID_REQUEST");
+  if (text.length > maxLength) throw new AiProviderError(`Inhalt der Eingabe darf nicht überschritten werden ${maxLength} ein Zeichen`, "INVALID_REQUEST");
   return text;
 }
 
@@ -223,7 +223,7 @@ function boundedInteger(value: unknown, fallback: number, min: number, max: numb
   if (value === undefined || value === null || value === "") return fallback;
   const number = typeof value === "number" ? value : Number(value);
   if (!Number.isInteger(number) || number < min || number > max) {
-    throw new AiProviderError(`${label}必须是 ${min}–${max} 的整数`, "INVALID_REQUEST");
+    throw new AiProviderError(`${label}muss ${min}–${max} Ganzzahl`, "INVALID_REQUEST");
   }
   return number;
 }

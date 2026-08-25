@@ -11,7 +11,7 @@ export function AIToolbarButton(
     <ToolbarButton
       {...props}
       disabled
-      tooltip="AI 将在后续阶段接入"
+      tooltip="KI wird zu einem späteren Zeitpunkt abgerufen"
     />
   );
 }

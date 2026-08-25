@@ -30,7 +30,7 @@ export function RelatedContentPanel({
   refreshKey = 0,
   hideHeading = false,
   hideWhenEmpty = false,
-  emptyText = "还没有相关内容。",
+  emptyText = "Es stehen keine relevanten Inhalte zur Verfügung.",
   excludeRelations = [],
 }: {
   readonly kind: RelatedEntityKind;
@@ -50,7 +50,7 @@ export function RelatedContentPanel({
     void fetch(`/api/entity-links?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(entityId)}`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         const payload = await response.json() as { readonly ok?: boolean; readonly related?: readonly RelatedEntityItem[]; readonly message?: string };
-        if (!response.ok || !payload.ok || !payload.related) throw new Error(payload.message ?? "无法读取相关内容");
+        if (!response.ok || !payload.ok || !payload.related) throw new Error(payload.message ?? "relevante Inhalte nicht lesen");
         setItems(payload.related);
         setState("ready");
       })
@@ -67,14 +67,14 @@ export function RelatedContentPanel({
   if (hideWhenEmpty && (state === "loading" || (state === "ready" && visibleItems.length === 0))) return null;
 
   return (
-    <section className={`related-content ${hideHeading ? "related-content-embedded" : ""}`} aria-label="相关内容">
-      {!hideHeading && <header><span><Link2 size={14} />相关内容</span>{state === "ready" && visibleItems.length > 0 && <small>{visibleItems.length}</small>}</header>}
-      {state === "loading" ? <p><LoaderCircle className="spin" size={13} />正在读取关联…</p>
-        : state === "error" ? <p className="related-content-error"><AlertCircle size={13} />暂时无法读取相关内容</p>
+    <section className={`related-content ${hideHeading ? "related-content-embedded" : ""}`} aria-label="sachdienlich">
+      {!hideHeading && <header><span><Link2 size={14} />sachdienlich</span>{state === "ready" && visibleItems.length > 0 && <small>{visibleItems.length}</small>}</header>}
+      {state === "loading" ? <p><LoaderCircle className="spin" size={13} />Leseassoziation...</p>
+        : state === "error" ? <p className="related-content-error"><AlertCircle size={13} />relevante Inhalte können vorerst nicht gelesen werden</p>
           : visibleItems.length ? <div className="related-content-list">{visibleItems.map((item) => <Link href={item.href} key={item.linkId}>
             <RelatedEntityIcon kind={item.kind} />
             <span><strong>{item.title}</strong><small>{relationLabel(item)} · {item.meta}</small></span>
-            <span>打开</span>
+            <span>geöffnet</span>
           </Link>)}</div>
             : <p>{emptyText}</p>}
     </section>
@@ -108,8 +108,8 @@ export function MailProjectChip({
   if (!project) return null;
   return (
     <span className="mail-project-chip">
-      <Link href={project.href} title={`打开项目：${project.title}`}><Folder size={12} />{project.title}</Link>
-      <button aria-label={`更改所属项目：${project.title}`} title="更改所属项目" onClick={onEdit}><Pencil size={11} /></button>
+      <Link href={project.href} title={`Offenes Projekt:${project.title}`}><Folder size={12} />{project.title}</Link>
+      <button aria-label={`Projekt(e) ändern:${project.title}`} title="Projekte ändern" onClick={onEdit}><Pencil size={11} /></button>
     </span>
   );
 }
@@ -140,7 +140,7 @@ export function ProjectAssociationControl({
       setProjectId(current?.entityId ?? "");
       setLinkId(current?.linkId);
     }).catch((loadError: unknown) => {
-      if (!controller.signal.aborted) setError(loadError instanceof Error ? loadError.message : "无法读取项目关联");
+      if (!controller.signal.aborted) setError(loadError instanceof Error ? loadError.message : "Projekt-Assoziation kann nicht gelesen werden");
     });
     return () => controller.abort();
   }, [entityId, kind]);
@@ -164,13 +164,13 @@ export function ProjectAssociationControl({
       if (linkId && linkId !== nextLinkId) {
         const response = await fetch(`/api/entity-links/${encodeURIComponent(linkId)}`, { method: "DELETE" });
         const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
-        if (!response.ok || !payload.ok) throw new Error(payload.message ?? "无法移除旧项目关联");
+        if (!response.ok || !payload.ok) throw new Error(payload.message ?? "Die alte Projektverbindung kann nicht entfernt werden");
       }
       setProjectId(nextProjectId);
       setLinkId(nextLinkId);
       onChanged();
     } catch (changeError) {
-      setError(changeError instanceof Error ? changeError.message : "无法更新项目关联");
+      setError(changeError instanceof Error ? changeError.message : "Projektverbindung kann nicht aktualisiert werden");
     } finally {
       setBusy(false);
     }
@@ -179,8 +179,8 @@ export function ProjectAssociationControl({
   return (
     <label className="project-association-control">
       <Folder size={14} />
-      <span>所属项目</span>
-      <AppSelect ariaLabel="所属项目" size="compact" variant="ghost" value={projectId} disabled={busy} onValueChange={(nextProjectId) => void changeProject(nextProjectId)} options={[{ value: "", label: "无项目" }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} />
+      <span>Gegenstände, die zu</span>
+      <AppSelect ariaLabel="Projekte, die zu" size="compact" variant="ghost" value={projectId} disabled={busy} onValueChange={(nextProjectId) => void changeProject(nextProjectId)} options={[{ value: "", label: "keine Projekte" }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} />
       {busy && <LoaderCircle className="spin" size={13} />}
       {error && <small>{error}</small>}
     </label>
@@ -197,13 +197,13 @@ function RelatedEntityIcon({ kind }: { readonly kind: RelatedEntityKind }) {
 }
 
 function relationLabel(item: RelatedEntityItem): string {
-  if (item.relation === "meeting-note") return item.kind === "note" ? "会议笔记" : "对应日程";
-  if (item.relation === "preparation") return item.kind === "task" ? "准备任务" : "准备事项来源";
-  if (item.relation === "follow-up") return item.kind === "task" ? "跟进任务" : "跟进事项来源";
-  if (item.relation === "scheduled") return item.kind === "calendar" ? "安排时间" : "对应任务";
-  if (item.relation === "derived-task") return item.kind === "task" ? "生成的任务" : "任务来源";
-  if (item.relation === "project-item") return item.kind === "project" ? "所属项目" : "项目内容";
-  return "相关";
+  if (item.relation === "meeting-note") return item.kind === "note" ? "Besprechungsnotiz" : "Zugehöriger Termin";
+  if (item.relation === "preparation") return item.kind === "task" ? "Vorbereitung der Aufgaben" : "Zubereitungsquelle";
+  if (item.relation === "follow-up") return item.kind === "task" ? "Folgeaufgaben" : "Folgequelle";
+  if (item.relation === "scheduled") return item.kind === "calendar" ? "Zeitplanung" : "entsprechende Aufgaben";
+  if (item.relation === "derived-task") return item.kind === "task" ? "Erzeugte Aufgaben" : "Aufgabenquelle";
+  if (item.relation === "project-item") return item.kind === "project" ? "Projekte, die zu" : "Projektinhalt";
+  return "sachdienlich";
 }
 
 export async function createClientEntityLink(input: {
@@ -219,6 +219,6 @@ export async function createClientEntityLink(input: {
     body: JSON.stringify(input),
   });
   const payload = await response.json() as { readonly ok?: boolean; readonly link?: { readonly id: string }; readonly message?: string };
-  if (!response.ok || !payload.ok || !payload.link) throw new Error(payload.message ?? "无法建立对象关联");
+  if (!response.ok || !payload.ok || !payload.link) throw new Error(payload.message ?? "Objektverbindung kann nicht erstellt werden");
   return payload.link;
 }

@@ -12,7 +12,7 @@ interface EntityLinkRouteContext {
 export async function DELETE(_request: Request, context: EntityLinkRouteContext) {
   try {
     const { linkId } = await context.params;
-    if (!await deleteEntityLink(linkId)) throw new EntityLinkRepositoryError("ENTITY_LINK_NOT_FOUND", "对象关联不存在", 404);
+    if (!await deleteEntityLink(linkId)) throw new EntityLinkRepositoryError("ENTITY_LINK_NOT_FOUND", "Objekt-Assoziation existiert nicht", 404);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return entityLinkErrorResponse(error);

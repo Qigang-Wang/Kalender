@@ -35,7 +35,7 @@ export async function DELETE(_request: Request, context: SignatureRouteContext) 
   const { signatureId } = await context.params;
   try {
     if (!await deleteMailSignature(signatureId)) {
-      throw new MailSignatureError("SIGNATURE_NOT_FOUND", "签名版本不存在", 404);
+      throw new MailSignatureError("SIGNATURE_NOT_FOUND", "Die Signatur-Version existiert nicht", 404);
     }
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -48,7 +48,7 @@ export async function POST(request: Request, context: SignatureRouteContext) {
   try {
     const body = await request.json().catch(() => null) as { readonly action?: unknown } | null;
     if (body?.action !== "set-default") {
-      throw new MailSignatureError("INVALID_SIGNATURE", "不支持的签名操作", 400);
+      throw new MailSignatureError("INVALID_SIGNATURE", "Nicht unterstützte Unterschriftenoperationen", 400);
     }
     return NextResponse.json({ ok: true, signature: await setDefaultMailSignature(signatureId) });
   } catch (error) {

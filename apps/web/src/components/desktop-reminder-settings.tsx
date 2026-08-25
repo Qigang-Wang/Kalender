@@ -37,7 +37,7 @@ export function DesktopReminderSettingsPanel() {
           setStatus(nextStatus);
           publishDesktopStatus(nextStatus);
         })
-        .catch(() => setFeedback("无法读取桌面客户端状态"));
+        .catch(() => setFeedback("Desktop-Client-Status kann nicht gelesen werden"));
     });
     return () => {
       disposed = true;
@@ -53,9 +53,9 @@ export function DesktopReminderSettingsPanel() {
       const nextStatus = await invokeDesktop<DesktopStatus>("update_desktop_settings", { settings: normalized });
       setDraft(normalized);
       setStatus(nextStatus);
-      setFeedback("桌面客户端设置已保存");
+      setFeedback("Desktop-Client-Einstellungen gespeichert");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法保存桌面客户端设置");
+      setFeedback(error instanceof Error ? error.message : "Desktop-Client-Einstellungen können nicht gespeichert werden");
     } finally {
       setSaving(false);
     }
@@ -65,53 +65,53 @@ export function DesktopReminderSettingsPanel() {
     <section className="desktop-reminder-settings panel" aria-labelledby="desktop-reminder-settings-title">
       <div className="settings-section-heading">
         <div>
-          <h2 id="desktop-reminder-settings-title">桌面客户端</h2>
-          <p>管理本机通知、启动方式和托盘行为。</p>
+          <h2 id="desktop-reminder-settings-title">Desktop-Client</h2>
+          <p>Verwaltet die Benachrichtigung an Bord, den Start-up-Modus und das Tray-Verhalten.</p>
         </div>
         <span className={`desktop-runtime-status ${desktopAvailable ? "connected" : "browser"}`}>
-          <i />{desktopAvailable ? "桌面客户端已连接" : "当前为网页版本"}
+          <i />{desktopAvailable ? "Desktop-Client verbunden" : "Derzeit Web-Version"}
         </span>
       </div>
 
-      {!desktopAvailable && <div className="desktop-settings-notice"><MonitorDown size={17} /><span>请在 Kalender 桌面客户端中打开此页面后设置。</span></div>}
+      {!desktopAvailable && <div className="desktop-settings-notice"><MonitorDown size={17} /><span>Bitte öffnen Sie diese Seite nach dem Einrichten im Kalender-Desktop-Client.</span></div>}
 
       <section className="desktop-settings-group" aria-labelledby="desktop-notification-settings-title">
-        <h3 id="desktop-notification-settings-title">通知与提醒</h3>
+        <h3 id="desktop-notification-settings-title">Benachrichtigungen und Mahnungen</h3>
         <div className="desktop-settings-list" aria-disabled={!desktopAvailable}>
-          <SettingToggle icon={<BellRing size={16} />} title="桌面通知" description="为同步到本机的日程发送系统通知" checked={draft.enabled} disabled={!desktopAvailable} onChange={(enabled) => setDraft({ ...draft, enabled })} />
-          <SettingSelect icon={<Clock3 size={16} />} title="默认提前提醒" description="适用于没有单独提醒规则的普通日程" value={draft.reminderMinutesBefore} disabled={!desktopAvailable || !draft.enabled} options={[{ value: 0, label: "准时" }, { value: 5, label: "5 分钟" }, { value: 10, label: "10 分钟" }, { value: 15, label: "15 分钟" }, { value: 30, label: "30 分钟" }, { value: 60, label: "1 小时" }]} onChange={(reminderMinutesBefore) => setDraft({ ...draft, reminderMinutesBefore })} />
-          <SettingSelect icon={<CalendarDays size={16} />} title="全天日程提醒" description="全天日程在当天的这个时间发送通知" value={draft.allDayReminderHour} disabled={!desktopAvailable || !draft.enabled} options={[{ value: 7, label: "07:00" }, { value: 8, label: "08:00" }, { value: 9, label: "09:00" }, { value: 10, label: "10:00" }, { value: 12, label: "12:00" }]} onChange={(allDayReminderHour) => setDraft({ ...draft, allDayReminderHour })} />
-          <SettingSelect icon={<RefreshCw size={16} />} title="补发错过的提醒" description="系统休眠恢复后，只补发这个时间范围内的提醒" value={draft.missedReminderWindowMinutes} disabled={!desktopAvailable || !draft.enabled} options={[{ value: 0, label: "不补发" }, { value: 15, label: "15 分钟" }, { value: 30, label: "30 分钟" }, { value: 60, label: "1 小时" }, { value: 180, label: "3 小时" }]} onChange={(missedReminderWindowMinutes) => setDraft({ ...draft, missedReminderWindowMinutes })} />
+          <SettingToggle icon={<BellRing size={16} />} title="Desktop-Benachrichtigungen" description="Systembenachrichtigungen für synchronisierte Termine anzeigen" checked={draft.enabled} disabled={!desktopAvailable} onChange={(enabled) => setDraft({ ...draft, enabled })} />
+          <SettingSelect icon={<Clock3 size={16} />} title="Standard-Voraberinnerung" description="ein normales Kalenderereignis, das keine gesonderte Erinnerungsregel hat" value={draft.reminderMinutesBefore} disabled={!desktopAvailable || !draft.enabled} options={[{ value: 0, label: "rechtzeitig" }, { value: 5, label: "5 Minuten" }, { value: 10, label: "10 Minuten" }, { value: 15, label: "15 Minuten" }, { value: 30, label: "30 Minuten" }, { value: 60, label: "1 Stunde" }]} onChange={(reminderMinutesBefore) => setDraft({ ...draft, reminderMinutesBefore })} />
+          <SettingSelect icon={<CalendarDays size={16} />} title="Ganztags-Kalenderveranstaltung Erinnerung" description="Die Ganztags-Kalenderveranstaltung sendet die Mitteilung zu dieser Tageszeit" value={draft.allDayReminderHour} disabled={!desktopAvailable || !draft.enabled} options={[{ value: 7, label: "07:00" }, { value: 8, label: "08:00" }, { value: 9, label: "09:00" }, { value: 10, label: "10:00" }, { value: 12, label: "12:00" }]} onChange={(allDayReminderHour) => setDraft({ ...draft, allDayReminderHour })} />
+          <SettingSelect icon={<RefreshCw size={16} />} title="Cascade vermisst Erinnerungen" description="nachdem Systemüberwinterung wiederhergestellt ist, werden nur Erinnerungen innerhalb dieses Zeitrahmens neu ausgegeben" value={draft.missedReminderWindowMinutes} disabled={!desktopAvailable || !draft.enabled} options={[{ value: 0, label: "keine Weiterverbreitung" }, { value: 15, label: "15 Minuten" }, { value: 30, label: "30 Minuten" }, { value: 60, label: "1 Stunde" }, { value: 180, label: "3 Stunden" }]} onChange={(missedReminderWindowMinutes) => setDraft({ ...draft, missedReminderWindowMinutes })} />
         </div>
       </section>
 
       <section className="desktop-settings-group" aria-labelledby="desktop-behavior-settings-title">
-        <h3 id="desktop-behavior-settings-title">应用与托盘</h3>
+        <h3 id="desktop-behavior-settings-title">Anwendung und Tablett</h3>
         <div className="desktop-settings-list" aria-disabled={!desktopAvailable}>
-          <SettingToggle icon={<Power size={16} />} title="开机启动" description="登录系统后在托盘中启动 Kalender" checked={draft.launchAtLogin} disabled={!desktopAvailable} onChange={(launchAtLogin) => setDraft({ ...draft, launchAtLogin })} />
-          <SettingToggle icon={<MonitorDown size={16} />} title="关闭后驻留" description="关闭主窗口时隐藏到托盘并继续提醒" checked={draft.minimizeToTray} disabled={!desktopAvailable} onChange={(minimizeToTray) => setDraft({ ...draft, minimizeToTray })} />
-          <SettingToggle icon={<Eye size={16} />} title="显示下一项标题" description="在托盘悬停提示中显示下一项日程名称" checked={draft.showEventTitle} disabled={!desktopAvailable} onChange={(showEventTitle) => setDraft({ ...draft, showEventTitle })} />
+          <SettingToggle icon={<Power size={16} />} title="Start-up" description="Kalender nach dem Login im Tray starten" checked={draft.launchAtLogin} disabled={!desktopAvailable} onChange={(launchAtLogin) => setDraft({ ...draft, launchAtLogin })} />
+          <SettingToggle icon={<MonitorDown size={16} />} title="nach dem Schließen bleiben" description="Verstecken Sie sich in Tray und weitere Erinnerung, wenn das Hauptfenster schließt" checked={draft.minimizeToTray} disabled={!desktopAvailable} onChange={(minimizeToTray) => setDraft({ ...draft, minimizeToTray })} />
+          <SettingToggle icon={<Eye size={16} />} title="Titel des nächsten Termins anzeigen" description="Den Namen des nächsten Termins im Infobereich anzeigen" checked={draft.showEventTitle} disabled={!desktopAvailable} onChange={(showEventTitle) => setDraft({ ...draft, showEventTitle })} />
         </div>
       </section>
 
       <footer className="sync-settings-actions">
         <span>{feedback || desktopStatusText(status, desktopAvailable)}</span>
-        <button type="button" className="primary-button" disabled={!desktopAvailable || saving} onClick={() => void save()}>{saving ? "保存中…" : "保存设置"}</button>
+        <button type="button" className="primary-button" disabled={!desktopAvailable || saving} onClick={() => void save()}>{saving ? "Speichern..." : "Einstellungen speichern"}</button>
       </footer>
     </section>
   );
 }
 
 function desktopStatusText(status: DesktopStatus | undefined, desktopAvailable: boolean): string {
-  if (!desktopAvailable) return "网页版无法修改桌面客户端设置";
-  if (!status) return "正在读取本机提醒状态";
-  if (status.lastSyncError) return `日历同步失败：${status.lastSyncError}`;
-  if (!status.lastSyncedAt) return "等待首次日历同步";
-  return `本机队列中有 ${status.queuedReminderCount} 个待处理提醒`;
+  if (!desktopAvailable) return "Web-Version kann Desktop-Client-Einstellungen nicht ändern";
+  if (!status) return "Lesen dieser Maschine Alarmzustand";
+  if (status.lastSyncError) return `Kalendersynchronisierung fehlgeschlagen:${status.lastSyncError}`;
+  if (!status.lastSyncedAt) return "warten auf den ersten Kalender synchronisieren";
+  return `in dieser Warteschlange ${status.queuedReminderCount} eine Erinnerung an die Verarbeitung`;
 }
 
 function SettingToggle({ icon, title, description, checked, disabled, onChange }: { readonly icon: ReactNode; readonly title: string; readonly description: string; readonly checked: boolean; readonly disabled: boolean; readonly onChange: (checked: boolean) => void }) {
-  return <div className="desktop-settings-row"><span className="desktop-settings-icon">{icon}</span><span className="desktop-settings-copy"><strong>{title}</strong><small>{description}</small></span><label className="sync-settings-toggle"><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span aria-hidden="true"><i /></span><em>{checked ? "开启" : "关闭"}</em></label></div>;
+  return <div className="desktop-settings-row"><span className="desktop-settings-icon">{icon}</span><span className="desktop-settings-copy"><strong>{title}</strong><small>{description}</small></span><label className="sync-settings-toggle"><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span aria-hidden="true"><i /></span><em>{checked ? "Aktivieren" : "Schließen"}</em></label></div>;
 }
 
 function SettingSelect({ icon, title, description, value, options, disabled, onChange }: { readonly icon: ReactNode; readonly title: string; readonly description: string; readonly value: number; readonly options: readonly { readonly value: number; readonly label: string }[]; readonly disabled: boolean; readonly onChange: (value: number) => void }) {

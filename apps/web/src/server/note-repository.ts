@@ -143,19 +143,19 @@ export async function saveStoredProject(input: SaveProjectInput): Promise<Stored
     );
   } catch (error) {
     if (error instanceof Error && /unique|duplicate/i.test(error.message)) {
-      throw new NoteRepositoryError("PROJECT_NAME_EXISTS", "已有同名项目", 409);
+      throw new NoteRepositoryError("PROJECT_NAME_EXISTS", "ein bestehendes Projekt mit dem gleichen Namen", 409);
     }
     throw error;
   }
   const saved = await getStoredProject(id);
-  if (!saved) throw new NoteRepositoryError("PROJECT_SAVE_FAILED", "无法保存项目", 500);
+  if (!saved) throw new NoteRepositoryError("PROJECT_SAVE_FAILED", "Projekt kann nicht gespeichert werden", 500);
   return saved;
 }
 
 export async function reorderStoredProjects(projectIds: readonly string[]): Promise<readonly StoredProject[]> {
   const normalizedIds = Array.from(new Set(projectIds.map((id) => id.trim()).filter(Boolean)));
-  if (!normalizedIds.length) throw new NoteRepositoryError("PROJECT_REORDER_EMPTY", "请提供项目顺序", 400);
-  if (normalizedIds.length > 500) throw new NoteRepositoryError("PROJECT_REORDER_TOO_LARGE", "一次最多重排 500 个项目", 400);
+  if (!normalizedIds.length) throw new NoteRepositoryError("PROJECT_REORDER_EMPTY", "Bitte geben Sie die Reihenfolge der Projekte an", 400);
+  if (normalizedIds.length > 500) throw new NoteRepositoryError("PROJECT_REORDER_TOO_LARGE", "bis zu 500 Projekte nacheinander umbestellen", 400);
   const database = await getDatabase();
   for (const projectId of normalizedIds) await ensureProjectAccess(projectId, "editor");
   await database.query(
@@ -189,7 +189,7 @@ export async function renameStoredProjectArea(previousName: string, name: string
     sourceScope.parameters,
   );
   if (!source.rows.length) {
-    throw new NoteRepositoryError("PROJECT_AREA_NOT_FOUND", "领域不存在或已经被重命名", 404);
+    throw new NoteRepositoryError("PROJECT_AREA_NOT_FOUND", "Feld existiert nicht oder wurde umbenannt", 404);
   }
   for (const project of source.rows) {
     await ensureProjectAccess(project.id, "editor");
@@ -208,7 +208,7 @@ export async function renameStoredProjectArea(previousName: string, name: string
     destinationScope.parameters,
   );
   if (destination.rows[0]?.exists) {
-    throw new NoteRepositoryError("PROJECT_AREA_EXISTS", "已有同名领域，请将项目移动到该领域", 409);
+    throw new NoteRepositoryError("PROJECT_AREA_EXISTS", "Eine bestehende Domain mit dem gleichen Namen, bitte verschieben Sie das Projekt in diesen Bereich", 409);
   }
 
   await database.transaction(async (transaction) => {
@@ -245,7 +245,7 @@ export async function deleteStoredProject(projectId: string): Promise<boolean> {
     scope.active ? [projectId, scope.userId] : [projectId],
   );
   if (Number(contents.rows[0]?.note_count ?? 0) > 0 || Number(contents.rows[0]?.task_count ?? 0) > 0) {
-    throw new NoteRepositoryError("PROJECT_NOT_EMPTY", "请先移动或删除该项目中的笔记和任务", 409);
+    throw new NoteRepositoryError("PROJECT_NOT_EMPTY", "Bitte verschieben oder löschen Sie zuerst Notizen und Aufgaben aus diesem Projekt", 409);
   }
   return database.transaction(async (transaction) => {
     await transaction.query(
@@ -317,7 +317,7 @@ export async function saveStoredNote(input: SaveNoteInput): Promise<StoredNote> 
   if (input.id) {
     const scoped = scope.and("notes", [input.id]);
     const existing = await database.query<{ id: string }>(`SELECT id FROM notes WHERE id = $1${scoped.clause} LIMIT 1`, scoped.parameters);
-    if (!existing.rows[0]) throw new NoteRepositoryError("NOTE_NOT_FOUND", "笔记不存在", 404);
+    if (!existing.rows[0]) throw new NoteRepositoryError("NOTE_NOT_FOUND", "Anmerkung existiert nicht", 404);
   }
   if (input.projectId) {
     await ensureProjectAccess(input.projectId, "editor");
@@ -346,7 +346,7 @@ export async function saveStoredNote(input: SaveNoteInput): Promise<StoredNote> 
     }
   });
   const saved = await getStoredNote(id);
-  if (!saved) throw new NoteRepositoryError("NOTE_SAVE_FAILED", "无法保存笔记", 500);
+  if (!saved) throw new NoteRepositoryError("NOTE_SAVE_FAILED", "keine Notizen gespeichert werden können", 500);
   return saved;
 }
 

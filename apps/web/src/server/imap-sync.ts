@@ -53,7 +53,7 @@ const DEEP_RECONCILE_INTERVAL_MS = 30 * 60 * 1000;
 
 export class MailSyncAlreadyRunningError extends Error {
   constructor() {
-    super("该账户正在同步");
+    super("dieses Konto synchronisiert");
     this.name = "MailSyncAlreadyRunningError";
   }
 }
@@ -86,7 +86,7 @@ export function isMailAccountSyncing(accountId: string): boolean {
 async function executeImapSync(accountId: string, maximumMessages: number): Promise<SyncSummary> {
   const account = await getAccount(accountId);
   if (!account) throw new Error("Account was not found");
-  if (account.syncStatus === "paused") throw new Error("邮箱账户已暂停");
+  if (account.syncStatus === "paused") throw new Error("das Postfachkonto wurde gesperrt");
   const credential = await loadImapSmtpCredential(accountId);
   const runId = await startSyncRun(accountId, account.syncMode);
   await setSyncStatus(accountId, "syncing");
@@ -408,7 +408,7 @@ function toMessageRecord(accountId: string, folderPath: string, message: FetchMe
     providerMessageId: envelope?.messageId ?? String(message.uid),
     providerUid: message.uid,
     providerFolderId: folderPath,
-    subject: envelope?.subject ?? "(无主题)",
+    subject: envelope?.subject ?? "(Kein Betreff)",
     from: sender,
     to: addresses(envelope?.to),
     cc: addresses(envelope?.cc),
@@ -485,7 +485,7 @@ function isoDate(value?: Date | string): string {
 
 function publicSyncError(error: unknown): string {
   const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
-  if (/AUTH|EAUTH|LOGIN/i.test(code)) return "邮箱认证失败，请重新测试账户连接";
-  if (/ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ESOCKET/i.test(code)) return "无法连接邮件服务器，稍后可以重新同步";
-  return "邮件同步失败";
+  if (/AUTH|EAUTH|LOGIN/i.test(code)) return "Mailbox-Authentifizierung fehlgeschlagen, bitte Kontoverbindung erneut testen";
+  if (/ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ESOCKET/i.test(code)) return "Eine Verbindung mit dem Mailserver kann nicht hergestellt werden, später neu synchronisiert werden";
+  return "Synchronisieren von E-Mails fehlgeschlagen";
 }

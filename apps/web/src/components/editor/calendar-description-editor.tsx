@@ -49,20 +49,20 @@ const CalendarDescriptionToolbarKit = [
     key: 'calendar-description-toolbar',
     render: {
       beforeEditable: () => (
-        <FixedToolbar className="calendar-rich-toolbar" aria-label="日程备注格式工具栏">
+        <FixedToolbar className="calendar-rich-toolbar" aria-label="Formatierungsleiste für Terminnotizen">
           <ToolbarGroup>
             <UndoToolbarButton />
             <RedoToolbarButton />
           </ToolbarGroup>
           <ToolbarGroup>
-            <MarkToolbarButton aria-label="加粗" nodeType={KEYS.bold} tooltip="加粗"><BoldIcon /></MarkToolbarButton>
-            <MarkToolbarButton aria-label="斜体" nodeType={KEYS.italic} tooltip="斜体"><ItalicIcon /></MarkToolbarButton>
+            <MarkToolbarButton aria-label="dicker" nodeType={KEYS.bold} tooltip="dicker"><BoldIcon /></MarkToolbarButton>
+            <MarkToolbarButton aria-label="kursiv" nodeType={KEYS.italic} tooltip="kursiv"><ItalicIcon /></MarkToolbarButton>
           </ToolbarGroup>
           <ToolbarGroup>
             <BulletedListToolbarButton />
             <NumberedListToolbarButton />
-            <TodoListToolbarButton aria-label="检查项" tooltip="检查项" />
-            <LinkToolbarButton aria-label="插入链接" />
+            <TodoListToolbarButton aria-label="Checkliste" tooltip="Checkliste" />
+            <LinkToolbarButton aria-label="Verknüpfungen einfügen" />
           </ToolbarGroup>
         </FixedToolbar>
       ),
@@ -122,9 +122,9 @@ export function CalendarDescriptionEditor({
           <Editor
             className="calendar-rich-content"
             variant="none"
-            aria-label="日程备注"
+            aria-label="Terminnotiz"
             disabled={disabled}
-            placeholder="添加议程、准备事项、链接或会议记录"
+            placeholder="Agenda hinzufügen, Veranstaltungen vorbereiten, Links oder Protokolle von Sitzungen"
           />
         </EditorContainer>
         <CalendarDescriptionLinkRow content={content} />
@@ -150,7 +150,7 @@ export function CalendarDescriptionView({
       <CalendarDescriptionLinkRow content={content} />
       <Plate readOnly editor={editor}>
         <EditorContainer className="calendar-rich-view">
-          <Editor className="calendar-rich-view-content" variant="none" aria-label="日程备注内容" />
+          <Editor className="calendar-rich-view-content" variant="none" aria-label="Terminnotizen" />
         </EditorContainer>
       </Plate>
     </>
@@ -161,7 +161,7 @@ function CalendarDescriptionLinkRow({ content }: { readonly content: string }) {
   const links = calendarDescriptionLinks(content);
   if (!links.length) return null;
   return (
-    <div className="calendar-rich-links" aria-label="识别到的链接">
+    <div className="calendar-rich-links" aria-label="anerkannte Verknüpfungen">
       {links.map((link) => (
         <a href={link.url} target="_blank" rel="noreferrer" title={link.url} key={link.url}>
           {link.meeting ? <Video size={13} /> : <ExternalLink size={13} />}

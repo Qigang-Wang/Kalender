@@ -40,10 +40,10 @@ export async function upsertCalendarEvent(input: UpsertCalendarEventInput): Prom
     return localCalendarProvider.upsertEvent(localCalendarContext, input);
   }
   if (input.recurrence || input.recurrenceSeriesId) {
-    throw new CalendarRepositoryError("REMOTE_RECURRENCE_UNSUPPORTED", "当前版本仅支持在个人日历中创建和修改重复日程", 409);
+    throw new CalendarRepositoryError("REMOTE_RECURRENCE_UNSUPPORTED", "Die aktuelle Version unterstützt nur das Erstellen und Ändern von doppelten Kalenderereignissen in einzelnen Kalenderereignissen", 409);
   }
   if (target.provider_id !== "exchange" || !target.account_id) {
-    throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "这个远程日历暂不支持写回", 409);
+    throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "Dieser Remote-Kalender wird für das Zurückschreiben nicht unterstützt", 409);
   }
 
   const credential = await loadExchangeCalendarCredential(target.account_id);
@@ -62,7 +62,7 @@ export async function upsertCalendarEvent(input: UpsertCalendarEventInput): Prom
       const folderId = target.provider_calendar_id.startsWith(`${target.account_id}:`)
         ? target.provider_calendar_id.slice(target.account_id.length + 1)
         : target.provider_calendar_id;
-      const folder: ExchangeCalendarFolder = { folderId, name: "Exchange 日历" };
+      const folder: ExchangeCalendarFolder = { folderId, name: "Austauschkalender" };
       remoteEvent = await createExchangeCalendarEvent(credential, folder, input, controller.signal);
     }
     const eventId = await saveExchangeCalendarMutation(
@@ -73,7 +73,7 @@ export async function upsertCalendarEvent(input: UpsertCalendarEventInput): Prom
       input.reminderMinutesBefore,
     );
     const saved = await getStoredCalendarEvent(eventId);
-    if (!saved) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "RWTH 已保存日程，但本地索引更新失败", 500);
+    if (!saved) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "RWTH gespeichert Kalender-Ereignis, aber lokale Index-Update fehlgeschlagen", 500);
     return saved;
   } finally {
     clearTimeout(timeout);
@@ -99,7 +99,7 @@ export async function deleteCalendarEvent(
     return;
   }
   if (target.provider_id !== "exchange" || !target.account_id) {
-    throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "这个远程日历暂不支持删除", 409);
+    throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "Dieser Remote-Kalender wird nicht zum Löschen unterstützt", 409);
   }
   const existing = await getExchangeEventTarget(eventId, calendarId);
   assertSafeExchangeMutation(existing);
@@ -125,8 +125,8 @@ async function getCalendarWriteTarget(calendarId: string): Promise<CalendarWrite
     [calendarId],
   );
   const target = result.rows[0];
-  if (!target) throw new CalendarRepositoryError("CALENDAR_NOT_FOUND", "日历不存在", 404);
-  if (target.read_only) throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "这个日历当前为只读", 409);
+  if (!target) throw new CalendarRepositoryError("CALENDAR_NOT_FOUND", "Kalender existiert nicht", 404);
+  if (target.read_only) throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "Dieser Kalender ist derzeit nur lesbar", 409);
   return target;
 }
 
@@ -140,18 +140,18 @@ async function getExchangeEventTarget(eventId: string, calendarId: string): Prom
     [eventId, calendarId],
   );
   const event = result.rows[0];
-  if (!event) throw new CalendarRepositoryError("EVENT_NOT_FOUND", "日程不存在", 404);
+  if (!event) throw new CalendarRepositoryError("EVENT_NOT_FOUND", "Das Kalenderereignis existiert nicht", 404);
   return event;
 }
 
 function assertSafeExchangeMutation(event: ExchangeEventTargetRow): void {
   if (!event.provider_item_id) {
-    throw new CalendarRepositoryError("REMOTE_ID_MISSING", "请先立即同步 RWTH 日历，再尝试修改", 409);
+    throw new CalendarRepositoryError("REMOTE_ID_MISSING", "Bitte synchronisieren Sie den RWTH-Kalender sofort, bevor Sie versuchen, ihn zu ändern", 409);
   }
   if (event.is_recurring) {
-    throw new CalendarRepositoryError("RECURRING_EVENT_PROTECTED", "当前版本暂不修改重复日程，请在 RWTH 网页端处理", 409);
+    throw new CalendarRepositoryError("RECURRING_EVENT_PROTECTED", "Die aktuelle Version ändert die doppelte Kalenderveranstaltung nicht, bitte verarbeiten Sie sie auf der RWTH-Webseite Ende", 409);
   }
   if (event.is_meeting) {
-    throw new CalendarRepositoryError("MEETING_EVENT_PROTECTED", "当前版本暂不修改含参会人的会议，避免误发会议通知", 409);
+    throw new CalendarRepositoryError("MEETING_EVENT_PROTECTED", "die aktuelle Version ändert das Treffen mit den Teilnehmern nicht und vermeidet missbräuchliche Ankündigung der Sitzung", 409);
   }
 }

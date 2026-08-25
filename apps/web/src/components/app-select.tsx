@@ -18,7 +18,7 @@ export function AppSelect({
   onValueChange,
   ariaLabel,
   disabled = false,
-  placeholder = "请选择",
+  placeholder = "auswählen",
   size = "default",
   variant = "default",
   className = "",

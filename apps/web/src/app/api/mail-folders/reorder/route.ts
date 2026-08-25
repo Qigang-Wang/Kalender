@@ -14,7 +14,7 @@ export async function POST(request: Request) {
       (input.parentFolderId !== undefined && typeof input.parentFolderId !== "string") ||
       !Array.isArray(input.orderedFolderIds) ||
       input.orderedFolderIds.some((id) => typeof id !== "string")) {
-    return NextResponse.json({ message: "文件夹排序参数无效" }, { status: 400 });
+    return NextResponse.json({ message: "Ordnersortierungsparameter sind ungültig" }, { status: 400 });
   }
   try {
     await updateFolderManualOrder(input.accountId, input.parentFolderId, input.orderedFolderIds as string[]);
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   } catch (error) {
     return NextResponse.json({
       ok: false,
-      message: error instanceof Error ? error.message : "无法保存文件夹顺序",
+      message: error instanceof Error ? error.message : "Ordner-Ordner-Ordner-Ordner kann nicht gespeichert werden",
     }, { status: 409 });
   }
 }

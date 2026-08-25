@@ -25,7 +25,7 @@ export async function DELETE(_request: Request, context: ProjectPhaseRouteContex
   const { projectId, phaseId } = await context.params;
   try {
     if (!await deleteStoredProjectPhase(projectId, phaseId)) {
-      throw new ProjectRepositoryError("PHASE_NOT_FOUND", "项目阶段不存在", 404);
+      throw new ProjectRepositoryError("PHASE_NOT_FOUND", "Projektphase existiert nicht", 404);
     }
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -63,26 +63,26 @@ const MEDIA_CONFIG: Record<
   [KEYS.audio]: {
     accept: ['audio/*'],
     icon: <AudioLinesIcon className="size-4" />,
-    title: '插入音频',
-    tooltip: '音频',
+    title: "Audio einfügen",
+    tooltip: "Audio",
   },
   [KEYS.file]: {
     accept: ['*'],
     icon: <FileUpIcon className="size-4" />,
-    title: '插入文件',
-    tooltip: '文件',
+    title: "Eine Datei einfügen",
+    tooltip: "Dateien",
   },
   [KEYS.img]: {
     accept: ['image/*'],
     icon: <ImageIcon className="size-4" />,
-    title: '插入图片',
-    tooltip: '图片',
+    title: "Bilder einfügen",
+    tooltip: "Bilder",
   },
   [KEYS.video]: {
     accept: ['video/*'],
     icon: <FilmIcon className="size-4" />,
-    title: '插入视频',
-    tooltip: '视频',
+    title: "Video einfügen",
+    tooltip: "Video",
   },
 };
 
@@ -143,11 +143,11 @@ export function MediaToolbarButton({
             <DropdownMenuGroup>
               <DropdownMenuItem onSelect={() => openFilePicker()}>
                 {currentConfig.icon}
-                从电脑上传
+                Hochladen vom Computer
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setDialogOpen(true)}>
                 <LinkIcon />
-                通过链接插入
+                durch Link einfügen
               </DropdownMenuItem>
             </DropdownMenuGroup>
           </DropdownMenuContent>
@@ -185,7 +185,7 @@ function MediaUrlDialogContent({
   const [url, setUrl] = React.useState('');
 
   const embedMedia = React.useCallback(() => {
-    if (!isUrl(url)) return toast.error('请输入有效链接');
+    if (!isUrl(url)) return toast.error("Bitte geben Sie einen gültigen Link ein");
 
     setOpen(false);
     editor.tf.insertNodes({
@@ -224,14 +224,14 @@ function MediaUrlDialogContent({
       </AlertDialogDescription>
 
       <AlertDialogFooter>
-        <AlertDialogCancel>取消</AlertDialogCancel>
+        <AlertDialogCancel>Abbrechen</AlertDialogCancel>
         <AlertDialogAction
           onClick={(e) => {
             e.preventDefault();
             embedMedia();
           }}
         >
-          插入
+          insert
         </AlertDialogAction>
       </AlertDialogFooter>
     </>

@@ -62,7 +62,7 @@ export async function waitForDesktopApp(timeoutMs = 5_000): Promise<boolean> {
 
 export async function invokeDesktop<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const invoke = window.__TAURI__?.core?.invoke;
-  if (!invoke) throw new Error("当前页面未运行在 Kalender 桌面客户端中");
+  if (!invoke) throw new Error("die aktuelle Seite läuft nicht im Kalender-Desktop-Client");
   return invoke<T>(command, args);
 }
 

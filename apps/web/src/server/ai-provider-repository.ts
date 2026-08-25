@@ -159,8 +159,8 @@ export async function saveAiProvider(input: ParsedAiProviderInput): Promise<Stor
   const scope = await getUserScope();
   const providerId = input.providerId ?? randomUUID();
   const existing = input.providerId ? await getAiProvider(input.providerId) : undefined;
-  if (input.providerId && !existing) throw new AiProviderError("AI API 不存在", "AI_PROVIDER_NOT_FOUND", 404);
-  if (!input.apiKey && !existing?.hasApiKey) throw new AiProviderError("请输入 API Key", "AI_API_KEY_REQUIRED");
+  if (input.providerId && !existing) throw new AiProviderError("KI-API existiert nicht", "AI_PROVIDER_NOT_FOUND", 404);
+  if (!input.apiKey && !existing?.hasApiKey) throw new AiProviderError("API-Schlüssel eingeben", "AI_API_KEY_REQUIRED");
   const encryptedPayload = input.apiKey
     ? await encryptCredential(`ai-provider:${providerId}`, { apiKey: input.apiKey } satisfies AiProviderCredential)
     : undefined;
@@ -198,7 +198,7 @@ export async function saveAiProvider(input: ParsedAiProviderInput): Promise<Stor
     });
   } catch (error) {
     if (error instanceof Error && /unique|duplicate/i.test(error.message)) {
-      throw new AiProviderError("API 名称已存在", "AI_PROVIDER_NAME_EXISTS", 409);
+      throw new AiProviderError("API-Name existiert bereits", "AI_PROVIDER_NAME_EXISTS", 409);
     }
     throw error;
   }
@@ -217,7 +217,7 @@ export async function loadAiProviderCredential(providerId: string): Promise<AiPr
     scope.active ? [providerId, scope.userId] : [providerId],
   );
   const payload = result.rows[0]?.encrypted_payload;
-  if (!payload) throw new AiProviderError("API Key 不存在", "AI_API_KEY_NOT_FOUND", 404);
+  if (!payload) throw new AiProviderError("API-Schlüssel existiert nicht", "AI_API_KEY_NOT_FOUND", 404);
   return decryptCredential<AiProviderCredential>(`ai-provider:${providerId}`, payload);
 }
 
@@ -274,9 +274,9 @@ export async function saveAiModel(
   test?: { readonly capabilities?: AiModelCapabilities; readonly latencyMs?: number },
 ): Promise<StoredAiModel> {
   const database = await getDatabase();
-  if (!await getAiProvider(input.providerId)) throw new AiProviderError("AI API 不存在", "AI_PROVIDER_NOT_FOUND", 404);
+  if (!await getAiProvider(input.providerId)) throw new AiProviderError("KI-API existiert nicht", "AI_PROVIDER_NOT_FOUND", 404);
   const modelId = input.modelId ?? randomUUID();
-  if (input.modelId && !await getAiModel(input.modelId)) throw new AiProviderError("AI 模型不存在", "AI_MODEL_NOT_FOUND", 404);
+  if (input.modelId && !await getAiModel(input.modelId)) throw new AiProviderError("Das KI-Modell existiert nicht", "AI_MODEL_NOT_FOUND", 404);
   try {
     await database.query(
       `INSERT INTO ai_models (
@@ -306,7 +306,7 @@ export async function saveAiModel(
     );
   } catch (error) {
     if (error instanceof Error && /unique|duplicate/i.test(error.message)) {
-      throw new AiProviderError("这个 API model ID 已经添加", "AI_MODEL_EXISTS", 409);
+      throw new AiProviderError("diese API-Modell-ID wurde hinzugefügt", "AI_MODEL_EXISTS", 409);
     }
     throw error;
   }
@@ -360,10 +360,10 @@ export async function saveAiFeatureBinding(input: ParsedAiFeatureBindingInput): 
   const database = await getDatabase();
   const scope = await getUserScope();
   if (input.primaryModelId && !await getAiModel(input.primaryModelId)) {
-    throw new AiProviderError("主模型不存在", "AI_MODEL_NOT_FOUND", 404);
+    throw new AiProviderError("Das Hauptmodell existiert nicht", "AI_MODEL_NOT_FOUND", 404);
   }
   if (input.fallbackModelId && !await getAiModel(input.fallbackModelId)) {
-    throw new AiProviderError("备用模型不存在", "AI_MODEL_NOT_FOUND", 404);
+    throw new AiProviderError("das Backup-Modell existiert nicht", "AI_MODEL_NOT_FOUND", 404);
   }
   if (!scope.active) {
     await database.query("DELETE FROM ai_feature_bindings WHERE user_id IS NULL AND feature_key = $1", [input.featureKey]);

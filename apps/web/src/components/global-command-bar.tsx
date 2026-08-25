@@ -93,11 +93,11 @@ export function GlobalCommandBar({
       void fetch(`/api/search?query=${encodeURIComponent(normalized)}`, { cache: "no-store", signal: controller.signal })
         .then(async (response) => {
           const payload = await response.json() as { readonly results?: readonly SearchResult[]; readonly message?: string };
-          if (!response.ok || !payload.results) throw new Error(payload.message ?? "搜索暂时不可用");
+          if (!response.ok || !payload.results) throw new Error(payload.message ?? "Suche ist vorerst nicht verfügbar");
           setResults(payload.results);
         })
         .catch((reason: unknown) => {
-          if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "搜索暂时不可用");
+          if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Suche ist vorerst nicht verfügbar");
         })
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     }, 180);
@@ -115,9 +115,9 @@ export function GlobalCommandBar({
 
   const contextResult = contextMenu ? results.find((result) => result.id === contextMenu.id) : undefined;
   const searchCommands: readonly ResolvedContextCommand[] = contextResult ? [
-    { id: "search.open", label: "打开结果", group: "primary", risk: "read", icon: "open" },
-    { id: "search.copy-link", label: "复制链接", group: "primary", risk: "read", icon: "copy" },
-    { id: "search.copy-title", label: "复制标题", group: "primary", risk: "read", icon: "info" },
+    { id: "search.open", label: "Offenes Ergebnis", group: "primary", risk: "read", icon: "open" },
+    { id: "search.copy-link", label: "Kopieren von Links", group: "primary", risk: "read", icon: "copy" },
+    { id: "search.copy-title", label: "Titel kopieren", group: "primary", risk: "read", icon: "info" },
   ] : [];
 
   const openSearchMenu = (event: ReactMouseEvent<HTMLElement>, result: SearchResult) => {
@@ -142,19 +142,19 @@ export function GlobalCommandBar({
   return (
     <>
       <header className="command-bar">
-        <button className="mobile-menu" aria-label="打开导航" onClick={onOpenSidebar}><Menu /></button>
+        <button className="mobile-menu" aria-label="Navigator öffnen" onClick={onOpenSidebar}><Menu /></button>
         <div className="global-command" ref={rootRef}>
           <label className={`command-input ${open ? "active" : ""}`}>
             <Search size={17} />
-            <input ref={inputRef} value={query} onFocus={() => setOpen(true)} onChange={(event) => { setQuery(event.target.value); setOpen(true); }} placeholder="搜索邮件、任务、日程和笔记…" />
-            {query ? <button type="button" aria-label="清除搜索" onClick={() => setQuery("")}><X size={14} /></button> : <kbd>⌘ K</kbd>}
+            <input ref={inputRef} value={query} onFocus={() => setOpen(true)} onChange={(event) => { setQuery(event.target.value); setOpen(true); }} placeholder="E-Mails, Aufgaben, Termine und Notizen durchsuchen …" />
+            {query ? <button type="button" aria-label="Suchen löschen" onClick={() => setQuery("")}><X size={14} /></button> : <kbd>⌘ K</kbd>}
           </label>
           {open && (
-            <section className="command-palette panel" aria-label="全局搜索结果">
+            <section className="command-palette panel" aria-label="globale Suchergebnisse">
               {query.trim().length < 2 ? (
-                <div className="command-empty"><Search size={20} /><div><strong>搜索整个工作台</strong><span>输入至少两个字符，查找邮件、任务、日程和笔记。</span></div></div>
+                <div className="command-empty"><Search size={20} /><div><strong>Durchsuchen Sie die gesamte Workstation</strong><span>Geben Sie mindestens zwei Zeichen ein, um E-Mail, Aufgaben, Kalenderereignisse und Notizen zu finden.</span></div></div>
               ) : loading ? (
-                <div className="command-empty"><LoaderCircle className="spin" size={18} />正在搜索…</div>
+                <div className="command-empty"><LoaderCircle className="spin" size={18} />Suchen...</div>
               ) : error ? (
                 <div className="command-empty error">{error}</div>
               ) : results.length ? (
@@ -174,15 +174,15 @@ export function GlobalCommandBar({
                   })}
                 </div>
               ) : (
-                <div className="command-empty"><FileText size={19} /><div><strong>没有找到结果</strong><span>换一个标题、发件人或项目名称试试。</span></div></div>
+                <div className="command-empty"><FileText size={19} /><div><strong>keine Ergebnisse gefunden</strong><span>Versuchen Sie einen neuen Titel, Absender oder Projektnamen.</span></div></div>
               )}
-              <footer><span><kbd>Enter</kbd> 打开结果</span><span><kbd>Esc</kbd> 关闭</span></footer>
+              <footer><span><kbd>Enter</kbd> Offenes Ergebnis</span><span><kbd>Esc</kbd> Schließen</span></footer>
             </section>
           )}
           {contextMenu && contextResult && (
             <ContextMenu
               anchor={{ x: contextMenu.x, y: contextMenu.y }}
-              ariaLabel={`搜索结果操作：${contextResult.title}`}
+              ariaLabel={`Suchergebnis-Operation:${contextResult.title}`}
               commands={searchCommands}
               heading={contextResult.title}
               returnFocus={contextMenu.returnFocus}
@@ -192,13 +192,13 @@ export function GlobalCommandBar({
             />
           )}
         </div>
-        <button className="quick-add" onClick={() => setCaptureOpen(true)}><Plus size={17} />快速记录</button>
+        <button className="quick-add" onClick={() => setCaptureOpen(true)}><Plus size={17} />Schnelle Aufzeichnung</button>
         {assistantAvailable && <button
           className={`assistant-toggle ${assistantOpen ? "active" : ""}`}
           type="button"
-          aria-label={assistantOpen ? "收起上下文助手" : "打开上下文助手"}
+          aria-label={assistantOpen ? "Kontext-Assistent zum Drop" : "Kontext-Assistent öffnen"}
           aria-pressed={assistantOpen}
-          title={assistantOpen ? "收起上下文助手" : "打开上下文助手"}
+          title={assistantOpen ? "Kontext-Assistent zum Drop" : "Kontext-Assistent öffnen"}
           onClick={onToggleAssistant}
         >
           {assistantOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
@@ -245,20 +245,20 @@ function QuickCaptureDialog({ onClose, onCreated }: { readonly onClose: () => vo
       } else if (kind === "note") {
         response = await fetch("/api/notes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, content: details, noteType: "general", pinned: false }) });
       } else {
-        if (!calendarId) throw new Error("没有可写的本地日历");
+        if (!calendarId) throw new Error("kein lokaler Kalender zum Schreiben");
         const start = new Date(startLocal);
-        if (Number.isNaN(start.getTime())) throw new Error("开始时间无效");
+        if (Number.isNaN(start.getTime())) throw new Error("ungültige Startzeit");
         const end = new Date(start.getTime() + 60 * 60 * 1000);
         response = await fetch("/api/calendar-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ calendarId, title, description: details || undefined, start: start.toISOString(), end: end.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Berlin", allDay: false }) });
       }
       const payload = await response.json() as { readonly task?: { readonly id: string }; readonly note?: { readonly id: string }; readonly event?: { readonly id: string; readonly start: string }; readonly message?: string };
-      if (!response.ok) throw new Error(payload.message ?? "无法保存快速记录");
+      if (!response.ok) throw new Error(payload.message ?? "kein schneller Datensatz gespeichert werden kann");
       if (kind === "task" && payload.task) onCreated(`/tasks?task=${encodeURIComponent(payload.task.id)}`);
       else if (kind === "note" && payload.note) onCreated(`/notes?note=${encodeURIComponent(payload.note.id)}`);
       else if (kind === "calendar" && payload.event) onCreated(`/calendar?event=${encodeURIComponent(payload.event.id)}&date=${encodeURIComponent(payload.event.start)}`);
-      else throw new Error("保存成功，但返回的数据不完整");
+      else throw new Error("erfolgreich gespeichert, aber unvollständige Daten zurückgegeben");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法保存快速记录");
+      setError(reason instanceof Error ? reason.message : "kein schneller Datensatz gespeichert werden kann");
     } finally {
       setBusy(false);
     }
@@ -267,18 +267,18 @@ function QuickCaptureDialog({ onClose, onCreated }: { readonly onClose: () => vo
   return (
     <div className="quick-capture-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
       <form className="quick-capture panel" role="dialog" aria-modal="true" aria-labelledby="quick-capture-title" onSubmit={(event) => void submit(event)}>
-        <header><div><h2 id="quick-capture-title">快速记录</h2></div><button type="button" aria-label="关闭" disabled={busy} onClick={onClose}><X size={18} /></button></header>
-        <nav aria-label="记录类型">
+        <header><div><h2 id="quick-capture-title">Schnelle Aufzeichnung</h2></div><button type="button" aria-label="Schließen" disabled={busy} onClick={onClose}><X size={18} /></button></header>
+        <nav aria-label="Art des Datensatzes">
           {(["task", "note", "calendar"] as const).map((item) => {
             const Icon = item === "task" ? CheckCircle2 : item === "note" ? NotebookPen : CalendarDays;
-            return <button type="button" className={kind === item ? "active" : ""} key={item} onClick={() => setKind(item)}><Icon size={15} />{item === "task" ? "任务" : item === "note" ? "笔记" : "日程"}</button>;
+            return <button type="button" className={kind === item ? "active" : ""} key={item} onClick={() => setKind(item)}><Icon size={15} />{item === "task" ? "Aufgabe" : item === "note" ? "Notiz" : "Termin"}</button>;
           })}
         </nav>
-        <label><span>标题</span><input autoFocus value={title} maxLength={240} onChange={(event) => setTitle(event.target.value)} placeholder={kind === "task" ? "要完成什么？" : kind === "note" ? "记下一个想法" : "日程名称"} /></label>
-        {kind === "calendar" && <div className="quick-capture-row"><DateTimeField label="开始时间" value={startLocal} onChange={setStartLocal} /><label><span>日历</span><AppSelect ariaLabel="快速记录日历" value={calendarId} onValueChange={setCalendarId} options={calendars.map((calendar) => ({ value: calendar.id, label: calendar.name }))} /></label></div>}
-        <label><span>{kind === "task" ? "备注" : kind === "note" ? "正文" : "说明"}</span><textarea value={details} maxLength={10_000} onChange={(event) => setDetails(event.target.value)} placeholder="可选" /></label>
+        <label><span>Titel</span><input autoFocus value={title} maxLength={240} onChange={(event) => setTitle(event.target.value)} placeholder={kind === "task" ? "Was willst du erreichen?" : kind === "note" ? "nächste Idee schreiben" : "Warenbezeichnung"} /></label>
+        {kind === "calendar" && <div className="quick-capture-row"><DateTimeField label="Startzeit" value={startLocal} onChange={setStartLocal} /><label><span>Kalender</span><AppSelect ariaLabel="Schnellaufzeichnungs-Kalender" value={calendarId} onValueChange={setCalendarId} options={calendars.map((calendar) => ({ value: calendar.id, label: calendar.name }))} /></label></div>}
+        <label><span>{kind === "task" ? "Notizen" : kind === "note" ? "Körper" : "Beschreibung"}</span><textarea value={details} maxLength={10_000} onChange={(event) => setDetails(event.target.value)} placeholder="fakultativ" /></label>
         {error && <div className="quick-capture-error" role="alert">{error}</div>}
-        <footer><div><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button><button className="primary-button" disabled={busy || !title.trim()}>{busy && <LoaderCircle className="spin" size={14} />}保存</button></div></footer>
+        <footer><div><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Abbrechen</button><button className="primary-button" disabled={busy || !title.trim()}>{busy && <LoaderCircle className="spin" size={14} />}Speichern</button></div></footer>
       </form>
     </div>
   );

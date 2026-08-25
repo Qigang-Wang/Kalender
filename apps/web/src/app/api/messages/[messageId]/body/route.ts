@@ -36,7 +36,7 @@ export async function GET(request: Request, context: MessageBodyRouteContext) {
       return NextResponse.json({ ok: false, message: error.message, requestId }, { status: error.status, headers: { "X-Request-Id": requestId } });
     }
     return NextResponse.json(
-      { ok: false, message: `无法读取邮件正文，请稍后重试（请求编号 ${requestId}）`, requestId },
+      { ok: false, message: `E-Mail-Text kann nicht gelesen werden, bitte versuchen Sie es später noch einmal (Antragsnummer) ${requestId}）`, requestId },
       { status: 502, headers: { "X-Request-Id": requestId } },
     );
   }

@@ -91,14 +91,14 @@ interface ModelFormState {
 }
 
 const featureLabels: Record<FeatureKey, { readonly title: string; readonly detail: string }> = {
-  "assistant.default": { title: "AI Command 默认", detail: "通用问答与工作区助手" },
-  "assistant.planning": { title: "复杂规划", detail: "跨邮件、日历与任务的计划" },
-  "mail.summarize": { title: "邮件摘要", detail: "长邮件与会话压缩" },
-  "mail.extract_actions": { title: "邮件行动项", detail: "识别截止时间和待办" },
-  "mail.draft_reply": { title: "邮件回复草稿", detail: "只生成草稿，不自动发送" },
-  "notes.editor": { title: "笔记编辑", detail: "改写、整理和补全" },
-  "today.briefing": { title: "每日简报", detail: "汇总当天重要信息" },
-  "search.embedding": { title: "语义搜索", detail: "仅可选择 Embedding 模型" },
+  "assistant.default": { title: "KI-Befehls-Standard", detail: "Allgemeine Fragen & Antworten & Workspace Assistant" },
+  "assistant.planning": { title: "komplexe Planung", detail: "Pläne für Cross-Mail, Kalender und Aufgaben" },
+  "mail.summarize": { title: "Zusammenfassung der Mails", detail: "Lange-Mail-Sitzung komprimiert" },
+  "mail.extract_actions": { title: "Mail-Aktionsposten", detail: "Anerkennungsfristen und Aufgaben" },
+  "mail.draft_reply": { title: "Entwurf einer E-Mail-Antwort", detail: "nur Entwürfe werden generiert und nicht automatisch gesendet" },
+  "notes.editor": { title: "Notizbearbeitung", detail: "Umschreiben, organisieren und komplettieren" },
+  "today.briefing": { title: "Tagesübersicht", detail: "synthetisiert Informationen, die für den Tag wichtig sind" },
+  "search.embedding": { title: "semantische Suche", detail: "Nur Modelle einbetten werden ausgewählt" },
 };
 
 const emptyProviderForm: ProviderFormState = {
@@ -163,7 +163,7 @@ export function AiProviderSettings() {
 
   const testProvider = async () => {
     setOperation("provider-test");
-    setFeedback({ kind: "info", message: "正在验证认证并读取模型列表…" });
+    setFeedback({ kind: "info", message: "Modellliste validieren und lesen..." });
     try {
       const payload = await requestJson<{ message: string; latencyMs: number; discoveredModels: readonly DiscoveredModel[] }>(
         "/api/ai/providers/test", { method: "POST", body: JSON.stringify(providerPayload()) },
@@ -177,7 +177,7 @@ export function AiProviderSettings() {
 
   const saveProvider = async () => {
     setOperation("provider-save");
-    setFeedback({ kind: "info", message: "保存前正在重新测试连接…" });
+    setFeedback({ kind: "info", message: "Wiedertesten der Verbindung vor dem Speichern..." });
     try {
       const path = editingProviderId ? `/api/ai/providers/${editingProviderId}` : "/api/ai/providers";
       const payload = await requestJson<{ provider: AiProviderView; discoveredModels: readonly DiscoveredModel[] }>(path, {
@@ -185,7 +185,7 @@ export function AiProviderSettings() {
         body: JSON.stringify(providerPayload()),
       });
       setDiscovered((current) => ({ ...current, [payload.provider.id]: payload.discoveredModels }));
-      setFeedback({ kind: "success", message: `“${payload.provider.displayName}”已安全保存，API Key 不会返回浏览器` });
+      setFeedback({ kind: "success", message: `“${payload.provider.displayName}"Sicher gespeichert, API Key wird nicht den Browser zurückgeben` });
       resetProviderForm();
       await load();
     } catch (error) {
@@ -218,16 +218,16 @@ export function AiProviderSettings() {
 
   const removeProvider = async (provider: AiProviderView) => {
     if (!await appConfirm({
-      title: `删除 AI 服务“${provider.displayName}”？`,
-      description: "该服务下的所有模型配置也会被删除。",
-      confirmLabel: "删除服务",
+      title: `AI-Dienst löschen "${provider.displayName}“?`,
+      description: "Alle Modellkonfigurationen unter diesem Dienst werden ebenfalls gelöscht.",
+      confirmLabel: "Service löschen",
       tone: "danger",
     })) return;
     setOperation(`delete-provider:${provider.id}`);
     try {
       await requestJson(`/api/ai/providers/${provider.id}`, { method: "DELETE" });
       if (editingProviderId === provider.id) resetProviderForm();
-      setFeedback({ kind: "success", message: `“${provider.displayName}”已删除` });
+      setFeedback({ kind: "success", message: `“${provider.displayName}"Gelöscht` });
       await load();
     } catch (error) { setFeedback({ kind: "error", message: errorMessage(error) }); }
     finally { setOperation(undefined); }
@@ -240,7 +240,7 @@ export function AiProviderSettings() {
       setDiscovered((current) => ({ ...current, [provider.id]: payload.models }));
       setModelForm((current) => ({ ...current, providerId: provider.id }));
       setModelFormOpen(true);
-      setFeedback({ kind: "success", message: `发现 ${payload.models.length} 个模型，请选择需要使用的模型添加` });
+      setFeedback({ kind: "success", message: `gefunden ${payload.models.length} ein Modell, wählen Sie das zu verwendende Modell` });
     } catch (error) { setFeedback({ kind: "error", message: errorMessage(error) }); }
     finally { setOperation(undefined); }
   };
@@ -260,7 +260,7 @@ export function AiProviderSettings() {
   const saveModel = async () => {
     if (!modelForm.providerId) return;
     setOperation("model-save");
-    setFeedback({ kind: "info", message: "正在调用模型并探测流式输出与工具调用能力…" });
+    setFeedback({ kind: "info", message: "Aufrufen von Modellen und Erkennung von Flow-Output- und Tool-Call-Funktionen..." });
     try {
       const payload = await requestJson<{ model: AiModelView }>(`/api/ai/providers/${modelForm.providerId}/models`, {
         method: "POST",
@@ -272,7 +272,7 @@ export function AiProviderSettings() {
           dataRegion: modelForm.dataRegion || undefined,
         }),
       });
-      setFeedback({ kind: "success", message: `模型“${payload.model.displayName}”已添加并通过基础调用测试` });
+      setFeedback({ kind: "success", message: `Modell${payload.model.displayName}"Hinzugefügt und getestet mit Grundruf` });
       setModelForm({ ...emptyModelForm, providerId: modelForm.providerId });
       setModelFormOpen(false);
       await load();
@@ -284,7 +284,7 @@ export function AiProviderSettings() {
     setOperation(`test-model:${model.id}`);
     try {
       const payload = await requestJson<{ model: AiModelView }>(`/api/ai/models/${model.id}/test`, { method: "POST" });
-      setFeedback({ kind: "success", message: `“${payload.model.displayName}”测试通过 · ${payload.model.lastTestLatencyMs ?? 0} ms` });
+      setFeedback({ kind: "success", message: `“${payload.model.displayName}"getestet durch .. ${payload.model.lastTestLatencyMs ?? 0} ms` });
       await load();
     } catch (error) { setFeedback({ kind: "error", message: errorMessage(error) }); }
     finally { setOperation(undefined); }
@@ -292,15 +292,15 @@ export function AiProviderSettings() {
 
   const removeModel = async (model: AiModelView) => {
     if (!await appConfirm({
-      title: `删除模型“${model.displayName}”？`,
-      description: "使用该模型的功能绑定会自动清空。",
-      confirmLabel: "删除模型",
+      title: `Modell löschen "${model.displayName}“?`,
+      description: "Die Verwendung der Funktionsbindung des Modells wird automatisch entleert.",
+      confirmLabel: "Modell löschen",
       tone: "danger",
     })) return;
     setOperation(`delete-model:${model.id}`);
     try {
       await requestJson(`/api/ai/models/${model.id}`, { method: "DELETE" });
-      setFeedback({ kind: "success", message: `模型“${model.displayName}”已删除` });
+      setFeedback({ kind: "success", message: `Modell${model.displayName}"Gelöscht` });
       await load();
     } catch (error) { setFeedback({ kind: "error", message: errorMessage(error) }); }
     finally { setOperation(undefined); }
@@ -316,7 +316,7 @@ export function AiProviderSettings() {
     setOperation("bindings-save");
     try {
       await requestJson("/api/ai/feature-bindings", { method: "PUT", body: JSON.stringify(bindings) });
-      setFeedback({ kind: "success", message: "功能模型分配已保存" });
+      setFeedback({ kind: "success", message: "Eingesparte funktionale Modellzuordnung" });
       await load();
     } catch (error) { setFeedback({ kind: "error", message: errorMessage(error) }); }
     finally { setOperation(undefined); }
@@ -328,90 +328,90 @@ export function AiProviderSettings() {
 
   return (
     <section className="panel ai-provider-settings">
-      <header className="settings-section-heading"><h2>AI API 与模型</h2></header>
+      <header className="settings-section-heading"><h2>KI API und Modell</h2></header>
 
       {feedback && <div className={`ai-settings-feedback ${feedback.kind}`} role="status">
         {feedback.kind === "success" ? <CheckCircle2 size={15} /> : feedback.kind === "error" ? <CircleAlert size={15} /> : <LoaderCircle className={operation ? "spin" : ""} size={15} />}
-        <span>{feedback.message}</span><button aria-label="关闭提示" onClick={() => setFeedback(undefined)}><X size={13} /></button>
+        <span>{feedback.message}</span><button aria-label="Schalten Sie den Hinweis aus" onClick={() => setFeedback(undefined)}><X size={13} /></button>
       </div>}
 
       {(!loading && (providers.length === 0 || providerFormOpen || editingProviderId)) ? <>
-        <div className="ai-settings-section-title"><Server size={15} /><div><h3>{editingProviderId ? "编辑 API" : "连接 API"}</h3><p>保存前会测试连接，密钥不会返回浏览器。</p></div></div>
+        <div className="ai-settings-section-title"><Server size={15} /><div><h3>{editingProviderId ? "API bearbeiten" : "API verbinden"}</h3><p>Verbindungen werden vor dem Speichern getestet und Schlüssel werden nicht an den Browser zurückgegeben.</p></div></div>
         <div className="ai-provider-form">
-          <label><span>API 名称</span><input value={providerForm.displayName} onChange={(event) => setProviderForm({ ...providerForm, displayName: event.target.value })} placeholder="例如 KI Connect" /></label>
+          <label><span>API-Name</span><input value={providerForm.displayName} onChange={(event) => setProviderForm({ ...providerForm, displayName: event.target.value })} placeholder="z.B. KI Connect" /></label>
           <label className="wide"><span>API Base URL</span><input value={providerForm.baseUrl} onChange={(event) => setProviderForm({ ...providerForm, baseUrl: event.target.value })} placeholder="https://…/v1" inputMode="url" /></label>
-          <label className="wide"><span>API Key {editingProviderId && <small>（留空则不修改）</small>}</span><div className="ai-secret-input"><KeyRound size={14} /><input type={showApiKey ? "text" : "password"} autoComplete="new-password" value={providerForm.apiKey} onChange={(event) => setProviderForm({ ...providerForm, apiKey: event.target.value })} placeholder={editingProviderId ? "已安全保存" : "输入 API Key"} /><button aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"} onClick={() => setShowApiKey((value) => !value)}>{showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></label>
-          <label><span>认证方式</span><AppSelect ariaLabel="认证方式" value={providerForm.authScheme} onValueChange={(authScheme) => setProviderForm({ ...providerForm, authScheme: authScheme as "bearer" | "custom-header" })} options={[{ value: "bearer", label: "Bearer Token" }, { value: "custom-header", label: "自定义 Header" }]} /></label>
-          {providerForm.authScheme === "custom-header" && <label><span>Header 名称</span><input value={providerForm.authHeaderName} onChange={(event) => setProviderForm({ ...providerForm, authHeaderName: event.target.value })} placeholder="api-key" /></label>}
-          <label><span>超时（秒）</span><input type="number" min="1" max="120" value={providerForm.requestTimeoutMs / 1000} onChange={(event) => setProviderForm({ ...providerForm, requestTimeoutMs: Number(event.target.value) * 1000 })} /></label>
-          <label className="ai-checkbox-label"><input type="checkbox" checked={providerForm.allowPrivateNetwork} onChange={(event) => setProviderForm({ ...providerForm, allowPrivateNetwork: event.target.checked })} /><span>允许连接本机/私有网络模型</span></label>
+          <label className="wide"><span>API Key {editingProviderId && <small>leer lassen ohne Änderungen</small>}</span><div className="ai-secret-input"><KeyRound size={14} /><input type={showApiKey ? "text" : "password"} autoComplete="new-password" value={providerForm.apiKey} onChange={(event) => setProviderForm({ ...providerForm, apiKey: event.target.value })} placeholder={editingProviderId ? "sicher gespeichert" : "API-Schlüssel eingeben"} /><button aria-label={showApiKey ? "API-Schlüssel ausblenden" : "API-Schlüssel anzeigen"} onClick={() => setShowApiKey((value) => !value)}>{showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></label>
+          <label><span>Authentifizierungsmethode</span><AppSelect ariaLabel="Authentifizierungsmethode" value={providerForm.authScheme} onValueChange={(authScheme) => setProviderForm({ ...providerForm, authScheme: authScheme as "bearer" | "custom-header" })} options={[{ value: "bearer", label: "Bearer Token" }, { value: "custom-header", label: "Benutzerdefinierte Kopfzeile" }]} /></label>
+          {providerForm.authScheme === "custom-header" && <label><span>Kopfname</span><input value={providerForm.authHeaderName} onChange={(event) => setProviderForm({ ...providerForm, authHeaderName: event.target.value })} placeholder="api-key" /></label>}
+          <label><span>Timeout (Sekunden)</span><input type="number" min="1" max="120" value={providerForm.requestTimeoutMs / 1000} onChange={(event) => setProviderForm({ ...providerForm, requestTimeoutMs: Number(event.target.value) * 1000 })} /></label>
+          <label className="ai-checkbox-label"><input type="checkbox" checked={providerForm.allowPrivateNetwork} onChange={(event) => setProviderForm({ ...providerForm, allowPrivateNetwork: event.target.checked })} /><span>Zugang zu Wohn-/privaten Netzwerkmodellen ermöglichen</span></label>
         </div>
         <div className="ai-form-actions">
-          <button className="secondary-button" disabled={Boolean(operation) || !providerForm.baseUrl} onClick={() => void testProvider()}>{operation === "provider-test" ? <LoaderCircle className="spin" size={14} /> : <Zap size={14} />}测试连接</button>
-          <button className="primary-button" disabled={Boolean(operation) || !providerForm.baseUrl || (!editingProviderId && !providerForm.apiKey)} onClick={() => void saveProvider()}>{operation === "provider-save" && <LoaderCircle className="spin" size={14} />}{editingProviderId ? "保存修改" : "测试并保存"}</button>
-          {providers.length > 0 && <button className="quiet-button" onClick={resetProviderForm}>取消</button>}
+          <button className="secondary-button" disabled={Boolean(operation) || !providerForm.baseUrl} onClick={() => void testProvider()}>{operation === "provider-test" ? <LoaderCircle className="spin" size={14} /> : <Zap size={14} />}Prüfanschluss</button>
+          <button className="primary-button" disabled={Boolean(operation) || !providerForm.baseUrl || (!editingProviderId && !providerForm.apiKey)} onClick={() => void saveProvider()}>{operation === "provider-save" && <LoaderCircle className="spin" size={14} />}{editingProviderId ? "Änderungen speichern" : "testen und speichern"}</button>
+          {providers.length > 0 && <button className="quiet-button" onClick={resetProviderForm}>Abbrechen</button>}
         </div>
         <div className="ai-divider" />
       </> : null}
-      <div className="ai-settings-section-title"><Bot size={15} /><div><h3>API 与模型</h3></div><span>{providers.length} 个 API · {models.length} 个模型</span>{providers.length > 0 && !providerFormOpen && <button className="secondary-button" onClick={() => setProviderFormOpen(true)}><Plus size={14} />连接 API</button>}</div>
-      {loading ? <div className="ai-settings-empty"><LoaderCircle className="spin" size={18} />正在读取配置…</div> : providers.length === 0 ? <div className="ai-settings-empty"><Server size={20} /><strong>尚未连接 AI API</strong><span>填写上方信息并通过测试后即可保存。</span></div> : <div className="ai-provider-list">
+      <div className="ai-settings-section-title"><Bot size={15} /><div><h3>API und Modell</h3></div><span>{providers.length} eine API: {models.length} ein Modell</span>{providers.length > 0 && !providerFormOpen && <button className="secondary-button" onClick={() => setProviderFormOpen(true)}><Plus size={14} />API verbinden</button>}</div>
+      {loading ? <div className="ai-settings-empty"><LoaderCircle className="spin" size={18} />Konfiguration lesen...</div> : providers.length === 0 ? <div className="ai-settings-empty"><Server size={20} /><strong>nicht mit AI API verbunden</strong><span>Sie können es nach dem Ausfüllen der oben genannten Informationen und dem Testen speichern.</span></div> : <div className="ai-provider-list">
         {providers.map((provider) => <article className="ai-provider-card" key={provider.id}>
-          <header><div className="ai-provider-symbol"><Server size={16} /></div><div><h4>{provider.displayName}</h4><p>{provider.baseUrl}</p></div><StatusBadge status={provider.lastTestStatus} latency={provider.lastTestLatencyMs} /><button title="编辑" onClick={() => editProvider(provider)}><Pencil size={14} /></button><button className="danger" title="删除" disabled={Boolean(operation)} onClick={() => void removeProvider(provider)}><Trash2 size={14} /></button></header>
-          <div className="ai-provider-meta"><span><ShieldCheck size={12} />Key 已加密</span><span>{provider.authScheme === "bearer" ? "Bearer" : provider.authHeaderName}</span><span>{provider.modelCount} 个模型</span><button disabled={Boolean(operation)} onClick={() => void discoverModels(provider)}>{operation === `discover:${provider.id}` ? <LoaderCircle className="spin" size={12} /> : <RefreshCw size={12} />}发现模型</button></div>
-          {(discovered[provider.id]?.length ?? 0) > 0 && <div className="ai-discovered-models"><span>发现的模型</span><div>{discovered[provider.id].map((item) => <button key={item.apiModelId} onClick={() => selectDiscoveredModel(provider.id, item.apiModelId)}><Plus size={11} />{item.displayName}</button>)}</div></div>}
+          <header><div className="ai-provider-symbol"><Server size={16} /></div><div><h4>{provider.displayName}</h4><p>{provider.baseUrl}</p></div><StatusBadge status={provider.lastTestStatus} latency={provider.lastTestLatencyMs} /><button title="Bearbeiten" onClick={() => editProvider(provider)}><Pencil size={14} /></button><button className="danger" title="Löschen" disabled={Boolean(operation)} onClick={() => void removeProvider(provider)}><Trash2 size={14} /></button></header>
+          <div className="ai-provider-meta"><span><ShieldCheck size={12} />Schlüssel verschlüsselt</span><span>{provider.authScheme === "bearer" ? "Bearer" : provider.authHeaderName}</span><span>{provider.modelCount} ein Modell</span><button disabled={Boolean(operation)} onClick={() => void discoverModels(provider)}>{operation === `discover:${provider.id}` ? <LoaderCircle className="spin" size={12} /> : <RefreshCw size={12} />}Modell entdecken</button></div>
+          {(discovered[provider.id]?.length ?? 0) > 0 && <div className="ai-discovered-models"><span>Modelle gefunden</span><div>{discovered[provider.id].map((item) => <button key={item.apiModelId} onClick={() => selectDiscoveredModel(provider.id, item.apiModelId)}><Plus size={11} />{item.displayName}</button>)}</div></div>}
           {(modelsByProvider.get(provider.id)?.length ?? 0) > 0 && <div className="ai-model-list">{modelsByProvider.get(provider.id)!.map((model) => <div className="ai-model-row" key={model.id}>
             <div><strong>{model.displayName}</strong><small>{model.apiModelId}</small></div>
             <span>{model.modelKind === "embedding" ? "Embedding" : model.endpointKind === "responses" ? "Responses" : "Chat"}</span>
-            <div className="ai-capability-tags">{model.capabilities.streaming && <i>流式</i>}{model.capabilities.functionCalling && <i>工具</i>}{model.capabilities.embeddings && <i>向量</i>}</div>
+            <div className="ai-capability-tags">{model.capabilities.streaming && <i>Durchsatz</i>}{model.capabilities.functionCalling && <i>Werkzeuge</i>}{model.capabilities.embeddings && <i>Vektor</i>}</div>
             <StatusBadge status={model.lastTestStatus} latency={model.lastTestLatencyMs} compact />
-            <button title="重新测试" disabled={Boolean(operation)} onClick={() => void testModel(model)}>{operation === `test-model:${model.id}` ? <LoaderCircle className="spin" size={13} /> : <Zap size={13} />}</button>
-            <button className="danger" title="删除" disabled={Boolean(operation)} onClick={() => void removeModel(model)}><Trash2 size={13} /></button>
+            <button title="Wiederholungstest" disabled={Boolean(operation)} onClick={() => void testModel(model)}>{operation === `test-model:${model.id}` ? <LoaderCircle className="spin" size={13} /> : <Zap size={13} />}</button>
+            <button className="danger" title="Löschen" disabled={Boolean(operation)} onClick={() => void removeModel(model)}><Trash2 size={13} /></button>
           </div>)}</div>}
         </article>)}
       </div>}
 
       {providers.length > 0 && !modelFormOpen && <div className="ai-collapsed-form-action">
-        <button className="secondary-button" onClick={() => setModelFormOpen(true)}><Plus size={14} />添加模型</button>
+        <button className="secondary-button" onClick={() => setModelFormOpen(true)}><Plus size={14} />Modell hinzufügen</button>
       </div>}
       {providers.length > 0 && modelFormOpen && <div className="ai-model-form-wrap">
-        <div className="ai-settings-section-title compact"><Plus size={14} /><div><h3>添加模型</h3><p>保存时会发送极短测试请求，验证基础调用、流式和工具能力。</p></div></div>
+        <div className="ai-settings-section-title compact"><Plus size={14} /><div><h3>Modell hinzufügen</h3><p>Anfragen für sehr kurze Tests werden gesendet, wenn gespeichert, um grundlegende Call-, Flow- und Werkzeugfunktionen zu validieren.</p></div></div>
         <div className="ai-model-form">
-          <label><span>所属 API</span><AppSelect ariaLabel="所属 API" value={modelForm.providerId} onValueChange={(providerId) => setModelForm({ ...modelForm, providerId })} options={[{ value: "", label: "请选择" }, ...providers.map((provider) => ({ value: provider.id, label: provider.displayName }))]} /></label>
-          <label><span>API model ID</span><input list="ai-discovered-model-options" value={modelForm.apiModelId} onChange={(event) => setModelForm({ ...modelForm, apiModelId: event.target.value, displayName: modelForm.displayName || event.target.value })} placeholder="例如 gpt-oss-120b" /><datalist id="ai-discovered-model-options">{Object.values(discovered).flat().map((item) => <option value={item.apiModelId} key={item.apiModelId} />)}</datalist></label>
-          <label><span>显示名称</span><input value={modelForm.displayName} onChange={(event) => setModelForm({ ...modelForm, displayName: event.target.value })} placeholder="自定义名称" /></label>
-          <label><span>模型类型</span><AppSelect ariaLabel="模型类型" value={modelForm.modelKind} onValueChange={(value) => { const kind = value as "chat" | "embedding"; setModelForm({ ...modelForm, modelKind: kind, endpointKind: kind === "embedding" ? "embeddings" : "chat-completions" }); }} options={[{ value: "chat", label: "Chat / Reasoning" }, { value: "embedding", label: "Embedding" }]} /></label>
-          <label><span>接口</span><AppSelect ariaLabel="接口" value={modelForm.endpointKind} disabled={modelForm.modelKind === "embedding"} onValueChange={(endpointKind) => setModelForm({ ...modelForm, endpointKind: endpointKind as "chat-completions" | "responses" | "embeddings" })} options={[{ value: "chat-completions", label: "/chat/completions" }, { value: "responses", label: "/responses" }, { value: "embeddings", label: "/embeddings" }]} /></label>
-          <label><span>数据区域（可选）</span><input value={modelForm.dataRegion} onChange={(event) => setModelForm({ ...modelForm, dataRegion: event.target.value })} placeholder="例如 Germany / EU" /></label>
-          <label><span>上下文长度（可选）</span><input type="number" min="1" value={modelForm.contextWindow} onChange={(event) => setModelForm({ ...modelForm, contextWindow: event.target.value })} placeholder="例如 131072" /></label>
-          <label><span>最大输出（可选）</span><input type="number" min="1" value={modelForm.maxOutputTokens} onChange={(event) => setModelForm({ ...modelForm, maxOutputTokens: event.target.value })} placeholder="例如 8192" /></label>
+          <label><span>zur API gehörend</span><AppSelect ariaLabel="zur API gehörend" value={modelForm.providerId} onValueChange={(providerId) => setModelForm({ ...modelForm, providerId })} options={[{ value: "", label: "auswählen" }, ...providers.map((provider) => ({ value: provider.id, label: provider.displayName }))]} /></label>
+          <label><span>API model ID</span><input list="ai-discovered-model-options" value={modelForm.apiModelId} onChange={(event) => setModelForm({ ...modelForm, apiModelId: event.target.value, displayName: modelForm.displayName || event.target.value })} placeholder="z.B. gpt-oss-120b" /><datalist id="ai-discovered-model-options">{Object.values(discovered).flat().map((item) => <option value={item.apiModelId} key={item.apiModelId} />)}</datalist></label>
+          <label><span>Anzeigename</span><input value={modelForm.displayName} onChange={(event) => setModelForm({ ...modelForm, displayName: event.target.value })} placeholder="Benutzerdefinierter Name" /></label>
+          <label><span>Typ des Modells</span><AppSelect ariaLabel="Typ des Modells" value={modelForm.modelKind} onValueChange={(value) => { const kind = value as "chat" | "embedding"; setModelForm({ ...modelForm, modelKind: kind, endpointKind: kind === "embedding" ? "embeddings" : "chat-completions" }); }} options={[{ value: "chat", label: "Chat / Reasoning" }, { value: "embedding", label: "Embedding" }]} /></label>
+          <label><span>Schnittstelle</span><AppSelect ariaLabel="Schnittstelle" value={modelForm.endpointKind} disabled={modelForm.modelKind === "embedding"} onValueChange={(endpointKind) => setModelForm({ ...modelForm, endpointKind: endpointKind as "chat-completions" | "responses" | "embeddings" })} options={[{ value: "chat-completions", label: "/chat/completions" }, { value: "responses", label: "/responses" }, { value: "embeddings", label: "/embeddings" }]} /></label>
+          <label><span>Datenbereich (fakultativ)</span><input value={modelForm.dataRegion} onChange={(event) => setModelForm({ ...modelForm, dataRegion: event.target.value })} placeholder="z. B. Deutschland/EU" /></label>
+          <label><span>Kontextlänge (optional)</span><input type="number" min="1" value={modelForm.contextWindow} onChange={(event) => setModelForm({ ...modelForm, contextWindow: event.target.value })} placeholder="z.B. 131072" /></label>
+          <label><span>Maximale Ausgabe (optional)</span><input type="number" min="1" value={modelForm.maxOutputTokens} onChange={(event) => setModelForm({ ...modelForm, maxOutputTokens: event.target.value })} placeholder="== Einzelnachweise ==" /></label>
         </div>
         <div className="ai-form-actions">
-          <button className="primary-button" disabled={Boolean(operation) || !modelForm.providerId || !modelForm.apiModelId} onClick={() => void saveModel()}>{operation === "model-save" && <LoaderCircle className="spin" size={14} />}测试并添加模型</button>
-          <button className="quiet-button" onClick={() => setModelFormOpen(false)}>取消</button>
+          <button className="primary-button" disabled={Boolean(operation) || !modelForm.providerId || !modelForm.apiModelId} onClick={() => void saveModel()}>{operation === "model-save" && <LoaderCircle className="spin" size={14} />}Testen und Hinzufügen von Modellen</button>
+          <button className="quiet-button" onClick={() => setModelFormOpen(false)}>Abbrechen</button>
         </div>
       </div>}
 
-      {models.length > 0 && <><div className="ai-divider" /><div className="ai-settings-section-title"><ChevronDown size={15} /><div><h3>功能模型分配</h3><p>为每项能力指定主模型和备用模型。</p></div></div><div className="ai-binding-list">
+      {models.length > 0 && <><div className="ai-divider" /><div className="ai-settings-section-title"><ChevronDown size={15} /><div><h3>funktionale Modellzuweisung</h3><p>Gibt das Hauptmodell und das Backup-Modell für jede Funktion an.</p></div></div><div className="ai-binding-list">
         {bindings.map((binding) => {
           const eligible = models.filter((model) => binding.featureKey === "search.embedding" ? model.modelKind === "embedding" : model.modelKind === "chat");
-          return <div className="ai-binding-row" key={binding.featureKey}><div><strong>{featureLabels[binding.featureKey].title}</strong><small>{featureLabels[binding.featureKey].detail}</small></div><label><span>主模型</span><AppSelect ariaLabel={`${featureLabels[binding.featureKey].title}主模型`} size="compact" value={binding.primaryModelId ?? ""} onValueChange={(modelId) => updateBinding(binding.featureKey, "primaryModelId", modelId)} options={[{ value: "", label: "未分配" }, ...eligible.map((model) => ({ value: model.id, label: model.displayName }))]} /></label><label><span>备用模型</span><AppSelect ariaLabel={`${featureLabels[binding.featureKey].title}备用模型`} size="compact" value={binding.fallbackModelId ?? ""} onValueChange={(modelId) => updateBinding(binding.featureKey, "fallbackModelId", modelId)} options={[{ value: "", label: "无" }, ...eligible.filter((model) => model.id !== binding.primaryModelId).map((model) => ({ value: model.id, label: model.displayName }))]} /></label></div>;
+          return <div className="ai-binding-row" key={binding.featureKey}><div><strong>{featureLabels[binding.featureKey].title}</strong><small>{featureLabels[binding.featureKey].detail}</small></div><label><span>Hauptmodell</span><AppSelect ariaLabel={`${featureLabels[binding.featureKey].title}Hauptmodell`} size="compact" value={binding.primaryModelId ?? ""} onValueChange={(modelId) => updateBinding(binding.featureKey, "primaryModelId", modelId)} options={[{ value: "", label: "nicht verteilt" }, ...eligible.map((model) => ({ value: model.id, label: model.displayName }))]} /></label><label><span>Rückwärts-Modell</span><AppSelect ariaLabel={`${featureLabels[binding.featureKey].title}Rückwärts-Modell`} size="compact" value={binding.fallbackModelId ?? ""} onValueChange={(modelId) => updateBinding(binding.featureKey, "fallbackModelId", modelId)} options={[{ value: "", label: "keine" }, ...eligible.filter((model) => model.id !== binding.primaryModelId).map((model) => ({ value: model.id, label: model.displayName }))]} /></label></div>;
         })}
-      </div><div className="ai-form-actions right"><button className="primary-button" disabled={Boolean(operation)} onClick={() => void saveBindings()}>{operation === "bindings-save" && <LoaderCircle className="spin" size={14} />}保存模型分配</button></div></>}
+      </div><div className="ai-form-actions right"><button className="primary-button" disabled={Boolean(operation)} onClick={() => void saveBindings()}>{operation === "bindings-save" && <LoaderCircle className="spin" size={14} />}Modellzuweisungen speichern</button></div></>}
 
-      <footer className="ai-security-note"><ShieldCheck size={15} /><p><strong>安全边界</strong>API Key 使用本机主密钥进行 AES-256-GCM 加密；前端只能看到“已保存”状态。私有网络默认禁止，所有外部请求均有超时和响应大小限制。</p></footer>
+      <footer className="ai-security-note"><ShieldCheck size={15} /><p><strong>Sicherheitsgrenzen</strong>API-Schlüssel verschlüsselt AES-256-GCM mit seinem Host-Schlüssel; nur " gespeichert " Status kann am vorderen Ende gesehen werden. Das private Netzwerk ist standardmäßig verboten, und alle externen Anfragen sind zeitaufwändig und reagieren.</p></footer>
     </section>
   );
 }
 
 function StatusBadge({ status, latency, compact = false }: { readonly status: "untested" | "passed" | "failed"; readonly latency?: number; readonly compact?: boolean }) {
-  return <span className={`ai-status-badge ${status} ${compact ? "compact" : ""}`}>{status === "passed" ? <CheckCircle2 size={11} /> : status === "failed" ? <CircleAlert size={11} /> : null}{status === "passed" ? `正常${latency !== undefined ? ` · ${latency} ms` : ""}` : status === "failed" ? "失败" : "未测试"}</span>;
+  return <span className={`ai-status-badge ${status} ${compact ? "compact" : ""}`}>{status === "passed" ? <CheckCircle2 size={11} /> : status === "failed" ? <CircleAlert size={11} /> : null}{status === "passed" ? `Normal${latency !== undefined ? ` · ${latency} ms` : ""}` : status === "failed" ? "fehlgeschlagen" : "nicht getestet"}</span>;
 }
 
 async function requestJson<T = Record<string, unknown>>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", headers: init?.body ? { "Content-Type": "application/json", ...init.headers } : init?.headers, ...init });
   const payload = await response.json().catch(() => null) as ({ readonly ok?: boolean; readonly message?: string } & T) | null;
-  if (!response.ok || !payload?.ok) throw new Error(payload?.message || "操作失败，请稍后重试");
+  if (!response.ok || !payload?.ok) throw new Error(payload?.message || "Operation fehlgeschlagen, bitte versuchen Sie es später noch einmal");
   return payload;
 }
 
-function errorMessage(error: unknown): string { return error instanceof Error ? error.message : "操作失败，请稍后重试"; }
+function errorMessage(error: unknown): string { return error instanceof Error ? error.message : "Operation fehlgeschlagen, bitte versuchen Sie es später noch einmal"; }

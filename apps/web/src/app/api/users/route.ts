@@ -40,7 +40,7 @@ export async function POST(request: Request) {
 
 async function requireActor() {
   const actor = await getCurrentAppUser();
-  if (!actor) throw new AuthError("请先登录", 401);
+  if (!actor) throw new AuthError("Bitte melden Sie sich zuerst an", 401);
   return actor;
 }
 
@@ -53,6 +53,6 @@ function roleValue(value: unknown): AppUserRole {
 }
 
 function userErrorResponse(error: unknown) {
-  const normalized = error instanceof AuthError ? error : new AuthError("用户操作失败", 500);
+  const normalized = error instanceof AuthError ? error : new AuthError("Benutzerbetrieb fehlgeschlagen", 500);
   return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
 }

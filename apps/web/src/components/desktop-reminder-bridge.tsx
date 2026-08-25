@@ -21,14 +21,14 @@ const FAILED_SYNC_RETRY_MS = 30_000;
 
 export function DesktopReminderBridge() {
   const synchronize = useCallback(async () => {
-    if (!isDesktopApp()) throw new Error("桌面桥接尚未就绪");
+    if (!isDesktopApp()) throw new Error("Desktop-Brücke noch nicht fertig");
     const settings = readDesktopReminderSettings();
     const now = new Date();
     const range = desktopReminderRange(now);
     const params = new URLSearchParams({ from: range.from.toISOString(), to: range.to.toISOString() });
     const response = await workspaceFetch(`/api/calendar-events?${params}`, {}, 0);
     const payload = await response.json() as { readonly ok?: boolean; readonly events?: readonly CalendarReminderEvent[]; readonly message?: string };
-    if (!response.ok || payload.ok !== true || !payload.events) throw new Error(payload.message || "无法读取桌面提醒日程");
+    if (!response.ok || payload.ok !== true || !payload.events) throw new Error(payload.message || "Termine für Desktop-Erinnerungen konnten nicht geladen werden");
 
     const status = await invokeDesktop<DesktopStatus>("sync_reminders", {
       payload: createDesktopReminderSyncPayload(payload.events, settings, now),
@@ -53,7 +53,7 @@ export function DesktopReminderBridge() {
       retryTimer = window.setTimeout(run, FAILED_SYNC_RETRY_MS);
     };
     const reportFailure = async (error: unknown) => {
-      const message = error instanceof Error ? error.message : "桌面日历同步失败";
+      const message = error instanceof Error ? error.message : "Desktop-Kalender-Synchronisation fehlgeschlagen";
       console.warn("Desktop reminder sync failed", error);
       try {
         const status = await invokeDesktop<DesktopStatus>("report_sync_error", { message });

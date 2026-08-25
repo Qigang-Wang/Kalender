@@ -71,7 +71,7 @@ export async function fetchExchangeCalendarEvents(
   const from = new Date(input.from);
   const to = new Date(input.to);
   if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || to <= from) {
-    throw new ExchangeCalendarError("INVALID_RANGE", "Exchange 日历同步时间范围无效", 400);
+    throw new ExchangeCalendarError("INVALID_RANGE", "Zeitbereich von Exchange-Kalendern synchronisieren ist nicht gültig", 400);
   }
   const results = new Map<string, ExchangeCalendarEvent>();
   let cursor = from;
@@ -99,7 +99,7 @@ export async function fetchExchangeCalendarEvents(
         <m:ParentFolderIds><t:FolderId Id="${escapeXml(folder.folderId)}"${folder.changeKey ? ` ChangeKey="${escapeXml(folder.changeKey)}"` : ""}/></m:ParentFolderIds>
       </m:FindItem>`, signal);
     if (/IncludesLastItemInRange\s*=\s*["']false["']/i.test(xml)) {
-      throw new ExchangeCalendarError("TOO_MANY_EVENTS", "Exchange 日历在单个同步区间内超过 1000 项，请缩短同步范围", 409);
+      throw new ExchangeCalendarError("TOO_MANY_EVENTS", "Wechselkalender überschreiten 1.000 Einträge in einem einzigen Synchronisationsintervall, bitte den Synchronisationsbereich verkürzen", 409);
     }
     const summaries = parseExchangeEventsResponse(xml, credential.serverUrl);
     const detailed = await fetchExchangeCalendarEventDetails(credential, summaries, signal);
@@ -203,21 +203,21 @@ export async function fetchExchangeCalendarEventByIdentity(
     isRecurring: false,
   };
   const [event] = await fetchExchangeCalendarEventDetails(credential, [seed], signal);
-  if (!event) throw new ExchangeCalendarError("ITEM_NOT_FOUND", "Exchange 没有返回刚刚保存的日程", 502);
+  if (!event) throw new ExchangeCalendarError("ITEM_NOT_FOUND", "Exchange hat das gerade gespeicherte Kalenderereignis nicht zurückgegeben", 502);
   return event;
 }
 
 export function parseExchangeFolderResponse(xml: string): ExchangeCalendarFolder {
   assertExchangeSuccess(xml);
   const folder = elementContent(xml, "CalendarFolder") ?? elementContent(xml, "Folder");
-  if (!folder) throw new ExchangeCalendarError("NO_CALENDAR", "Exchange 账户中没有发现可读取的默认日历", 409);
+  if (!folder) throw new ExchangeCalendarError("NO_CALENDAR", "kein lesbarer Standardkalender im Exchange-Konto gefunden", 409);
   const folderIdTag = openingTag(folder, "FolderId");
   const folderId = folderIdTag ? attributeValue(folderIdTag, "Id") : undefined;
-  if (!folderId) throw new ExchangeCalendarError("INVALID_RESPONSE", "Exchange 返回的日历文件夹缺少标识", 502);
+  if (!folderId) throw new ExchangeCalendarError("INVALID_RESPONSE", "Kalenderordner, der von Exchange zurückgegeben wird, ist nicht markiert", 502);
   return {
     folderId,
     changeKey: folderIdTag ? attributeValue(folderIdTag, "ChangeKey") : undefined,
-    name: elementText(folder, "DisplayName") || "Exchange 日历",
+    name: elementText(folder, "DisplayName") || "Austauschkalender",
   };
 }
 
@@ -246,7 +246,7 @@ export function parseExchangeEventsResponse(xml: string, sourceUrl: string): rea
       id: providerEventId,
       providerEventId,
       calendarId: "exchange:calendar",
-      title: elementText(item, "Subject") || "（无标题）",
+      title: elementText(item, "Subject") || "Kein Titel",
       description: elementText(item, "Body") || undefined,
       location: elementText(item, "Location") || undefined,
       start: start.toISOString(),
@@ -308,7 +308,7 @@ function exchangeSetField(fieldUri: string, valueXml: string): string {
 function parseExchangeItemIdentity(xml: string, fallback?: ExchangeItemIdentity): ExchangeItemIdentity {
   const itemIdTag = openingTag(elementContent(xml, "CalendarItem") ?? xml, "ItemId");
   const itemId = itemIdTag ? attributeValue(itemIdTag, "Id") : fallback?.itemId;
-  if (!itemId) throw new ExchangeCalendarError("INVALID_RESPONSE", "Exchange 保存成功但没有返回日程标识", 502);
+  if (!itemId) throw new ExchangeCalendarError("INVALID_RESPONSE", "Austausch erfolgreich gespeichert, aber nicht die Kalender-Ereignis-ID zurückgegeben", 502);
   return {
     itemId,
     changeKey: itemIdTag ? attributeValue(itemIdTag, "ChangeKey") ?? fallback?.changeKey : fallback?.changeKey,

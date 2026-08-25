@@ -13,7 +13,7 @@ const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 export const metadata: Metadata = {
   applicationName: "Dayline",
   title: "Dayline",
-  description: "Dayline 统一管理邮箱、日历、任务和笔记",
+  description: "Dayline Mailboxen, Kalender, Aufgaben und Notizen uneinheitlich verwalten",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
@@ -56,7 +56,7 @@ const themeBootstrapScript = `
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="zh-CN" className={cn("font-sans", geist.variable)} suppressHydrationWarning>
+    <html lang="de-DE" className={cn("font-sans", geist.variable)} suppressHydrationWarning>
       <head>
         <Script id="qgw-theme-bootstrap" strategy="beforeInteractive">{themeBootstrapScript}</Script>
       </head>

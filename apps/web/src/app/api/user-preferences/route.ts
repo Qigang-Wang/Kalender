@@ -35,7 +35,7 @@ export async function PUT(request: Request) {
   try {
     const actor = await requireActor();
     const body = await request.json().catch(() => null) as SavePreferenceBody | null;
-    if (!body || typeof body.key !== "string") throw new UserPreferenceError("偏好格式无效");
+    if (!body || typeof body.key !== "string") throw new UserPreferenceError("Ungültiges bevorzugtes Format");
     const preference = await saveUserPreference(actor.id, body.key, body.value);
     return NextResponse.json({ ok: true, preference });
   } catch (error) {
@@ -45,13 +45,13 @@ export async function PUT(request: Request) {
 
 async function requireActor() {
   const actor = await getCurrentAppUser();
-  if (!actor) throw new AuthError("请先登录", 401);
+  if (!actor) throw new AuthError("Bitte melden Sie sich zuerst an", 401);
   return actor;
 }
 
 function userPreferenceErrorResponse(error: unknown) {
   const normalized = error instanceof AuthError || error instanceof UserPreferenceError
     ? error
-    : new UserPreferenceError("无法保存偏好", 500);
+    : new UserPreferenceError("nicht in der Lage, Präferenzen zu speichern", 500);
   return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
 }

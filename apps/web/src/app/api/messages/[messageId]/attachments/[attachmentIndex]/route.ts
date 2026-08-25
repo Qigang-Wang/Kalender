@@ -25,6 +25,6 @@ export async function GET(_request: Request, context: AttachmentRouteContext) {
     });
   } catch (error) {
     if (error instanceof MailBodyNotFoundError) return NextResponse.json({ ok: false, message: error.message }, { status: 404 });
-    return NextResponse.json({ ok: false, message: "无法下载附件" }, { status: 502 });
+    return NextResponse.json({ ok: false, message: "keine Anhänge können heruntergeladen werden" }, { status: 502 });
   }
 }

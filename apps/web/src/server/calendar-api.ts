@@ -11,5 +11,5 @@ export function calendarErrorResponse(error: unknown) {
   if (error instanceof ExchangeCalendarError) {
     return NextResponse.json({ ok: false, message: error.message }, { status: error.status });
   }
-  return NextResponse.json({ ok: false, message: "日历操作失败" }, { status: 500 });
+  return NextResponse.json({ ok: false, message: "Kalenderoperation fehlgeschlagen" }, { status: 500 });
 }

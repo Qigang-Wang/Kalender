@@ -9,12 +9,12 @@ export async function POST(request: Request) {
   try {
     const declaredSize = Number(request.headers.get("content-length"));
     if (Number.isFinite(declaredSize) && declaredSize > MAX_BACKUP_BYTES) {
-      throw new BackupError("备份文件不能超过 512 MB", 413);
+      throw new BackupError("Sicherungsdatei darf 512 MB nicht überschreiten", 413);
     }
     const inspection = await inspectWorkspaceBackup(new Uint8Array(await request.arrayBuffer()));
     return NextResponse.json({ ok: true, inspection });
   } catch (error) {
-    const normalized = error instanceof BackupError ? error : new BackupError("无法验证备份", 500);
+    const normalized = error instanceof BackupError ? error : new BackupError("Sicherungen können nicht überprüft werden", 500);
     return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
   }
 }

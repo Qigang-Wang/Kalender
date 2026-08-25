@@ -140,7 +140,7 @@ export async function getTodaySnapshot(from: string, to: string): Promise<TodayS
         availability: event.availability,
         attendees: event.attendees,
         meetingUrl: event.meetingUrl,
-        calendarName: calendar?.name ?? "日历",
+        calendarName: calendar?.name ?? "Kalender",
         calendarColor: calendar?.color ?? "#86bdf5",
         recurrenceSeriesId: event.recurrenceSeriesId,
         recurrenceId: event.recurrenceId,
@@ -165,19 +165,19 @@ function todayEventDeleteDisabledReason(
   event: Awaited<ReturnType<typeof listStoredCalendarEvents>>[number],
   calendar: Awaited<ReturnType<typeof listStoredCalendars>>[number] | undefined,
 ): string | undefined {
-  if (calendar?.readOnly) return "只读日历不可删除";
+  if (calendar?.readOnly) return "Nur-Lese-Kalender kann nicht gelöscht werden";
   if (event.providerData?.providerId !== "exchange") return undefined;
-  if (!event.providerData.itemId) return "请先同步 Exchange 日历";
-  if (event.providerData.isRecurring) return "Exchange 重复日程请在日历详情中处理";
-  if (event.providerData.isMeeting) return "含参与者的会议请在日历详情中处理";
+  if (!event.providerData.itemId) return "Exchange-Kalender zuerst synchronisieren";
+  if (event.providerData.isRecurring) return "Austausch doppelter Kalender-Ereignis sollte in Kalender-Ereignisdetails verarbeitet werden";
+  if (event.providerData.isMeeting) return "Für Meetings mit Teilnehmern bearbeiten Sie diese bitte in Kalenderdetails";
   return undefined;
 }
 
 export function parseTodayRange(url: URL): { readonly from: string; readonly to: string } {
   const from = new Date(url.searchParams.get("from") ?? "");
   const to = new Date(url.searchParams.get("to") ?? "");
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from) throw new TodayRangeError("Today 时间范围无效");
-  if (to.getTime() - from.getTime() > 48 * 60 * 60 * 1000) throw new TodayRangeError("Today 时间范围不能超过 48 小时");
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from) throw new TodayRangeError("Heute Zeitrahmen ungültig");
+  if (to.getTime() - from.getTime() > 48 * 60 * 60 * 1000) throw new TodayRangeError("Heute sollte 48 Stunden nicht überschreiten");
   return { from: from.toISOString(), to: to.toISOString() };
 }
 

@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     if (!body || typeof body.displayName !== "string" || !body.displayName.trim()) {
-      return NextResponse.json({ ok: false, message: "请输入日历账户名称" }, { status: 400 });
+      return NextResponse.json({ ok: false, message: "Bitte geben Sie den Namen des Kalenderkontos ein" }, { status: 400 });
     }
     providerId = body.providerId === "ics" ? "ics" : body.providerId === "exchange" ? "exchange" : "caldav";
     if (providerId === "ics") {
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       const credential = parseExchangeCalendarCredential(body);
       const emailAddress = typeof body.emailAddress === "string" ? body.emailAddress.trim().toLocaleLowerCase() : "";
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddress)) {
-        return NextResponse.json({ ok: false, message: "请输入正式的 Exchange 邮箱地址（可与登录用户名不同）" }, { status: 400 });
+        return NextResponse.json({ ok: false, message: "Bitte geben Sie die offizielle Exchange Mailbox Adresse ein (die sich vom Benutzernamen des Logins unterscheiden kann)" }, { status: 400 });
       }
       await Promise.all([
         discoverExchangeCalendar(credential, AbortSignal.timeout(30_000)),

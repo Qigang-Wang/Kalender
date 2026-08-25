@@ -33,7 +33,7 @@ export async function syncCalDavAccount(accountId: string): Promise<CalDavSyncRe
   activeSyncs.add(accountId);
   try {
     const account = await getCalendarAccount(accountId);
-    if (!account) throw new Error("日历账户不存在");
+    if (!account) throw new Error("Kalenderkonten existieren nicht");
     if (account.providerId === "ics") return syncIcsSubscriptionAccount(accountId);
     if (account.providerId === "exchange") return syncExchangeCalendarAccount(accountId);
     const credential = await loadCalDavCredential(accountId);
@@ -75,7 +75,7 @@ export async function syncCalDavAccount(accountId: string): Promise<CalDavSyncRe
       await setCalendarAccountSyncStatus(accountId, "ready");
       return { calendarsProcessed: calendars.length, eventsProcessed, from, to };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "CalDAV 同步失败";
+      const message = error instanceof Error ? error.message : "CalDAV-Synchronisation fehlgeschlagen";
       await setCalendarAccountSyncStatus(accountId, "error", message);
       throw error;
     } finally {
@@ -92,14 +92,14 @@ export function isCalendarAccountSyncing(accountId: string): boolean {
 
 export class CalendarSyncAlreadyRunningError extends Error {
   constructor() {
-    super("该日历账户正在同步");
+    super("Kalender-Konto synchronisiert sich");
     this.name = "CalendarSyncAlreadyRunningError";
   }
 }
 
 export async function syncExchangeCalendarAccount(accountId: string): Promise<CalDavSyncResult> {
   const account = await getCalendarAccount(accountId);
-  if (!account || account.providerId !== "exchange") throw new Error("Exchange 日历账户不存在");
+  if (!account || account.providerId !== "exchange") throw new Error("Exchange-Kalender-Konto existiert nicht");
   const credential = await loadExchangeCalendarCredential(accountId);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 55_000);
@@ -118,7 +118,7 @@ export async function syncExchangeCalendarAccount(accountId: string): Promise<Ca
     await setCalendarAccountSyncStatus(accountId, "ready");
     return { calendarsProcessed: 1, eventsProcessed, from, to };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Exchange 日历同步失败";
+    const message = error instanceof Error ? error.message : "Synchronisierung des Exchange-Kalenders fehlgeschlagen";
     await setCalendarAccountSyncStatus(accountId, "error", message);
     throw error;
   } finally {
@@ -128,7 +128,7 @@ export async function syncExchangeCalendarAccount(accountId: string): Promise<Ca
 
 export async function syncIcsSubscriptionAccount(accountId: string): Promise<CalDavSyncResult> {
   const account = await getCalendarAccount(accountId);
-  if (!account || account.providerId !== "ics") throw new Error("ICS 日历订阅不存在");
+  if (!account || account.providerId !== "ics") throw new Error("ICS-Kalender-Abonnement existiert nicht");
   const credential = await loadIcsSubscriptionCredential(accountId);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45_000);
@@ -152,7 +152,7 @@ export async function syncIcsSubscriptionAccount(accountId: string): Promise<Cal
     await setCalendarAccountSyncStatus(accountId, "ready");
     return { calendarsProcessed: 1, eventsProcessed, from, to };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "ICS 日历同步失败";
+    const message = error instanceof Error ? error.message : "ICS-Kalendersynchronisierung fehlgeschlagen";
     await setCalendarAccountSyncStatus(accountId, "error", message);
     throw error;
   } finally {

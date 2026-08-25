@@ -19,7 +19,7 @@ interface RouteContext { readonly params: Promise<{ readonly providerId: string 
 export async function PATCH(request: Request, context: RouteContext) {
   const { providerId } = await context.params;
   try {
-    if (!await getAiProvider(providerId)) throw new AiProviderError("AI API 不存在", "AI_PROVIDER_NOT_FOUND", 404);
+    if (!await getAiProvider(providerId)) throw new AiProviderError("KI-API existiert nicht", "AI_PROVIDER_NOT_FOUND", 404);
     const body = await request.json().catch(() => null);
     const input = parseAiProviderInput({ ...(body as object ?? {}), providerId });
     const credential = input.apiKey ? { apiKey: input.apiKey } : await loadAiProviderCredential(providerId);
@@ -29,7 +29,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       await updateAiProviderTestStatus(providerId, { status: "passed", latencyMs: result.latencyMs });
       return NextResponse.json({ ok: true, provider: await getAiProvider(provider.id), discoveredModels: result.models });
     } catch (error) {
-      const normalized = error instanceof AiProviderError ? error : new AiProviderError("AI API 暂时不可用", "AI_PROVIDER_UNAVAILABLE", 502);
+      const normalized = error instanceof AiProviderError ? error : new AiProviderError("AI API ist derzeit nicht verfügbar", "AI_PROVIDER_UNAVAILABLE", 502);
       await updateAiProviderTestStatus(providerId, { status: "failed", errorCode: normalized.code });
       throw error;
     }
@@ -41,7 +41,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 export async function DELETE(_request: Request, context: RouteContext) {
   const { providerId } = await context.params;
   try {
-    if (!await deleteAiProvider(providerId)) throw new AiProviderError("AI API 不存在", "AI_PROVIDER_NOT_FOUND", 404);
+    if (!await deleteAiProvider(providerId)) throw new AiProviderError("KI-API existiert nicht", "AI_PROVIDER_NOT_FOUND", 404);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return aiProviderErrorResponse(error);

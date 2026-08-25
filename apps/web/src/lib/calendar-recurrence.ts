@@ -7,24 +7,24 @@ import type {
 } from "../../../../src/mail/types";
 
 const weekdayCodes = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"] as const;
-const weekdayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"] as const;
+const weekdayLabels = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"] as const;
 const maximumExpansionIterations = 50_000;
 
 export function normalizeCalendarRecurrence(
   value: CalendarRecurrenceRule,
 ): CalendarRecurrenceRule {
   const frequency = recurrenceFrequency(value.frequency);
-  const interval = integerInRange(value.interval, 1, 99, "重复间隔");
+  const interval = integerInRange(value.interval, 1, 99, "wiederholte Intervalle");
   const end = value.end === "until" || value.end === "count" ? value.end : "never";
   const weekDays = frequency === "weekly"
-    ? [...new Set((value.weekDays ?? []).map((day) => integerInRange(day, 1, 7, "重复星期")))].sort()
+    ? [...new Set((value.weekDays ?? []).map((day) => integerInRange(day, 1, 7, "Wiederholungswoche")))].sort()
     : undefined;
   if (frequency === "weekly" && !weekDays?.length) {
-    throw new Error("每周重复至少需要选择一天");
+    throw new Error("wöchentliche Wiederholung dauert mindestens einen Tag");
   }
   if (end === "until") {
     if (!value.until || Number.isNaN(new Date(value.until).getTime())) {
-      throw new Error("请选择重复结束日期");
+      throw new Error("Bitte wählen Sie ein Wiederholungsendedatum");
     }
     return { frequency, interval, weekDays, end, until: new Date(value.until).toISOString() };
   }
@@ -34,7 +34,7 @@ export function normalizeCalendarRecurrence(
       interval,
       weekDays,
       end,
-      count: integerInRange(value.count ?? 0, 1, 999, "重复次数"),
+      count: integerInRange(value.count ?? 0, 1, 999, "Anzahl der Wiederholungen"),
     };
   }
   return { frequency, interval, weekDays, end };
@@ -96,21 +96,21 @@ export function expandCalendarRecurrenceStarts(input: {
 
 export function calendarRecurrenceSummary(ruleValue: CalendarRecurrenceRule): string {
   const rule = normalizeCalendarRecurrence(ruleValue);
-  const interval = rule.interval === 1 ? "" : `每 ${rule.interval} `;
+  const interval = rule.interval === 1 ? "" : `jeweils ${rule.interval} `;
   let summary: string;
-  if (rule.frequency === "daily") summary = rule.interval === 1 ? "每天" : `${interval}天`;
+  if (rule.frequency === "daily") summary = rule.interval === 1 ? "täglich" : `${interval}Tage`;
   else if (rule.frequency === "weekly") {
-    const days = (rule.weekDays ?? []).map((day) => weekdayLabels[day - 1]).join("、");
-    summary = rule.interval === 1 ? `每${days}` : `${interval}周的${days}`;
-  } else if (rule.frequency === "monthly") summary = rule.interval === 1 ? "每月" : `${interval}个月`;
-  else summary = rule.interval === 1 ? "每年" : `${interval}年`;
+    const days = (rule.weekDays ?? []).map((day) => weekdayLabels[day - 1]).join(", ");
+    summary = rule.interval === 1 ? `jeweils${days}` : `${interval}wöchentlich${days}`;
+  } else if (rule.frequency === "monthly") summary = rule.interval === 1 ? "monatlich" : `${interval}Monate`;
+  else summary = rule.interval === 1 ? "jährlich" : `${interval}Jahr`;
 
-  if (rule.end === "count") return `${summary}，共 ${rule.count} 次`;
+  if (rule.end === "count") return `${summary}Insgesamt ${rule.count} 2-mal`;
   if (rule.end === "until" && rule.until) {
     const date = new Date(rule.until);
-    return `${summary}，至 ${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    return `${summary}zu ${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   }
-  return `${summary}重复`;
+  return `${summary}Wiederholen`;
 }
 
 export function calendarRecurrencePreview(input: {
@@ -160,12 +160,12 @@ function toRrule(rule: CalendarRecurrenceRule): string {
 
 function recurrenceFrequency(value: unknown): CalendarRecurrenceFrequency {
   if (value === "daily" || value === "weekly" || value === "monthly" || value === "yearly") return value;
-  throw new Error("重复频率无效");
+  throw new Error("Häufigkeit duplizieren ungültig");
 }
 
 function integerInRange(value: unknown, minimum: number, maximum: number, label: string): number {
   if (!Number.isInteger(value) || Number(value) < minimum || Number(value) > maximum) {
-    throw new Error(`${label}无效`);
+    throw new Error(`${label}ungültig`);
   }
   return Number(value);
 }

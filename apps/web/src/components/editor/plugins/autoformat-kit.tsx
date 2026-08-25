@@ -73,7 +73,7 @@ const fractionsRule = createAutoformatTextSubstitutionRule({
     { format: '⅜', match: '3/8' },
     { format: '⅘', match: '4/5' },
     { format: '⅚', match: '5/6' },
-    { format: '⅝', match: '5/8' },
+    { format: '⅜', match: '5/8' },
     { format: '⅞', match: '7/8' },
   ],
 });
@@ -112,14 +112,14 @@ const punctuationRule = createAutoformatTextSubstitutionRule({
 
 const smartQuotesRule = createAutoformatTextSubstitutionRule({
   patterns: [
-    { format: ['“', '”'], match: '"' },
+    { format: ['“', '“'], match: '"' },
     { format: ['‘', '’'], match: "'" },
   ],
 });
 
 const subscriptNumbersRule = createAutoformatTextSubstitutionRule({
   patterns: [
-    { format: '₀', match: '~0' },
+    { format: 'ₜ', match: '~0' },
     { format: '₁', match: '~1' },
     { format: '₂', match: '~2' },
     { format: '₃', match: '~3' },

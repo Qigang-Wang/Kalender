@@ -32,7 +32,7 @@ export async function sendAppInvitationMail(input: {
     to: [input.invitation.email],
     cc: [],
     bcc: [],
-    subject: `${input.inviter.displayName} 邀请你加入 Dayline`,
+    subject: `${input.inviter.displayName} lädt Sie zu Dayline ein`,
     textBody: noteContentToPlainText(bodyContent),
     bodyContent,
   });
@@ -46,14 +46,14 @@ export async function sendAppInvitationMail(input: {
       rejected: result.rejected,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "邀请邮件发送失败";
+    const message = error instanceof Error ? error.message : "Die Einladungs-E-Mail konnte nicht gesendet werden";
     throw new InvitationMailDeliveryError(message, draft.id);
   }
 }
 
 export function buildInvitationMailContent(invitation: CreatedAppInvitation, inviter: AppUser): string {
   const recipient = invitation.displayName?.trim() || invitation.email;
-  const role = invitation.role === "admin" ? "管理员" : invitation.role === "viewer" ? "只读用户" : "普通用户";
+  const role = invitation.role === "admin" ? "Administrator" : invitation.role === "viewer" ? "Nur Lesen" : "Mitglied";
   const template: DaylineInvitationTemplateData = {
     recipient,
     inviterName: inviter.displayName,
@@ -63,29 +63,29 @@ export function buildInvitationMailContent(invitation: CreatedAppInvitation, inv
     inviteUrl: invitation.inviteUrl,
   };
   const document: PlateNoteValue = [
-    invitationBlock("你受邀加入 Dayline", template),
-    invitationBlock(`你好，${recipient}：`),
-    invitationBlock(`${inviter.displayName} 邀请你加入 Dayline 工作台，一起管理邮件、日历、任务、项目和笔记。`),
-    invitationBlock(`邀请人：${inviter.displayName} <${inviter.email}>`),
-    invitationBlock(`账号角色：${role}`),
-    invitationBlock(`有效期至：${template.expiresAtLabel}`),
+    invitationBlock("Einladung zu Dayline", template),
+    invitationBlock(`Hallo ${recipient},`),
+    invitationBlock(`${inviter.displayName} lädt Sie zum Dayline-Arbeitsbereich ein, um E-Mails, Kalender, Aufgaben, Projekte und Notizen gemeinsam zu verwalten.`),
+    invitationBlock(`Eingeladen von: ${inviter.displayName} <${inviter.email}>`),
+    invitationBlock(`Kontorolle: ${role}`),
+    invitationBlock(`Gültig bis: ${template.expiresAtLabel}`),
     {
       type: "p",
       qgwBlockKind: "dayline-invitation",
       children: [
-        { text: "接受邀请：" },
+        { text: "Einladung annehmen: " },
         { type: "a", url: invitation.inviteUrl, children: [{ text: invitation.inviteUrl }] },
       ],
     },
-    invitationBlock("如果你不认识邀请人，可以安全地忽略这封邮件。"),
+    invitationBlock("Wenn Sie den Einladenden nicht kennen, können Sie die Nachricht sicher ignorieren."),
   ];
   return encodeNoteContent(document);
 }
 
 function formatInviteExpiry(value: string): string {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "7 天后";
-  return new Intl.DateTimeFormat("zh-CN", {
+  if (Number.isNaN(date.getTime())) return "in 7 Tagen";
+  return new Intl.DateTimeFormat("de-DE", {
     year: "numeric",
     month: "long",
     day: "numeric",

@@ -61,7 +61,7 @@ export async function stopCalendarSyncScheduler(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   if (globalThis.kalenderCalendarSyncTickRunning) {
-    throw new Error("日历同步仍在运行，请稍后再恢复备份");
+    throw new Error("Kalender-Synchronisation läuft noch, bitte Backup später fortsetzen");
   }
   globalThis.kalenderCalendarSyncBackoff?.clear();
   globalThis.kalenderCalendarSyncStopping = false;

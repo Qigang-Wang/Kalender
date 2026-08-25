@@ -53,16 +53,16 @@ export async function POST(request: Request) {
   try {
     body = await request.json() as SaveAccountBody;
   } catch {
-    return NextResponse.json({ ok: false, message: "请求格式无效" }, { status: 400 });
+    return NextResponse.json({ ok: false, message: "Ungültiges angefordertes Format" }, { status: 400 });
   }
   if (body.providerId !== "imap") {
-    return NextResponse.json({ ok: false, message: "当前只能保存 IMAP/SMTP 账户" }, { status: 400 });
+    return NextResponse.json({ ok: false, message: "Derzeit werden nur IMAP/SMTP-Konten gespeichert" }, { status: 400 });
   }
   if (typeof body.emailAddress !== "string" || !isEmail(body.emailAddress)) {
-    return NextResponse.json({ ok: false, message: "请输入有效的邮箱地址" }, { status: 400 });
+    return NextResponse.json({ ok: false, message: "Bitte geben Sie eine gültige Postfachadresse ein" }, { status: 400 });
   }
   if (typeof body.displayName !== "string" || !body.displayName.trim()) {
-    return NextResponse.json({ ok: false, message: "请输入账户名称" }, { status: 400 });
+    return NextResponse.json({ ok: false, message: "Bitte geben Sie den Kontonamen ein" }, { status: 400 });
   }
   const syncMode: SyncMode = body.syncMode === "quick" || body.syncMode === "full" ? body.syncMode : "recommended";
 
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     const accountId = typeof body.accountId === "string" && body.accountId ? body.accountId : undefined;
     const existingAccount = accountId ? await getAccount(accountId) : undefined;
     if (accountId && !existingAccount) {
-      return NextResponse.json({ ok: false, message: "邮箱账户不存在" }, { status: 404 });
+      return NextResponse.json({ ok: false, message: "Mailbox-Konten existieren nicht" }, { status: 404 });
     }
     const stored = accountId ? await loadImapSmtpCredential(accountId) : undefined;
     const imap = parseServer(withRetainedPassword(body.imap, stored?.imap), "IMAP");

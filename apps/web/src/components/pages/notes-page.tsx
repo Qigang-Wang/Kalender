@@ -78,11 +78,11 @@ interface NoteContextMenuState {
 }
 
 const noteTypeLabels: Record<ClientNoteType, string> = {
-  general: "普通笔记",
-  meeting: "会议记录",
-  email: "邮件笔记",
-  project: "项目文档",
-  daily: "每日笔记",
+  general: "normale Noten",
+  meeting: "Sitzungsprotokolle",
+  email: "Briefbriefe",
+  project: "Projektdokument",
+  daily: "Tagesnoten",
 };
 
 const PROJECTS_CHANGED_EVENT = "kalender:projects-changed";
@@ -94,7 +94,7 @@ function EditorLoading({ label }: { readonly label: string }) {
 
 const PlateNoteEditor = dynamic(
   () => import("../editor/plate-editor").then((module) => module.PlateNoteEditor),
-  { loading: () => <EditorLoading label="正在加载笔记编辑器…" />, ssr: false },
+  { loading: () => <EditorLoading label="Notizeditor wird geladen..." />, ssr: false },
 );
 
 export function NotesPage({
@@ -147,8 +147,8 @@ export function NotesPage({
       ]);
       const projectsPayload = await projectsResponse.json() as { readonly ok: boolean; readonly projects?: readonly ClientProject[]; readonly message?: string };
       const notesPayload = await notesResponse.json() as { readonly ok: boolean; readonly notes?: readonly ClientNote[]; readonly message?: string };
-      if (!projectsResponse.ok || !projectsPayload.ok) throw new Error(projectsPayload.message ?? "无法读取项目");
-      if (!notesResponse.ok || !notesPayload.ok) throw new Error(notesPayload.message ?? "无法读取笔记");
+      if (!projectsResponse.ok || !projectsPayload.ok) throw new Error(projectsPayload.message ?? "Projekt kann nicht gelesen werden");
+      if (!notesResponse.ok || !notesPayload.ok) throw new Error(notesPayload.message ?? "Noten können nicht gelesen werden");
       const loadedNotes = notesPayload.notes ?? [];
       setProjects(projectsPayload.projects ?? []);
       setNotes(loadedNotes);
@@ -160,11 +160,11 @@ export function NotesPage({
           : loadedNotes[0];
       if (!background || !pendingNote.current) setDraft(target);
       if (!background) {
-        if (initialNoteId && !target) setFeedback("关联笔记已删除");
+        if (initialNoteId && !target) setFeedback("Assoziationshinweise gelöscht");
         else setFeedback(undefined);
       }
     } catch (error) {
-      if (!background) setFeedback(error instanceof Error ? error.message : "无法读取笔记工作区");
+      if (!background) setFeedback(error instanceof Error ? error.message : "es ist nicht möglich, den Notiz-Workspace zu lesen");
     } finally {
       if (!background) setLoading(false);
     }
@@ -199,14 +199,14 @@ export function NotesPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectId: snapshot.projectId,
-          title: snapshot.title.trim() || "无标题笔记",
+          title: snapshot.title.trim() || "nicht betitelte Notizen",
           content: snapshot.content,
           noteType: snapshot.noteType,
           pinned: snapshot.pinned,
         }),
       });
       const payload = await response.json() as { readonly ok: boolean; readonly note?: ClientNote; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "无法保存笔记");
+      if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "keine Notizen gespeichert werden können");
       const saved = payload.note;
       setNotes((current) => current.map((note) => note.id === saved.id ? saved : note));
       if (pendingNote.current === snapshot) {
@@ -217,7 +217,7 @@ export function NotesPage({
       return saved;
     } catch (error) {
       if (pendingNote.current === snapshot) setSaveState("error");
-      setFeedback(error instanceof Error ? error.message : "无法保存笔记");
+      setFeedback(error instanceof Error ? error.message : "keine Notizen gespeichert werden können");
       return undefined;
     }
   }, []);
@@ -248,17 +248,17 @@ export function NotesPage({
       const response = await fetch("/api/notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, title: "无标题笔记", content: EMPTY_PLATE_NOTE_CONTENT, noteType: "general", pinned: false }),
+        body: JSON.stringify({ projectId, title: "nicht betitelte Notizen", content: EMPTY_PLATE_NOTE_CONTENT, noteType: "general", pinned: false }),
       });
       const payload = await response.json() as { readonly ok: boolean; readonly note?: ClientNote; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "无法创建笔记");
+      if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "Noten können nicht erstellt werden");
       setNotes((current) => [payload.note!, ...current]);
       setDraft(payload.note);
       setMobileNoteDetail(true);
-      setFeedback("笔记已创建，可以直接开始输入");
+      setFeedback("Notizen erstellt, um Eingabe direkt zu starten");
       setSaveState("saved");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法创建笔记");
+      setFeedback(error instanceof Error ? error.message : "Noten können nicht erstellt werden");
     } finally {
       setBusy(false);
     }
@@ -271,7 +271,7 @@ export function NotesPage({
       if (target) {
       setFilter(target.projectId ?? "all");
       setDraft(target);
-      setFeedback("已打开任务关联的笔记");
+      setFeedback("Notizen offen für Task-Assoziation");
     }
   }, [initialNoteId, loading, notes]);
 
@@ -286,9 +286,9 @@ export function NotesPage({
 
   const deleteNote = async (target = draft) => {
     if (!target || !await appConfirm({
-      title: `删除笔记“${target.title}”？`,
-      description: "关联任务会保留，但不再显示这条笔记来源。",
-      confirmLabel: "删除笔记",
+      title: `Notiz „${target.title}“ löschen?`,
+      description: "Die zugehörige Aufgabe bleibt erhalten, aber diese Notiz wird nicht mehr angezeigt.",
+      confirmLabel: "Notiz löschen",
       tone: "danger",
     })) return;
     setBusy(true);
@@ -299,13 +299,13 @@ export function NotesPage({
       }
       const response = await fetch(`/api/notes/${encodeURIComponent(target.id)}`, { method: "DELETE" });
       const payload = await response.json() as { readonly ok: boolean; readonly message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "无法删除笔记");
+      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "Notizen können nicht entfernt werden");
       const remaining = notes.filter((note) => note.id !== target.id);
       setNotes(remaining);
       setDraft((current) => current?.id === target.id ? remaining[0] : current);
-      setFeedback("笔记已删除");
+      setFeedback("Notiz gelöscht");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法删除笔记");
+      setFeedback(error instanceof Error ? error.message : "Notizen können nicht entfernt werden");
     } finally {
       setBusy(false);
     }
@@ -321,20 +321,20 @@ export function NotesPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectId: snapshot.projectId,
-          title: snapshot.title.trim() || "无标题笔记",
+          title: snapshot.title.trim() || "nicht betitelte Notizen",
           content: snapshot.content,
           noteType: snapshot.noteType,
           pinned: snapshot.pinned,
         }),
       });
       const payload = await response.json() as { readonly ok: boolean; readonly note?: ClientNote; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "无法更新笔记");
+      if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "Notizen können nicht aktualisiert werden");
       setNotes((current) => current.map((entry) => entry.id === payload.note!.id ? payload.note! : entry));
       setDraft((current) => current?.id === payload.note!.id ? payload.note : current);
       setSaveState("saved");
-      setFeedback(payload.note.pinned ? "笔记已置顶" : "已取消置顶");
+      setFeedback(payload.note.pinned ? "Gemerkt" : "aufgedeckt");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法更新笔记");
+      setFeedback(error instanceof Error ? error.message : "Notizen können nicht aktualisiert werden");
     } finally {
       setBusy(false);
     }
@@ -349,20 +349,20 @@ export function NotesPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectId: source.projectId,
-          title: `${source.title.slice(0, 237)} 副本`,
+          title: `${source.title.slice(0, 237)} Kopie`,
           content: source.content,
           noteType: source.noteType,
           pinned: false,
         }),
       });
       const payload = await response.json() as { readonly ok: boolean; readonly note?: ClientNote; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "无法创建笔记副本");
+      if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "kann keine Kopie von Notizen erstellen");
       setNotes((current) => [payload.note!, ...current]);
       setDraft(payload.note);
       setSaveState("saved");
-      setFeedback("笔记副本已创建");
+      setFeedback("eine Kopie der Notizen erstellt wurde");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法创建笔记副本");
+      setFeedback(error instanceof Error ? error.message : "kann keine Kopie von Notizen erstellen");
     } finally {
       setBusy(false);
     }
@@ -399,7 +399,7 @@ export function NotesPage({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: `跟进：${note.title}`,
+          title: `Folgemaßnahmen:${note.title}`,
           notes: plainText.slice(0, 1_500) || undefined,
           status: "inbox",
           projectName: note.projectName,
@@ -407,15 +407,15 @@ export function NotesPage({
         }),
       });
       const payload = await response.json() as { readonly ok: boolean; readonly task?: ClientTask; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? "无法创建关联任务");
+      if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? "Verbindungsaufgabe kann nicht erstellt werden");
       const linkedTask: ClientLinkedNoteTask = { id: payload.task.id, title: payload.task.title, status: payload.task.status, href: `/tasks?task=${encodeURIComponent(payload.task.id)}` };
       const withTask = { ...note, linkedTasks: [linkedTask, ...note.linkedTasks.filter((task) => task.id !== linkedTask.id)] };
       setDraft(withTask);
       setNotes((current) => current.map((entry) => entry.id === note.id ? withTask : entry));
       setRelatedVersion((current) => current + 1);
-      setFeedback("关联任务已创建，可从笔记或任务双向返回");
+      setFeedback("Assoziierte Aufgaben werden erstellt und können aus Notizen oder Aufgaben in beide Richtungen zurückgegeben werden");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法创建关联任务");
+      setFeedback(error instanceof Error ? error.message : "Verbindungsaufgabe kann nicht erstellt werden");
     } finally {
       setBusy(false);
     }
@@ -431,14 +431,14 @@ export function NotesPage({
         body: JSON.stringify(projectDraft),
       });
       const payload = await response.json() as { readonly ok: boolean; readonly project?: ClientProject; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.project) throw new Error(payload.message ?? "无法创建项目");
+      if (!response.ok || !payload.ok || !payload.project) throw new Error(payload.message ?? "Projekt kann nicht erstellt werden");
       setProjects((current) => [payload.project!, ...current]);
       selectFilter(payload.project.id);
       setProjectDraft(undefined);
-      setFeedback(`项目“${payload.project.name}”已创建`);
+      setFeedback(`Projekt "${payload.project.name}"Erstellt`);
       window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法创建项目");
+      setFeedback(error instanceof Error ? error.message : "Projekt kann nicht erstellt werden");
     } finally {
       setBusy(false);
     }
@@ -454,36 +454,36 @@ export function NotesPage({
     });
   }, [filter, notes, query]);
   const activeFilterLabel = filter === "all"
-    ? "全部笔记"
+    ? "Alle Notizen"
     : filter === "pinned"
-      ? "已置顶"
+      ? "mit einer Dicke von mehr als 2 mm"
       : filter === "unfiled"
-        ? "未归档"
-        : projects.find((project) => project.id === filter)?.name ?? "项目笔记";
+        ? "nicht archiviert"
+        : projects.find((project) => project.id === filter)?.name ?? "Hinweis zum Projekt";
   const menuNote = notes.find((note) => note.id === noteMenu?.noteId);
 
   return (
     <div className={`notes-page ${mobileNoteDetail ? "mobile-detail-open" : ""}`}>
-      <section className="notes-filter-bar" aria-label="笔记空间">
-        <nav className="notes-filter-scroll" aria-label="笔记筛选">
-          <button className={filter === "all" ? "active" : ""} onClick={() => selectFilter("all")}><FileText size={15} /><span>全部</span><em>{notes.length}</em></button>
-          <button className={filter === "pinned" ? "active" : ""} onClick={() => selectFilter("pinned")}><Pin size={15} /><span>置顶</span><em>{notes.filter((note) => note.pinned).length}</em></button>
-          <button className={filter === "unfiled" ? "active" : ""} onClick={() => selectFilter("unfiled")}><Inbox size={15} /><span>未归档</span><em>{notes.filter((note) => !note.projectId).length}</em></button>
+      <section className="notes-filter-bar" aria-label="Notizraum">
+        <nav className="notes-filter-scroll" aria-label="Notizfilter">
+          <button className={filter === "all" ? "active" : ""} onClick={() => selectFilter("all")}><FileText size={15} /><span>Alle</span><em>{notes.length}</em></button>
+          <button className={filter === "pinned" ? "active" : ""} onClick={() => selectFilter("pinned")}><Pin size={15} /><span>nach oben</span><em>{notes.filter((note) => note.pinned).length}</em></button>
+          <button className={filter === "unfiled" ? "active" : ""} onClick={() => selectFilter("unfiled")}><Inbox size={15} /><span>nicht archiviert</span><em>{notes.filter((note) => !note.projectId).length}</em></button>
           {projects.length > 0 && <span className="notes-filter-divider" aria-hidden="true" />}
           {projects.map((project) => <button className={`project-filter ${filter === project.id ? "active" : ""}`} key={project.id} onClick={() => selectFilter(project.id)}><i style={{ background: project.color }} /><span>{project.name}</span><em>{notes.filter((note) => note.projectId === project.id).length}</em></button>)}
         </nav>
-        <button className="notes-new-project" aria-label="新建项目" title="新建项目" onClick={() => setProjectDraft({ name: "", description: "", areaName: "", color: "#86bdf5" })}><FolderPlus size={16} /><span>新建项目</span></button>
+        <button className="notes-new-project" aria-label="Neues Projekt" title="Neues Projekt" onClick={() => setProjectDraft({ name: "", description: "", areaName: "", color: "#86bdf5" })}><FolderPlus size={16} /><span>Neues Projekt</span></button>
       </section>
 
       <div className={`notes-workspace ${mobileNoteDetail ? "mobile-detail-open" : ""}`}>
         <section className="notes-list-column">
         <header>
-          <div className="notes-list-heading"><span><strong>{activeFilterLabel}</strong><small>{filteredNotes.length} 篇</small></span><div>{filter !== "all" && filter !== "pinned" && filter !== "unfiled" && <Link className="notes-open-project" href={`/projects?project=${encodeURIComponent(filter)}`} aria-label={`打开项目主页：${activeFilterLabel}`} title="打开项目主页"><ArrowRight size={15} /></Link>}<button aria-label="新建笔记" title="新建笔记" disabled={busy} onClick={() => void createNote()}><Plus size={17} /></button></div></div>
-          <label><Search size={16} /><input aria-label="搜索笔记" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题或正文…" /></label>
+          <div className="notes-list-heading"><span><strong>{activeFilterLabel}</strong><small>{filteredNotes.length} Notiz(en)</small></span><div>{filter !== "all" && filter !== "pinned" && filter !== "unfiled" && <Link className="notes-open-project" href={`/projects?project=${encodeURIComponent(filter)}`} aria-label={`Projektseite öffnen: ${activeFilterLabel}`} title="Projektseite öffnen"><ArrowRight size={15} /></Link>}<button aria-label="Neue Notiz" title="Neue Notiz" disabled={busy} onClick={() => void createNote()}><Plus size={17} /></button></div></div>
+          <label><Search size={16} /><input aria-label="Suchnotizen" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Suche Titel oder Körper..." /></label>
         </header>
         {feedback && <TransientToast message={feedback} onClose={() => setFeedback(undefined)} />}
         <div className="notes-list">
-          {loading ? <div className="notes-list-empty"><LoaderCircle className="spin" size={17} />正在读取笔记…</div> : filteredNotes.map((note) => (
+          {loading ? <div className="notes-list-empty"><LoaderCircle className="spin" size={17} />Noten lesen...</div> : filteredNotes.map((note) => (
             <div
               className={`note-list-item ${draft?.id === note.id ? "active" : ""}`}
               key={note.id}
@@ -503,7 +503,7 @@ export function NotesPage({
                 }}
               >
                 <span className="note-list-title-row"><strong>{note.title}</strong>{note.pinned && <Pin size={11} fill="currentColor" />}</span>
-                <p>{noteContentToPlainText(note.content).trim().replace(/\s+/g, " ") || "空白笔记"}</p>
+                <p>{noteContentToPlainText(note.content).trim().replace(/\s+/g, " ") || "Leerzeichen"}</p>
                 <span className="note-list-meta">
                   <span>{note.projectColor && <i style={{ background: note.projectColor }} />}{note.projectName ?? noteTypeLabels[note.noteType]}</span>
                   <time dateTime={note.updatedAt}>{formatNoteUpdated(note.updatedAt)}</time>
@@ -511,7 +511,7 @@ export function NotesPage({
               </button>
               <button
                 className="note-menu-trigger"
-                aria-label={`更多操作：${note.title}`}
+                aria-label={`mehr Operationen:${note.title}`}
                 aria-expanded={noteMenu?.noteId === note.id}
                 onClick={(event) => {
                   const bounds = event.currentTarget.getBoundingClientRect();
@@ -520,7 +520,7 @@ export function NotesPage({
               ><MoreHorizontal size={16} /></button>
             </div>
           ))}
-          {!loading && !filteredNotes.length && <div className="notes-list-empty"><NotebookPen size={20} /><span>{query ? "没有匹配的笔记" : "这个位置还没有笔记"}</span><button onClick={() => void createNote()}>创建第一篇</button></div>}
+          {!loading && !filteredNotes.length && <div className="notes-list-empty"><NotebookPen size={20} /><span>{query ? "keine passenden Notizen" : "dieser Standort wurde nicht festgestellt"}</span><button onClick={() => void createNote()}>Erstellen Sie den ersten Eintrag</button></div>}
         </div>
         </section>
 
@@ -528,34 +528,34 @@ export function NotesPage({
         {draft ? <>
           <header className="note-editor-toolbar">
             <div className="note-editor-main-controls">
-              <button className="mobile-detail-back" aria-label="返回笔记列表" onClick={() => setMobileNoteDetail(false)}><ChevronLeft size={20} /></button>
-              <AppSelect ariaLabel="笔记所属项目" className="note-toolbar-project-select" size="compact" value={draft.projectId ?? ""} onValueChange={(projectId) => {
+              <button className="mobile-detail-back" aria-label="gibt die Liste der Notizen zurück" onClick={() => setMobileNoteDetail(false)}><ChevronLeft size={20} /></button>
+              <AppSelect ariaLabel="beachten Sie Projekte" className="note-toolbar-project-select" size="compact" value={draft.projectId ?? ""} onValueChange={(projectId) => {
                 const project = projects.find((entry) => entry.id === projectId);
                 updateDraft({ projectId: project?.id, projectName: project?.name, projectColor: project?.color });
-              }} options={[{ value: "", label: "未归档" }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} />
-              <AppSelect ariaLabel="笔记类型" className="note-toolbar-type-select" size="compact" value={draft.noteType} onValueChange={(noteType) => updateDraft({ noteType: noteType as ClientNoteType })} options={Object.entries(noteTypeLabels).map(([value, label]) => ({ value, label }))} />
-              <input ref={noteTitleRef} className="note-title-inline" aria-label="笔记标题" value={draft.title} maxLength={240} onChange={(event) => updateDraft({ title: event.target.value })} placeholder="无标题笔记" />
+              }} options={[{ value: "", label: "nicht archiviert" }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} />
+              <AppSelect ariaLabel="Art der Notiz" className="note-toolbar-type-select" size="compact" value={draft.noteType} onValueChange={(noteType) => updateDraft({ noteType: noteType as ClientNoteType })} options={Object.entries(noteTypeLabels).map(([value, label]) => ({ value, label }))} />
+              <input ref={noteTitleRef} className="note-title-inline" aria-label="Titel des Vermerks" value={draft.title} maxLength={240} onChange={(event) => updateDraft({ title: event.target.value })} placeholder="nicht betitelte Notizen" />
             </div>
             <div className="note-editor-actions">
-              <span className={`note-save-state ${saveState}`}><i />{saveState === "saving" ? "正在保存" : saveState === "error" ? "保存失败" : "已保存"}</span>
-              <button className={draft.pinned ? "active" : ""} aria-label={draft.pinned ? "取消置顶" : "置顶笔记"} title={draft.pinned ? "取消置顶" : "置顶笔记"} onClick={() => updateDraft({ pinned: !draft.pinned })}><Pin size={15} fill={draft.pinned ? "currentColor" : "none"} /></button>
-              <button className="danger-button" aria-label="删除笔记" title="删除笔记" disabled={busy} onClick={() => void deleteNote()}><Trash2 size={15} /></button>
+              <span className={`note-save-state ${saveState}`}><i />{saveState === "saving" ? "Speichern" : saveState === "error" ? "Speichern fehlgeschlagen" : "gespeichert"}</span>
+              <button className={draft.pinned ? "active" : ""} aria-label={draft.pinned ? "TIP" : "Nach oben-Notizen"} title={draft.pinned ? "TIP" : "Nach oben-Notizen"} onClick={() => updateDraft({ pinned: !draft.pinned })}><Pin size={15} fill={draft.pinned ? "currentColor" : "none"} /></button>
+              <button className="danger-button" aria-label="Notiz löschen" title="Notiz löschen" disabled={busy} onClick={() => void deleteNote()}><Trash2 size={15} /></button>
             </div>
           </header>
           <div className="note-editor-body">
             <PlateNoteEditor noteId={draft.id} content={draft.content} onChange={(content) => updateDraft({ content })} />
           </div>
           <footer className="note-relations">
-            <div className="note-relations-heading"><span><Link2 size={14} />关联任务</span><button className="secondary-button" disabled={busy} onClick={() => void createLinkedTask()}>{busy ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}转为任务</button></div>
-            <RelatedContentPanel kind="note" entityId={draft.id} refreshKey={relatedVersion} hideHeading emptyText="还没有相关内容。创建任务或从日程建立会议笔记后会显示在这里。" />
+            <div className="note-relations-heading"><span><Link2 size={14} />Zugehörige Aufgaben</span><button className="secondary-button" disabled={busy} onClick={() => void createLinkedTask()}>{busy ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}Umwandlung in Aufgabe</button></div>
+            <RelatedContentPanel kind="note" entityId={draft.id} refreshKey={relatedVersion} hideHeading emptyText="es gibt keinen relevanten Inhalt. Erzeugt die Aufgabe oder zeigt die Notizen aus dem Setup-Meeting hier an." />
           </footer>
-        </> : <div className="note-editor-empty"><NotebookPen size={28} /><h3>选择一篇笔记开始</h3><p>笔记会自动保存，并可以归入项目或转为任务。</p><button className="primary-button" onClick={() => void createNote()}><Plus size={14} />新建笔记</button></div>}
+        </> : <div className="note-editor-empty"><NotebookPen size={28} /><h3>Wählen Sie eine Notiz aus</h3><p>Notizen werden automatisch gespeichert, können Projekten zugeordnet und in Aufgaben umgewandelt werden.</p><button className="primary-button" onClick={() => void createNote()}><Plus size={14} />Neue Notiz</button></div>}
         </article>
       </div>
 
       {noteMenu && menuNote && <ContextMenu
         anchor={{ x: noteMenu.x, y: noteMenu.y }}
-        ariaLabel="笔记操作"
+        ariaLabel="beachten Sie Projekte"
         heading={menuNote.title}
         commands={resolveContextCommands({ kind: "note", id: menuNote.id, title: menuNote.title, busy, pinned: menuNote.pinned })}
         returnFocus={noteMenu.returnFocus}
@@ -566,14 +566,14 @@ export function NotesPage({
 
       {projectDraft && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setProjectDraft(undefined); }}>
         <section className="calendar-dialog note-project-dialog panel" role="dialog" aria-modal="true" aria-labelledby="note-project-dialog-title">
-          <header><div><h2 id="note-project-dialog-title">新建项目</h2></div><button aria-label="关闭" onClick={() => setProjectDraft(undefined)} disabled={busy}><X size={18} /></button></header>
+          <header><div><h2 id="note-project-dialog-title">Neues Projekt</h2></div><button aria-label="Schließen" onClick={() => setProjectDraft(undefined)} disabled={busy}><X size={18} /></button></header>
           <div className="note-project-form">
-            <label><span>项目名称</span><input autoFocus value={projectDraft.name} maxLength={100} onChange={(event) => setProjectDraft({ ...projectDraft, name: event.target.value })} placeholder="例如 Dayline 开发" /></label>
-            <label><span>领域</span><input value={projectDraft.areaName} maxLength={100} onChange={(event) => setProjectDraft({ ...projectDraft, areaName: event.target.value })} placeholder="例如 工作 / 个人" /></label>
-            <label className="note-project-color"><span>颜色</span><input type="color" value={projectDraft.color} onChange={(event) => setProjectDraft({ ...projectDraft, color: event.target.value })} /></label>
-            <label className="note-project-description"><span>项目说明</span><textarea value={projectDraft.description} maxLength={2_000} onChange={(event) => setProjectDraft({ ...projectDraft, description: event.target.value })} placeholder="这个项目要达成什么？" /></label>
+            <label><span>Projektname</span><input autoFocus value={projectDraft.name} maxLength={100} onChange={(event) => setProjectDraft({ ...projectDraft, name: event.target.value })} placeholder="z.B. Dayline-Entwicklung" /></label>
+            <label><span>Bereich</span><input value={projectDraft.areaName} maxLength={100} onChange={(event) => setProjectDraft({ ...projectDraft, areaName: event.target.value })} placeholder="z.B. Arbeit/Einzelperson" /></label>
+            <label className="note-project-color"><span>Farbe</span><input type="color" value={projectDraft.color} onChange={(event) => setProjectDraft({ ...projectDraft, color: event.target.value })} /></label>
+            <label className="note-project-description"><span>Projektbeschreibung</span><textarea value={projectDraft.description} maxLength={2_000} onChange={(event) => setProjectDraft({ ...projectDraft, description: event.target.value })} placeholder="Was wird das Projekt erreichen?" /></label>
           </div>
-          <footer><div><button className="secondary-button" disabled={busy} onClick={() => setProjectDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !projectDraft.name.trim()} onClick={() => void saveProject()}>{busy && <LoaderCircle className="spin" size={14} />}创建项目</button></div></footer>
+          <footer><div><button className="secondary-button" disabled={busy} onClick={() => setProjectDraft(undefined)}>Abbrechen</button><button className="primary-button" disabled={busy || !projectDraft.name.trim()} onClick={() => void saveProject()}>{busy && <LoaderCircle className="spin" size={14} />}Projekt erstellen</button></div></footer>
         </section>
       </div>}
     </div>
@@ -584,5 +584,5 @@ function formatNoteUpdated(value: string): string {
   const date = new Date(value);
   const now = new Date();
   const sameDay = date.toDateString() === now.toDateString();
-  return new Intl.DateTimeFormat("zh-CN", sameDay ? { hour: "2-digit", minute: "2-digit", hour12: false } : { month: "short", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat("de-DE", sameDay ? { hour: "2-digit", minute: "2-digit", hour12: false } : { month: "short", day: "numeric" }).format(date);
 }

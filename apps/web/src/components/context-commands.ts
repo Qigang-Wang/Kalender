@@ -200,7 +200,7 @@ const mailMessageCommandRegistry: readonly ContextCommandDefinition<MailMessageC
     group: "state",
     risk: "external-write",
     resolve: (target) => ({
-      label: target.isRead ? "标记为未读" : "标记为已读",
+      label: target.isRead ? "Als ungelesen markieren" : "Als gelesen markieren",
       icon: target.isRead ? "eye-off" : "eye",
       disabledReason: remoteWriteDisabledReason(target),
     }),
@@ -210,7 +210,7 @@ const mailMessageCommandRegistry: readonly ContextCommandDefinition<MailMessageC
     group: "state",
     risk: "external-write",
     resolve: (target) => ({
-      label: target.isStarred ? "取消星标" : "添加星标",
+      label: target.isStarred ? "Markierung entfernen" : "Markieren",
       icon: target.isStarred ? "star-filled" : "star",
       disabledReason: remoteWriteDisabledReason(target),
     }),
@@ -219,28 +219,28 @@ const mailMessageCommandRegistry: readonly ContextCommandDefinition<MailMessageC
     id: "mail.create-task",
     group: "organize",
     risk: "local-write",
-    resolve: (target) => ({ label: "创建关联任务", icon: "task", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Verknüpfte Aufgabe erstellen", icon: "task", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "mail.assign-project",
     group: "organize",
     risk: "local-write",
-    resolve: (target) => ({ label: "关联到项目", icon: "folder", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Mit Projekt verknüpfen", icon: "folder", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "mail.ai-summary",
     group: "organize",
     risk: "read",
-    resolve: () => ({ label: "AI 总结", icon: "sparkles", disabledReason: "需配置 GPT" }),
+    resolve: () => ({ label: "AI-Zusammenfassung", icon: "sparkles", disabledReason: "GPT konfigurieren" }),
   },
   {
     id: "mail.archive",
     group: "danger",
     risk: "external-write",
     resolve: (target) => ({
-      label: "归档",
+      label: "Archiv",
       icon: "archive",
-      disabledReason: remoteWriteDisabledReason(target) ?? (target.canArchive ? undefined : "无归档文件夹"),
+      disabledReason: remoteWriteDisabledReason(target) ?? (target.canArchive ? undefined : "Kein Archivordner"),
     }),
   },
   {
@@ -248,7 +248,7 @@ const mailMessageCommandRegistry: readonly ContextCommandDefinition<MailMessageC
     group: "danger",
     risk: "destructive",
     resolve: (target) => ({
-      label: "删除（移至已删除邮件）",
+      label: "Löschen",
       icon: "trash",
       disabledReason: remoteWriteDisabledReason(target),
     }),
@@ -260,49 +260,49 @@ const calendarEventCommandRegistry: readonly ContextCommandDefinition<CalendarEv
     id: "calendar.open",
     group: "primary",
     risk: "read",
-    resolve: () => ({ label: "查看日程详情", icon: "eye" }),
+    resolve: () => ({ label: "Termindetails anzeigen", icon: "eye" }),
   },
   {
     id: "calendar.edit",
     group: "primary",
     risk: "local-write",
-    resolve: (target) => ({ label: "编辑日程", icon: "edit", disabledReason: target.writeDisabledReason ?? (target.readOnly ? "只读日历不可编辑" : target.busy ? "操作进行中" : undefined) }),
+    resolve: (target) => ({ label: "Termin bearbeiten", icon: "edit", disabledReason: target.writeDisabledReason ?? (target.readOnly ? "Schreibgeschützter Kalender kann nicht bearbeitet werden" : target.busy ? "Aktion läuft" : undefined) }),
   },
   {
     id: "calendar.open-task",
     group: "primary",
     risk: "read",
-    resolve: (target) => ({ label: "打开来源任务", icon: "task", disabledReason: target.hasLinkedTask ? undefined : "日程未关联任务" }),
+    resolve: (target) => ({ label: "Verknüpfte Aufgabe öffnen", icon: "task", disabledReason: target.hasLinkedTask ? undefined : "Termin ist mit keiner Aufgabe verknüpft" }),
   },
   {
     id: "calendar.duplicate",
     group: "organize",
     risk: "local-write",
-    resolve: (target) => ({ label: "复制到个人日历", icon: "copy", disabledReason: target.busy ? "操作进行中" : target.hasWritableCalendar ? undefined : "没有可写的个人日历" }),
+    resolve: (target) => ({ label: "In persönlichen Kalender kopieren", icon: "copy", disabledReason: target.busy ? "Aktion läuft" : target.hasWritableCalendar ? undefined : "Kein beschreibbarer persönlicher Kalender" }),
   },
   {
     id: "calendar.create-note",
     group: "organize",
     risk: "local-write",
-    resolve: (target) => ({ label: "创建会议笔记", icon: "note", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Besprechungsnotiz erstellen", icon: "note", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "calendar.create-prep-task",
     group: "organize",
     risk: "local-write",
-    resolve: (target) => ({ label: "创建准备任务", icon: "task", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Vorbereitungsaufgabe erstellen", icon: "task", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "calendar.create-followup-task",
     group: "organize",
     risk: "local-write",
-    resolve: (target) => ({ label: "创建跟进任务", icon: "task", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Folgeaufgabe erstellen", icon: "task", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "calendar.delete",
     group: "danger",
     risk: "destructive",
-    resolve: (target) => ({ label: "删除日程", icon: "trash", disabledReason: target.writeDisabledReason ?? (target.readOnly ? "只读日历不可删除" : target.busy ? "操作进行中" : undefined) }),
+    resolve: (target) => ({ label: "Termin löschen", icon: "trash", disabledReason: target.writeDisabledReason ?? (target.readOnly ? "Schreibgeschützter Kalender kann nicht gelöscht werden" : target.busy ? "Aktion läuft" : undefined) }),
   },
 ];
 
@@ -311,13 +311,13 @@ const calendarSlotCommandRegistry: readonly ContextCommandDefinition<CalendarSlo
     id: "calendar.create-event",
     group: "primary",
     risk: "local-write",
-    resolve: (target) => ({ label: "新建日程", icon: "calendar-plus", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Neuer Termin", icon: "calendar-plus", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "calendar.create-focus",
     group: "organize",
     risk: "local-write",
-    resolve: (target) => ({ label: "安排专注时间", icon: "clock", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Fokuszeit einplanen", icon: "clock", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
 ];
 
@@ -326,49 +326,49 @@ const taskCommandRegistry: readonly ContextCommandDefinition<TaskContextTarget>[
     id: "task.complete",
     group: "primary",
     risk: "local-write",
-    resolve: (target) => ({ label: "标记完成", icon: "task", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Als erledigt markieren", icon: "task", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "task.open-mail",
     group: "primary",
     risk: "read",
-    resolve: (target) => ({ label: "打开关联邮件", icon: "mail", disabledReason: target.hasMailSource ? undefined : "任务未关联邮件" }),
+    resolve: (target) => ({ label: "Verknüpfte E-Mail öffnen", icon: "mail", disabledReason: target.hasMailSource ? undefined : "Aufgabe ist mit keiner E-Mail verknüpft" }),
   },
   {
     id: "task.schedule",
     group: "organize",
     risk: "local-write",
-    resolve: (target) => ({ label: "安排到日历", icon: "calendar-plus", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Im Kalender einplanen", icon: "calendar-plus", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "task.edit",
     group: "primary",
     risk: "local-write",
-    resolve: (target) => ({ label: "编辑任务", icon: "edit", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Aufgabe bearbeiten", icon: "edit", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "task.toggle-important",
     group: "organize",
     risk: "local-write",
-    resolve: (target) => ({ label: target.important ? "移出重要" : "标记重要", icon: target.important ? "star-filled" : "star", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: target.important ? "Wichtig entfernen" : "Wichtig markieren", icon: target.important ? "star-filled" : "star", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "task.toggle-urgent",
     group: "organize",
     risk: "local-write",
-    resolve: (target) => ({ label: target.urgent ? "标记不紧急" : "标记紧急", icon: "clock", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: target.urgent ? "Dringlichkeit entfernen" : "Als dringend markieren", icon: "clock", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "task.set-waiting",
     group: "state",
     risk: "local-write",
-    resolve: (target) => ({ label: target.waiting ? "移回下一步" : "设为等待中", icon: "eye", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: target.waiting ? "Auf „Als Nächstes“ setzen" : "Auf „Warten“ setzen", icon: "eye", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "task.delete",
     group: "danger",
     risk: "destructive",
-    resolve: (target) => ({ label: "删除任务", icon: "trash", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Aufgabe löschen", icon: "trash", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
 ];
 
@@ -377,31 +377,31 @@ const noteCommandRegistry: readonly ContextCommandDefinition<NoteContextTarget>[
     id: "note.open",
     group: "primary",
     risk: "read",
-    resolve: () => ({ label: "打开笔记", icon: "note" }),
+    resolve: () => ({ label: "Notiz öffnen", icon: "note" }),
   },
   {
     id: "note.rename",
     group: "primary",
     risk: "local-write",
-    resolve: (target) => ({ label: "重命名", icon: "edit", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Umbenennen", icon: "edit", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "note.toggle-pin",
     group: "organize",
     risk: "local-write",
-    resolve: (target) => ({ label: target.pinned ? "取消置顶" : "置顶笔记", icon: target.pinned ? "star-filled" : "star", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: target.pinned ? "Nicht mehr anheften" : "Notiz anheften", icon: target.pinned ? "star-filled" : "star", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "note.duplicate",
     group: "organize",
     risk: "local-write",
-    resolve: (target) => ({ label: "创建副本", icon: "copy", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Kopie erstellen", icon: "copy", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "note.delete",
     group: "danger",
     risk: "destructive",
-    resolve: (target) => ({ label: "删除笔记", icon: "trash", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Notiz löschen", icon: "trash", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
 ];
 
@@ -410,49 +410,49 @@ const projectCommandRegistry: readonly ContextCommandDefinition<ProjectContextTa
     id: "project.open",
     group: "primary",
     risk: "read",
-    resolve: () => ({ label: "打开项目", icon: "eye" }),
+    resolve: () => ({ label: "Projekt öffnen", icon: "eye" }),
   },
   {
     id: "project.create-task",
     group: "primary",
     risk: "local-write",
-    resolve: (target) => ({ label: "添加任务", icon: "task", disabledReason: target.archived ? "已归档项目不能添加任务" : target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Aufgabe hinzufügen", icon: "task", disabledReason: target.archived ? "Aufgaben für archivierte Projekte können nicht hinzugefügt werden" : target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "project.create-note",
     group: "primary",
     risk: "local-write",
-    resolve: (target) => ({ label: "添加笔记", icon: "note", disabledReason: target.archived ? "已归档项目不能添加笔记" : target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Notiz hinzufügen", icon: "note", disabledReason: target.archived ? "archivierte Projekte können keine Notizen hinzufügen" : target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "project.move-area",
     group: "organize",
     risk: "local-write",
-    resolve: (target) => ({ label: "移动到领域", icon: "folder", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "In Bereich verschieben", icon: "folder", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "project.edit",
     group: "organize",
     risk: "local-write",
-    resolve: (target) => ({ label: "编辑项目", icon: "edit", disabledReason: target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Projekt bearbeiten", icon: "edit", disabledReason: target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "project.copy-link",
     group: "organize",
     risk: "read",
-    resolve: () => ({ label: "复制项目链接", icon: "copy" }),
+    resolve: () => ({ label: "Projektlink kopieren", icon: "copy" }),
   },
   {
     id: "project.archive",
     group: "state",
     risk: "local-write",
-    resolve: (target) => ({ label: "归档项目", icon: "archive", disabledReason: target.archived ? "项目已经归档" : target.busy ? "操作进行中" : undefined }),
+    resolve: (target) => ({ label: "Projekt archivieren", icon: "archive", disabledReason: target.archived ? "Projekt archiviert" : target.busy ? "Aktion läuft" : undefined }),
   },
   {
     id: "project.restore",
     group: "state",
     risk: "local-write",
-    resolve: (target) => ({ label: "恢复项目", icon: "restore", disabledReason: target.archived ? target.busy ? "操作进行中" : undefined : "项目尚未归档" }),
+    resolve: (target) => ({ label: "Projekt wiederherstellen", icon: "restore", disabledReason: target.archived ? target.busy ? "Aktion läuft" : undefined : "Projekt noch nicht archiviert" }),
   },
 ];
 
@@ -484,7 +484,7 @@ function resolveRegistry<TTarget extends ContextTarget>(
 }
 
 function remoteWriteDisabledReason(target: MailMessageContextTarget): string | undefined {
-  if (!target.connected) return "连接真实邮箱后可用";
-  if (target.busy) return "操作进行中";
+  if (!target.connected) return "Nach Verbindung eines Postfachs verfügbar";
+  if (target.busy) return "Aktion läuft";
   return undefined;
 }

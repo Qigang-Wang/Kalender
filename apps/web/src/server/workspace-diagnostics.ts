@@ -199,10 +199,10 @@ export async function getWorkspaceOperationsDiagnostic(actor: AppUser): Promise<
     storage: {
       layout: storageLayout,
       dockerRecommendation: [
-        "postgres-data：只给 PostgreSQL 使用，保存 /var/lib/postgresql。",
-        "kalender-files：保存 /app/.data 中的草稿附件和应用本地文件。",
-        "kalender-backups：生产环境建议从 /app/.data 拆出来，单独挂载到 KALENDER_BACKUP_DIR。",
-        "logs 可先不单独建卷；当前应用日志走容器 stdout，交给 Docker 或宿主管理。",
+        "postgres-data: Nur für PostgreSQL speichern Sie /var/lib/postgresql.",
+        "Kalender-Dateien: Speichern von Entwürfen von Anhängen und lokalen Anwendungsdateien in /app/.data.",
+        "Kalender-Backups: Die Produktionsumgebungsberatung wird aus /app/.data entfernt und separat auf KALENDER_BANKUP_DIR montiert.",
+        "Protokolle dürfen nicht zuerst in separaten Dateien abgelegt werden; der aktuelle Anwendungslog-Container stdout wird Docker oder der Hostverwaltung überlassen.",
       ],
     },
     jobs,
@@ -213,7 +213,7 @@ export async function getWorkspaceOperationsDiagnostic(actor: AppUser): Promise<
 
 export async function assignUnownedWorkspaceData(actor: AppUser, targetUserId: string): Promise<WorkspaceIsolationDiagnostic> {
   requireAdmin(actor);
-  if (!targetUserId.trim()) throw new AuthError("请选择目标用户", 400);
+  if (!targetUserId.trim()) throw new AuthError("den Zielbenutzer auswählen", 400);
   const database = await getDatabase();
   await database.transaction(async (transaction) => {
     await ensureTargetUser(transaction, targetUserId);
@@ -250,11 +250,11 @@ async function ensureTargetUser(database: DatabaseExecutor, userId: string): Pro
     `SELECT EXISTS (SELECT 1 FROM app_users WHERE id = $1 AND disabled_at IS NULL) AS exists`,
     [userId],
   );
-  if (!result.rows[0]?.exists) throw new AuthError("目标用户不存在或已禁用", 404);
+  if (!result.rows[0]?.exists) throw new AuthError("Zielbenutzer existiert nicht oder ist deaktiviert", 404);
 }
 
 function requireAdmin(actor: AppUser): void {
-  if (actor.role !== "admin") throw new AuthError("需要管理员权限", 403);
+  if (actor.role !== "admin") throw new AuthError("Administrator-Rechte erfordern", 403);
 }
 
 async function isWritableDirectory(directory: string): Promise<boolean> {
@@ -289,7 +289,7 @@ async function readRecentOperationsErrors(): Promise<readonly OperationsErrorDia
     id: row.id,
     source: "job" as const,
     title: `${row.title} · ${row.kind}`,
-    message: row.error_message ?? "任务失败，但没有记录详细错误",
+    message: row.error_message ?? "Aufgabe fehlgeschlagen, aber kein detaillierter Fehler aufgezeichnet",
     createdAt: row.updated_at,
   }));
 }
@@ -300,9 +300,9 @@ async function readStorageLayout(
   attachmentDirectory: string,
 ): Promise<readonly StoragePathDiagnostic[]> {
   const items = [
-    { id: "data", label: "应用数据", path: root },
-    { id: "attachments", label: "草稿附件", path: attachmentDirectory },
-    { id: "backups", label: "备份文件", path: backupDirectory },
+    { id: "data", label: "Anwendungsdaten", path: root },
+    { id: "attachments", label: "Anlageentwurf", path: attachmentDirectory },
+    { id: "backups", label: "Sicherungsdatei", path: backupDirectory },
   ];
   return Promise.all(items.map(async (item) => {
     const exists = await pathExists(item.path);

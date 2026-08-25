@@ -11,12 +11,12 @@ interface DatedMailItem {
 }
 
 const groupDefinitions: ReadonlyArray<{ readonly id: MailDateGroupId; readonly label: string }> = [
-  { id: "today", label: "今天" },
-  { id: "yesterday", label: "昨天" },
-  { id: "this-week", label: "本周" },
-  { id: "last-week", label: "上周" },
-  { id: "last-month", label: "上月" },
-  { id: "older", label: "更早" },
+  { id: "today", label: "Heute" },
+  { id: "yesterday", label: "Gestern" },
+  { id: "this-week", label: "Diese Woche" },
+  { id: "last-week", label: "Letzte Woche" },
+  { id: "last-month", label: "Letzter Monat" },
+  { id: "older", label: "Früher" },
 ];
 
 function localDayStart(date: Date, dayOffset = 0): number {

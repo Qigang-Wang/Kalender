@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   try {
     const actor = await getCurrentAppUser();
-    if (!actor) throw new AuthError("请先登录", 401);
+    if (!actor) throw new AuthError("Bitte melden Sie sich zuerst an", 401);
     const body = await request.json().catch(() => null) as {
       readonly action?: unknown;
       readonly input?: unknown;
@@ -26,14 +26,14 @@ export async function POST(request: Request) {
     const job = await enqueueJob({
       kind: "ai.action",
       actor,
-      title: `AI 动作：${action}`,
+      title: `KI-Maßnahmen:${action}`,
       payload: { actorUserId: actor.id, action, input },
       idempotencyKey: typeof body?.idempotencyKey === "string" ? body.idempotencyKey : undefined,
       maxAttempts: 1,
     });
     return NextResponse.json({ ok: true, job }, { status: 202 });
   } catch (error) {
-    const normalized = error instanceof AuthError || error instanceof AiActionError ? error : new AiActionError("AI 动作失败", 500);
+    const normalized = error instanceof AuthError || error instanceof AiActionError ? error : new AiActionError("KI-Aktion fehlgeschlagen", 500);
     return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
   }
 }
@@ -48,5 +48,5 @@ function parseAction(value: unknown): AiWorkspaceAction {
     || value === "mail.message-action"
     || value === "mail.send-draft"
   ) return value;
-  throw new AiActionError("AI 动作类型无效");
+  throw new AiActionError("der KI-Aktionstyp ist ungültig");
 }

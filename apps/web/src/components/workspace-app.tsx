@@ -122,7 +122,7 @@ import {
 const TodayPage = dynamic(
   () => import("./pages/today-page").then((module) => module.TodayPage),
   {
-    loading: () => <EditorLoading label="正在加载 Today…" />,
+    loading: () => <EditorLoading label="Heute laden..." />,
     ssr: false,
   },
 );
@@ -130,7 +130,7 @@ const TodayPage = dynamic(
 const InboxPage = dynamic(
   () => import("./pages/inbox-page").then((module) => module.InboxPage),
   {
-    loading: () => <EditorLoading label="正在加载邮件…" />,
+    loading: () => <EditorLoading label="E-Mail wird geladen..." />,
     ssr: false,
   },
 );
@@ -138,7 +138,7 @@ const InboxPage = dynamic(
 const CalendarPage = dynamic(
   () => import("./pages/calendar-page").then((module) => module.CalendarPage),
   {
-    loading: () => <EditorLoading label="正在加载日历…" />,
+    loading: () => <EditorLoading label="Kalender wird geladen..." />,
     ssr: false,
   },
 );
@@ -146,7 +146,7 @@ const CalendarPage = dynamic(
 const TasksPage = dynamic(
   () => import("./pages/tasks-page").then((module) => module.TasksPage),
   {
-    loading: () => <EditorLoading label="正在加载任务…" />,
+    loading: () => <EditorLoading label="Aufgaben werden geladen..." />,
     ssr: false,
   },
 );
@@ -154,7 +154,7 @@ const TasksPage = dynamic(
 const ProjectsPage = dynamic(
   () => import("./pages/projects-page").then((module) => module.ProjectsPage),
   {
-    loading: () => <EditorLoading label="正在加载项目…" />,
+    loading: () => <EditorLoading label="Projekte werden geladen..." />,
     ssr: false,
   },
 );
@@ -162,7 +162,7 @@ const ProjectsPage = dynamic(
 const NotesPage = dynamic(
   () => import("./pages/notes-page").then((module) => module.NotesPage),
   {
-    loading: () => <EditorLoading label="正在加载笔记…" />,
+    loading: () => <EditorLoading label="Notizen werden geladen..." />,
     ssr: false,
   },
 );
@@ -170,7 +170,7 @@ const NotesPage = dynamic(
 const AiCommand = dynamic(
   () => import("./ai-command").then((module) => module.AiCommand),
   {
-    loading: () => <EditorLoading label="正在加载 AI 工作台…" />,
+    loading: () => <EditorLoading label="KI-Arbeitsplätze werden geladen..." />,
     ssr: false,
   },
 );
@@ -178,7 +178,7 @@ const AiCommand = dynamic(
 const AiProviderSettings = dynamic(
   () => import("./ai-provider-settings").then((module) => module.AiProviderSettings),
   {
-    loading: () => <EditorLoading label="正在加载 AI 设置…" />,
+    loading: () => <EditorLoading label="AI-Einstellungen werden geladen..." />,
     ssr: false,
   },
 );
@@ -310,19 +310,19 @@ const settingsNavigation: ReadonlyArray<{
   icon: typeof Inbox;
   adminOnly?: boolean;
 }> = [
-  { tab: "appearance", label: "外观", icon: Palette },
-  { tab: "profile", label: "账号", icon: UserRound },
-  { tab: "users", label: "用户管理", icon: Users, adminOnly: true },
-  { tab: "diagnostics", label: "数据诊断", icon: ShieldCheck, adminOnly: true },
-  { tab: "jobs", label: "后台任务", icon: Clock3 },
-  { tab: "operations", label: "系统状态", icon: HardDrive, adminOnly: true },
-  { tab: "sync", label: "同步", icon: RefreshCw },
-  { tab: "desktop", label: "桌面端", icon: BellRing },
-  { tab: "mail", label: "邮箱账户", icon: Mail },
-  { tab: "calendar", label: "日历账户", icon: CalendarDays },
-  { tab: "shortcuts", label: "快捷键", icon: Keyboard },
-  { tab: "ai", label: "AI 设置", icon: WandSparkles },
-  { tab: "backup", label: "备份", icon: DatabaseBackup },
+  { tab: "appearance", label: "Erscheinungsbild", icon: Palette },
+  { tab: "profile", label: "Konten", icon: UserRound },
+  { tab: "users", label: "Benutzerverwaltung", icon: Users, adminOnly: true },
+  { tab: "diagnostics", label: "Datendiagnose", icon: ShieldCheck, adminOnly: true },
+  { tab: "jobs", label: "Hintergrundaufgaben", icon: Clock3 },
+  { tab: "operations", label: "Systemstatus", icon: HardDrive, adminOnly: true },
+  { tab: "sync", label: "Synchronisierung", icon: RefreshCw },
+  { tab: "desktop", label: "Desktop-App", icon: BellRing },
+  { tab: "mail", label: "E-Mail-Konten", icon: Mail },
+  { tab: "calendar", label: "Kalenderkonten", icon: CalendarDays },
+  { tab: "shortcuts", label: "Tastenkürzel", icon: Keyboard },
+  { tab: "ai", label: "AI-Einstellungen", icon: WandSparkles },
+  { tab: "backup", label: "Datensicherung", icon: DatabaseBackup },
 ];
 
 function visibleSettingsNavigation(role: AppRole, desktopAvailable: boolean) {
@@ -337,14 +337,14 @@ function normalizeSettingsTab(value: string | null | undefined, role: AppRole, d
 }
 
 const pageAssistantTitles: Record<WorkspaceSection, string> = {
-  today: "每日简报",
-  inbox: "邮件助手",
-  calendar: "日程建议",
-  tasks: "任务建议",
-  projects: "项目建议",
-  notes: "笔记助手",
-  ai: "安全边界",
-  settings: "连接安全",
+  today: "Tagesübersicht",
+  inbox: "E-Mail-Assistent",
+  calendar: "Terminvorschläge",
+  tasks: "Aufgabenvorschläge",
+  projects: "Projektvorschläge",
+  notes: "Notiz-Assistent",
+  ai: "Sicherheitsgrenzen",
+  settings: "Verbindungssicherheit",
 };
 
 const DEFAULT_SIDEBAR_WIDTH = 176;
@@ -448,7 +448,7 @@ async function fetchUserPreferences(keys: readonly string[]): Promise<Readonly<R
     readonly ok?: boolean;
     readonly preferences?: Readonly<Record<string, unknown>>;
   };
-  if (!response.ok || !payload.ok) throw new Error("无法读取界面偏好");
+  if (!response.ok || !payload.ok) throw new Error("Benutzeroberflächeneinstellungen können nicht gelesen werden");
   return payload.preferences ?? {};
 }
 
@@ -763,7 +763,7 @@ function WorkspaceAppContent({
   const syncSidebarMailAccount = async (account: SidebarMailAccount) => {
     if (sidebarMailSyncBusyId || account.syncStatus === "syncing" || account.syncStatus === "paused") return;
     setSidebarMailSyncBusyId(account.id);
-    setSidebarMailNotice(`正在同步“${account.displayName}”…`);
+    setSidebarMailNotice(`„${account.displayName}“ wird synchronisiert …`);
     try {
       const response = await fetch(`/api/mail-accounts/${encodeURIComponent(account.id)}/sync`, { method: "POST" });
       const payload = await response.json() as {
@@ -771,17 +771,17 @@ function WorkspaceAppContent({
         readonly message?: string;
         readonly sync?: { readonly messagesProcessed?: number; readonly messagesRemoved?: number };
       };
-      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "邮箱同步失败");
+      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "Synchronisierung von Postfächern fehlgeschlagen");
       await refreshSidebarMail();
       window.dispatchEvent(new Event(MAIL_SYNCED_EVENT));
       const changedCount = (payload.sync?.messagesProcessed ?? 0) + (payload.sync?.messagesRemoved ?? 0);
       setSidebarMailNotice(
         changedCount > 0
-          ? `已同步“${account.displayName}”，更新 ${changedCount} 封邮件`
-          : `已同步“${account.displayName}”，没有新的变化`,
+          ? `„${account.displayName}“ synchronisiert: ${changedCount} E-Mail(s) aktualisiert`
+          : `„${account.displayName}“ synchronisiert: keine neuen Änderungen`,
       );
     } catch (error) {
-      setSidebarMailNotice(error instanceof Error ? error.message : "邮箱同步失败");
+      setSidebarMailNotice(error instanceof Error ? error.message : "Synchronisierung von Postfächern fehlgeschlagen");
     } finally {
       setSidebarMailSyncBusyId(undefined);
     }
@@ -790,7 +790,7 @@ function WorkspaceAppContent({
   const refreshSidebarMailSummary = useCallback(async () => {
     const response = await workspaceFetch("/api/mail-summary", {}, 0);
     const payload = await response.json() as { readonly ok?: boolean; readonly unreadCount?: number };
-    if (!response.ok || !payload.ok) throw new Error("无法读取未读邮件数量");
+    if (!response.ok || !payload.ok) throw new Error("Anzahl ungelesener E-Mails konnte nicht gelesen werden");
     setSidebarMailUnreadCount(payload.unreadCount ?? 0);
   }, []);
 
@@ -821,7 +821,7 @@ function WorkspaceAppContent({
   const refreshSidebarCalendars = useCallback(async () => {
     const response = await workspaceFetch("/api/calendars", {}, 0);
     const payload = await response.json() as { readonly ok?: boolean; readonly calendars?: readonly SidebarCalendarSource[] };
-    if (!response.ok || !payload.ok) throw new Error("无法读取日历来源");
+    if (!response.ok || !payload.ok) throw new Error("Kalenderquelle konnte nicht gelesen werden");
     setSidebarCalendars(payload.calendars ?? []);
   }, []);
 
@@ -829,7 +829,7 @@ function WorkspaceAppContent({
     if (sidebarCalendarSyncBusyId) return;
     setSidebarCalendarMenu(undefined);
     setSidebarCalendarSyncBusyId(calendar.id);
-    setSidebarCalendarNotice(`正在刷新“${calendar.name}”…`);
+    setSidebarCalendarNotice(`„${calendar.name}“ wird aktualisiert …`);
     try {
       const accountId = calendar.providerData?.accountId;
       let eventsProcessed: number | undefined;
@@ -842,7 +842,7 @@ function WorkspaceAppContent({
           readonly sync?: { readonly eventsProcessed?: number };
           readonly mailSync?: unknown;
         };
-        if (!response.ok || !payload.ok) throw new Error(payload.message ?? "日历刷新失败");
+        if (!response.ok || !payload.ok) throw new Error(payload.message ?? "Kalenderaktualisierung fehlgeschlagen");
         eventsProcessed = payload.sync?.eventsProcessed;
         mailSynced = Boolean(payload.mailSync);
       }
@@ -851,11 +851,11 @@ function WorkspaceAppContent({
       if (mailSynced) window.dispatchEvent(new Event(MAIL_SYNCED_EVENT));
       setSidebarCalendarNotice(
         eventsProcessed === undefined
-          ? `已刷新“${calendar.name}”`
-          : `已刷新“${calendar.name}”，读取 ${eventsProcessed} 项日程`,
+          ? `„${calendar.name}“ wurde aktualisiert`
+          : `„${calendar.name}“ wurde aktualisiert: ${eventsProcessed} Termin(e) verarbeitet`,
       );
     } catch (error) {
-      setSidebarCalendarNotice(error instanceof Error ? error.message : "日历刷新失败");
+      setSidebarCalendarNotice(error instanceof Error ? error.message : "Kalenderaktualisierung fehlgeschlagen");
     } finally {
       setSidebarCalendarSyncBusyId(undefined);
     }
@@ -864,7 +864,7 @@ function WorkspaceAppContent({
   const refreshSidebarTasks = useCallback(async () => {
     const response = await workspaceFetch("/api/tasks?includeCompleted=true");
     const payload = await response.json() as { readonly ok?: boolean; readonly tasks?: readonly SidebarTaskSummary[] };
-    if (!response.ok || !payload.ok) throw new Error("无法读取任务分组");
+    if (!response.ok || !payload.ok) throw new Error("Aufgaben konnten nicht geladen werden");
     setSidebarTasks(payload.tasks ?? []);
   }, []);
 
@@ -875,7 +875,7 @@ function WorkspaceAppContent({
     ]);
     const projectsPayload = await projectsResponse.json() as { readonly ok?: boolean; readonly projects?: readonly SidebarProjectSummary[] };
     const tasksPayload = await tasksResponse.json() as { readonly ok?: boolean; readonly tasks?: readonly SidebarTaskSummary[] };
-    if (!projectsResponse.ok || !projectsPayload.ok || !tasksResponse.ok || !tasksPayload.ok) throw new Error("无法读取项目列表");
+    if (!projectsResponse.ok || !projectsPayload.ok || !tasksResponse.ok || !tasksPayload.ok) throw new Error("Die Liste der Projekte kann nicht gelesen werden");
     setSidebarProjects(projectsPayload.projects ?? []);
     setSidebarTasks(tasksPayload.tasks ?? []);
   }, []);
@@ -910,7 +910,7 @@ function WorkspaceAppContent({
       readonly ok?: boolean;
       readonly task?: SidebarTaskSummary;
     };
-    if (!response.ok || !payload.ok || !payload.task) throw new Error("无法增量刷新任务");
+    if (!response.ok || !payload.ok || !payload.task) throw new Error("Aufgaben können nicht schrittweise aktualisiert werden");
     setSidebarTasks((current) => {
       if (!current) return [payload.task!];
       const found = current.some((task) => task.id === payload.task!.id);
@@ -989,12 +989,12 @@ function WorkspaceAppContent({
         }),
       });
       const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "无法更新项目");
+      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "Projekt kann nicht aktualisiert werden");
       await refreshSidebarProjects();
       window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
       setSidebarProjectNotice(successMessage);
     } catch (error) {
-      setSidebarProjectNotice(error instanceof Error ? error.message : "无法更新项目");
+      setSidebarProjectNotice(error instanceof Error ? error.message : "Projekt kann nicht aktualisiert werden");
     } finally {
       setSidebarProjectBusyId(undefined);
     }
@@ -1024,26 +1024,26 @@ function WorkspaceAppContent({
   ) => {
     const project = sidebarProjects?.find((entry) => entry.id === projectId);
     if (!project || sidebarProjectBusyId) return;
-    const currentArea = project.areaName?.trim() || "未分类";
+    const currentArea = project.areaName?.trim() || "Nicht kategorisiert";
     const targetProject = targetProjectId ? sidebarProjects?.find((entry) => entry.id === targetProjectId) : undefined;
     if (targetProject && targetProject.status !== project.status) {
-      setSidebarProjectNotice("只能在同一项目状态内排序");
+      setSidebarProjectNotice("kann nur im gleichen Projektzustand sortiert werden");
       return;
     }
 
     const currentAreaProjectIds = (sidebarProjects ?? [])
-      .filter((entry) => entry.status === project.status && (entry.areaName?.trim() || "未分类") === currentArea)
-      .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "zh-CN"))
+      .filter((entry) => entry.status === project.status && (entry.areaName?.trim() || "Nicht kategorisiert") === currentArea)
+      .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "de-DE"))
       .map((entry) => entry.id);
     const destinationProjects = (sidebarProjects ?? [])
-      .filter((entry) => entry.status === project.status && (entry.areaName?.trim() || "未分类") === areaName && entry.id !== projectId)
-      .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "zh-CN"));
+      .filter((entry) => entry.status === project.status && (entry.areaName?.trim() || "Nicht kategorisiert") === areaName && entry.id !== projectId)
+      .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "de-DE"));
     const insertIndex = targetProject
       ? Math.max(0, destinationProjects.findIndex((entry) => entry.id === targetProject.id) + (zone === "after" ? 1 : 0))
       : destinationProjects.length;
     const nextAreaProjects = [
       ...destinationProjects.slice(0, insertIndex),
-      { ...project, areaName: areaName === "未分类" ? undefined : areaName },
+      { ...project, areaName: areaName === "Nicht kategorisiert" ? undefined : areaName },
       ...destinationProjects.slice(insertIndex),
     ];
     const nextProjectIds = nextAreaProjects.map((entry) => entry.id);
@@ -1055,7 +1055,7 @@ function WorkspaceAppContent({
       if (entry.id === project.id || nextIndex >= 0) {
         return {
           ...entry,
-          areaName: entry.id === project.id ? (areaName === "未分类" ? undefined : areaName) : entry.areaName,
+          areaName: entry.id === project.id ? (areaName === "Nicht kategorisiert" ? undefined : areaName) : entry.areaName,
           sortOrder: nextIndex >= 0 ? (nextIndex + 1) * 1000 : entry.sortOrder,
         };
       }
@@ -1069,13 +1069,13 @@ function WorkspaceAppContent({
           body: JSON.stringify({
             name: project.name,
             description: project.description,
-            areaName: areaName === "未分类" ? "" : areaName,
+            areaName: areaName === "Nicht kategorisiert" ? "" : areaName,
             color: project.color,
             status: project.status,
           }),
         });
         const movePayload = await moveResponse.json() as { readonly ok?: boolean; readonly message?: string };
-        if (!moveResponse.ok || !movePayload.ok) throw new Error(movePayload.message ?? "无法移动项目");
+        if (!moveResponse.ok || !movePayload.ok) throw new Error(movePayload.message ?? "Projekte können nicht verschoben werden");
       }
       const reorderResponse = await fetch("/api/projects/reorder", {
         method: "PATCH",
@@ -1083,10 +1083,10 @@ function WorkspaceAppContent({
         body: JSON.stringify({ projectIds: nextProjectIds }),
       });
       const reorderPayload = await reorderResponse.json() as { readonly ok?: boolean; readonly message?: string };
-      if (!reorderResponse.ok || !reorderPayload.ok) throw new Error(reorderPayload.message ?? "无法保存项目顺序");
+      if (!reorderResponse.ok || !reorderPayload.ok) throw new Error(reorderPayload.message ?? "kann die Reihenfolge der Projekte nicht speichern");
       await refreshSidebarProjects();
       window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
-      setSidebarProjectNotice(currentArea === areaName ? "项目顺序已更新" : `已移动到“${areaName}”`);
+      setSidebarProjectNotice(currentArea === areaName ? "Projektreihenfolge aktualisiert" : `In den Bereich „${areaName}“ verschoben`);
       setCollapsedProjectAreas((current) => {
         if (!current.has(areaName)) return current;
         const next = new Set(current);
@@ -1095,7 +1095,7 @@ function WorkspaceAppContent({
       });
     } catch (error) {
       await refreshSidebarProjects().catch(() => undefined);
-      setSidebarProjectNotice(error instanceof Error ? error.message : "无法保存项目顺序");
+      setSidebarProjectNotice(error instanceof Error ? error.message : "kann die Reihenfolge der Projekte nicht speichern");
     } finally {
       setSidebarProjectBusyId(undefined);
     }
@@ -1110,17 +1110,17 @@ function WorkspaceAppContent({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectId: project.id,
-          title: `${project.name} 笔记`,
+          title: `${project.name} – Notiz`,
           content: "",
           noteType: "project",
           pinned: false,
         }),
       });
       const payload = await response.json() as { readonly ok?: boolean; readonly note?: { readonly id: string }; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "无法创建项目笔记");
+      if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "Projekt-Notizen können nicht erstellt werden");
       window.location.assign(`/notes?note=${encodeURIComponent(payload.note.id)}`);
     } catch (error) {
-      setSidebarProjectNotice(error instanceof Error ? error.message : "无法创建项目笔记");
+      setSidebarProjectNotice(error instanceof Error ? error.message : "Projekt-Notizen können nicht erstellt werden");
       setSidebarProjectBusyId(undefined);
     }
   };
@@ -1140,35 +1140,35 @@ function WorkspaceAppContent({
       if (navigator.clipboard) {
         try {
           await navigator.clipboard.writeText(href);
-          setSidebarProjectNotice("项目链接已复制");
+          setSidebarProjectNotice("Projektlink kopiert");
         } catch {
           await appPrompt({
-            title: "复制项目链接",
-            description: "浏览器未允许自动写入剪贴板，请手动复制下面的地址。",
+            title: "Projektlinks kopieren",
+            description: "Der Browser darf nicht automatisch in die Zwischenablage schreiben. Bitte kopieren Sie die folgende Adresse manuell.",
             defaultValue: href,
-            confirmLabel: "关闭",
+            confirmLabel: "Schließen",
             selectOnFocus: true,
           });
         }
       } else {
         await appPrompt({
-          title: "复制项目链接",
-          description: "请手动复制下面的地址。",
+          title: "Projektlink kopieren",
+          description: "Bitte kopieren Sie die untenstehende Adresse manuell.",
           defaultValue: href,
-          confirmLabel: "关闭",
+          confirmLabel: "Schließen",
           selectOnFocus: true,
         });
       }
     } else if (commandId === "project.archive") {
       if (await appConfirm({
-        title: `归档项目“${project.name}”？`,
-        description: "关联内容会保留，之后可以恢复该项目。",
-        confirmLabel: "归档项目",
+        title: `Projekt „${project.name}“ archivieren?`,
+        description: "Verknüpfte Inhalte bleiben erhalten und das Projekt kann später wiederhergestellt werden.",
+        confirmLabel: "Projekt archivieren",
       })) {
-        void updateSidebarProject(project, { status: "archived" }, `已归档“${project.name}”`);
+        void updateSidebarProject(project, { status: "archived" }, `„${project.name}“ wurde archiviert`);
       }
     } else if (commandId === "project.restore") {
-      void updateSidebarProject(project, { status: "active" }, `已恢复“${project.name}”`);
+      void updateSidebarProject(project, { status: "active" }, `„${project.name}“ wurde wiederhergestellt`);
     }
   };
 
@@ -1177,30 +1177,30 @@ function WorkspaceAppContent({
     if (!areaName) return;
     if (commandId === "project-area.create-project") {
       window.dispatchEvent(new CustomEvent<{ readonly areaName?: string }>(OPEN_PROJECT_DIALOG_EVENT, {
-        detail: { areaName: areaName === "未分类" ? undefined : areaName },
+        detail: { areaName: areaName === "Nicht kategorisiert" ? undefined : areaName },
       }));
       setSidebarOpen(false);
       return;
     }
     if (commandId === "project-area.rename") {
-      if (areaName === "未分类") return;
+      if (areaName === "Nicht kategorisiert") return;
       const projectsInArea = sidebarProjects?.filter((project) => project.areaName === areaName).length ?? 0;
       const input = await appPrompt({
-        title: "重命名领域",
-        description: `“${areaName}”中的 ${projectsInArea} 个项目会使用新名称；关联任务、笔记和日程不会改变。`,
+        title: "Bereich umbenennen",
+        description: `Die ${projectsInArea} Projekte im Bereich „${areaName}“ verwenden anschließend den neuen Namen. Verknüpfte Aufgaben, Notizen und Termine bleiben unverändert.`,
         defaultValue: areaName,
-        placeholder: "输入新的领域名称",
-        confirmLabel: "重命名",
+        placeholder: "Neuen Bereichsnamen eingeben",
+        confirmLabel: "Umbenennen",
         selectOnFocus: true,
       });
       if (input === null) return;
       const name = input.trim();
       if (!name || name.length > 100) {
-        setSidebarProjectNotice("领域名称需要 1–100 个字符");
+        setSidebarProjectNotice("Der Bereichsname muss 1 bis 100 Zeichen lang sein");
         return;
       }
-      if (name === "未分类") {
-        setSidebarProjectNotice("“未分类”是系统分组，不能作为领域名称");
+      if (name === "Nicht kategorisiert") {
+        setSidebarProjectNotice("„Nicht kategorisiert“ ist eine Systemgruppe und kann nicht als Bereichsname verwendet werden");
         return;
       }
       if (name === areaName) return;
@@ -1216,7 +1216,7 @@ function WorkspaceAppContent({
           readonly result?: { readonly projectsUpdated?: number };
           readonly message?: string;
         };
-        if (!response.ok || !payload.ok) throw new Error(payload.message ?? "无法重命名领域");
+        if (!response.ok || !payload.ok) throw new Error(payload.message ?? "Feld kann nicht umbenennen");
         setCollapsedProjectAreas((current) => {
           if (!current.has(areaName)) return current;
           const next = new Set(current);
@@ -1226,9 +1226,9 @@ function WorkspaceAppContent({
         });
         await refreshSidebarProjects();
         window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
-        setSidebarProjectNotice(`已将“${areaName}”重命名为“${name}”，更新 ${payload.result?.projectsUpdated ?? projectsInArea} 个项目`);
+        setSidebarProjectNotice(`Schon "${areaName}"Umbenennen in"${name}Aktualisierung ${payload.result?.projectsUpdated ?? projectsInArea} Projekt`);
       } catch (error) {
-        setSidebarProjectNotice(error instanceof Error ? error.message : "无法重命名领域");
+        setSidebarProjectNotice(error instanceof Error ? error.message : "Feld kann nicht umbenennen");
       } finally {
         setSidebarProjectBusyId(undefined);
       }
@@ -1248,10 +1248,10 @@ function WorkspaceAppContent({
         <div className="brand-row">
           <BrandLogo className="brand-mark" />
           <div><strong>Dayline</strong><span>Quiet Intelligence</span></div>
-          <button className="mobile-close" aria-label="关闭导航" onClick={() => setSidebarOpen(false)}><X /></button>
+          <button className="mobile-close" aria-label="Navigator Weniger anzeigen" onClick={() => setSidebarOpen(false)}><X /></button>
         </div>
 
-        <nav className="primary-nav" aria-label="主导航">
+        <nav className="primary-nav" aria-label="Hauptnavigation">
           {navigation.map(({ section: item, label, icon: Icon }) => (
             <Link className={item === section ? "active" : ""} href={`/${item}`} key={item} onClick={() => setSidebarOpen(false)}>
               <Icon size={17} strokeWidth={1.8} />
@@ -1262,7 +1262,7 @@ function WorkspaceAppContent({
         </nav>
 
         {section === "settings" && <div className="account-block sidebar-context-block settings-sidebar-block">
-          <nav className="sidebar-settings-links" aria-label="设置分类">
+          <nav className="sidebar-settings-links" aria-label="Einstellungskategorien">
             {visibleSettingItems.map(({ tab, label, icon: Icon }) => (
               <Link
                 className={activeSettingsTab === tab ? "active" : ""}
@@ -1279,12 +1279,12 @@ function WorkspaceAppContent({
 
         {section === "inbox" && <div className="account-block">
           <SidebarListHeading
-            title="邮箱账户"
+            title="E-Mail-Konten"
             collapsed={collapsedSidebarSections.has("inbox-accounts")}
             onToggle={() => toggleSidebarSection("inbox-accounts")}
-            onContextMenu={(x, y, returnFocus) => setSidebarSectionMenu({ sectionId: "inbox-accounts", title: "邮箱账户", x, y, returnFocus })}
+            onContextMenu={(x, y, returnFocus) => setSidebarSectionMenu({ sectionId: "inbox-accounts", title: "E-Mail-Konten", x, y, returnFocus })}
           />
-          {!collapsedSidebarSections.has("inbox-accounts") && (sidebarMailAccounts === undefined ? <small>正在读取账户…</small> : sidebarMailAccounts.length ? <>
+          {!collapsedSidebarSections.has("inbox-accounts") && (sidebarMailAccounts === undefined ? <small>Konto lesen...</small> : sidebarMailAccounts.length ? <>
             {sidebarMailAccounts.map((account) => {
               const expanded = expandedMailAccounts.has(account.id);
               return <div className="mail-account-tree" key={account.id}>
@@ -1337,23 +1337,23 @@ function WorkspaceAppContent({
               </div>;
             })}
             <small>{formatSidebarSyncTime(sidebarMailAccounts)}</small>
-          </> : <Link className="sidebar-connect-mail" href="/settings"><Plus size={13} />连接邮箱</Link>)}
+          </> : <Link className="sidebar-connect-mail" href="/settings"><Plus size={13} />Mailkonto verbinden</Link>)}
         </div>}
 
         {section === "calendar" && <div className="account-block sidebar-context-block">
           <SidebarListHeading
-            title="日历来源"
+            title="Kalenderquellen"
             collapsed={collapsedSidebarSections.has("calendar-sources")}
             onToggle={() => toggleSidebarSection("calendar-sources")}
-            onContextMenu={(x, y, returnFocus) => setSidebarSectionMenu({ sectionId: "calendar-sources", title: "日历来源", x, y, returnFocus })}
+            onContextMenu={(x, y, returnFocus) => setSidebarSectionMenu({ sectionId: "calendar-sources", title: "Kalenderquellen", x, y, returnFocus })}
           />
-          {!collapsedSidebarSections.has("calendar-sources") && (sidebarCalendars === undefined ? <small>正在读取日历…</small> : sidebarCalendars.length
+          {!collapsedSidebarSections.has("calendar-sources") && (sidebarCalendars === undefined ? <small>Lesekalender...</small> : sidebarCalendars.length
             ? <div className="sidebar-calendar-list">{sidebarCalendars.map((calendar) => <div
               className="sidebar-calendar-source"
               key={calendar.id}
               role="button"
               tabIndex={0}
-              aria-label={`${calendar.name} 日历操作`}
+              aria-label={`${calendar.name} Kalenderbetrieb`}
               onContextMenu={(event) => {
                 event.preventDefault();
                 setSidebarCalendarMenu({
@@ -1368,22 +1368,22 @@ function WorkspaceAppContent({
                 ? <LoaderCircle className="spin" size={13} />
                 : <i style={{ background: calendar.color ?? "#86bdf5" }} />}
               <span><strong>{calendar.name}</strong><small>{sidebarCalendarSourceLabel(calendar)}</small></span>
-              {calendar.primary && <em>默认</em>}
+              {calendar.primary && <em>Standard</em>}
             </div>)}</div>
-            : <Link className="sidebar-connect-mail" href="/settings"><Plus size={13} />连接日历</Link>)}
+            : <Link className="sidebar-connect-mail" href="/settings"><Plus size={13} />Kalender verbinden</Link>)}
         </div>}
 
         {section === "tasks" && <div className="account-block sidebar-context-block">
           <SidebarListHeading
-            title="任务项目"
+            title="Aufgabenprojekte"
             collapsed={collapsedSidebarSections.has("tasks-groups")}
             onToggle={() => toggleSidebarSection("tasks-groups")}
-            onContextMenu={(x, y, returnFocus) => setSidebarSectionMenu({ sectionId: "tasks-groups", title: "任务项目", x, y, returnFocus })}
+            onContextMenu={(x, y, returnFocus) => setSidebarSectionMenu({ sectionId: "tasks-groups", title: "Aufgabenprojekte", x, y, returnFocus })}
           />
-          {!collapsedSidebarSections.has("tasks-groups") && (sidebarProjects === undefined || sidebarTasks === undefined ? <small>正在读取项目…</small> : activeSidebarProjects.length ? <>
-            <nav className="sidebar-task-groups" aria-label="任务项目总览">
+          {!collapsedSidebarSections.has("tasks-groups") && (sidebarProjects === undefined || sidebarTasks === undefined ? <small>Projekt lesen...</small> : activeSidebarProjects.length ? <>
+            <nav className="sidebar-task-groups" aria-label="Übersicht der Aufgabenprojekte">
               <Link className={initialTaskView === "projects" && !initialProjectId ? "active" : ""} href="/tasks?view=projects" onClick={() => setSidebarOpen(false)}>
-                <FolderPlus size={14} /><span>全部项目</span><em>{Array.from(sidebarProjectTaskCounts?.values() ?? []).reduce((total, count) => total + count, 0)}</em>
+                <FolderPlus size={14} /><span>Alle Projekte</span><em>{Array.from(sidebarProjectTaskCounts?.values() ?? []).reduce((total, count) => total + count, 0)}</em>
               </Link>
             </nav>
             <SidebarProjectGroups
@@ -1395,16 +1395,16 @@ function WorkspaceAppContent({
               onNavigate={() => setSidebarOpen(false)}
               onToggleArea={toggleCollapsedProjectArea}
             />
-          </> : <Link className="sidebar-create-project" href="/projects" onClick={() => setSidebarOpen(false)}><Plus size={13} />创建第一个项目</Link>)}
+          </> : <Link className="sidebar-create-project" href="/projects" onClick={() => setSidebarOpen(false)}><Plus size={13} />Erstes Projekt erstellen</Link>)}
         </div>}
 
         {section === "projects" && <div className="account-block sidebar-context-block">
           <div className="sidebar-context-heading">
-            <p className="eyebrow">项目</p>
+            <p className="eyebrow">Projekt</p>
             <button
               type="button"
-              aria-label="新建项目"
-              title="新建项目"
+              aria-label="Neues Projekt"
+              title="Neues Projekt"
               onClick={() => {
                 window.dispatchEvent(new Event(OPEN_PROJECT_DIALOG_EVENT));
                 setSidebarOpen(false);
@@ -1412,7 +1412,7 @@ function WorkspaceAppContent({
             ><Plus size={14} /></button>
           </div>
           {sidebarProjectNotice && <div className="sidebar-project-notice" role="status">{sidebarProjectNotice}</div>}
-          {sidebarProjects === undefined ? <small>正在读取项目…</small> : sidebarProjects.length ? <>
+          {sidebarProjects === undefined ? <small>Projekt lesen...</small> : sidebarProjects.length ? <>
             <SidebarProjectGroups
               collapsedAreas={collapsedProjectAreas}
               groups={activeSidebarProjectGroups}
@@ -1443,11 +1443,11 @@ function WorkspaceAppContent({
               onProjectDrop={(projectId, target) => {
                 setDraggedSidebarProjectId(undefined);
                 setProjectDropTarget(undefined);
-                void reorderSidebarProject(projectId, target.areaName ?? "未分类", target.projectId, target.zone);
+                void reorderSidebarProject(projectId, target.areaName ?? "Nicht kategorisiert", target.projectId, target.zone);
               }}
             />
             {archivedSidebarProjects.length > 0 && <details className="sidebar-archived-projects">
-              <summary><Archive size={12} />已归档<span>{archivedSidebarProjects.length}</span></summary>
+              <summary><Archive size={12} />Archiviert<span>{archivedSidebarProjects.length}</span></summary>
               <SidebarProjectGroups
                 collapsedAreas={collapsedProjectAreas}
                 groups={archivedSidebarProjectGroups}
@@ -1478,14 +1478,14 @@ function WorkspaceAppContent({
                 onProjectDrop={(projectId, target) => {
                   setDraggedSidebarProjectId(undefined);
                   setProjectDropTarget(undefined);
-                  void reorderSidebarProject(projectId, target.areaName ?? "未分类", target.projectId, target.zone);
+                  void reorderSidebarProject(projectId, target.areaName ?? "Nicht kategorisiert", target.projectId, target.zone);
                 }}
               />
             </details>}
           </> : <button className="sidebar-create-project" type="button" onClick={() => {
             window.dispatchEvent(new Event(OPEN_PROJECT_DIALOG_EVENT));
             setSidebarOpen(false);
-          }}><Plus size={13} />创建第一个项目</button>}
+          }}><Plus size={13} />Erstes Projekt erstellen</button>}
         </div>}
 
         {section === "notes" && <div className="account-block sidebar-context-block">
@@ -1497,27 +1497,27 @@ function WorkspaceAppContent({
               onClick={() => toggleSidebarSection("notes-projects")}
               onContextMenu={(event) => {
                 event.preventDefault();
-                setSidebarSectionMenu({ sectionId: "notes-projects", title: "笔记项目", x: event.clientX, y: event.clientY, returnFocus: event.currentTarget });
+                setSidebarSectionMenu({ sectionId: "notes-projects", title: "Notizprojekte", x: event.clientX, y: event.clientY, returnFocus: event.currentTarget });
               }}
-            ><ChevronRight size={12} /><span>笔记项目</span></button>
+            ><ChevronRight size={12} /><span>Notizprojekte</span></button>
             <button
               type="button"
-              aria-label="新建项目"
-              title="新建项目"
+              aria-label="Neues Projekt"
+              title="Neues Projekt"
               onClick={() => {
                 window.dispatchEvent(new Event(OPEN_PROJECT_DIALOG_EVENT));
                 setSidebarOpen(false);
               }}
             ><Plus size={14} /></button>
           </div>
-          {!collapsedSidebarSections.has("notes-projects") && (sidebarProjects === undefined ? <small>正在读取项目…</small> : activeSidebarProjects.length ? <SidebarProjectGroups
+          {!collapsedSidebarSections.has("notes-projects") && (sidebarProjects === undefined ? <small>Projekt lesen...</small> : activeSidebarProjects.length ? <SidebarProjectGroups
             collapsedAreas={collapsedProjectAreas}
             groups={activeSidebarProjectGroups}
             draggedProjectId={draggedSidebarProjectId}
             dropTarget={projectDropTarget}
             selectedProjectId={initialProjectId}
             counts={sidebarProjectNoteCounts}
-            countLabel="篇笔记"
+            countLabel="Notizen"
             projectHref={(project) => `/notes?project=${encodeURIComponent(project.id)}`}
             onNavigate={() => setSidebarOpen(false)}
             onAreaContextMenu={(areaName, x, y, returnFocus) => {
@@ -1538,22 +1538,22 @@ function WorkspaceAppContent({
             onProjectDrop={(projectId, target) => {
               setDraggedSidebarProjectId(undefined);
               setProjectDropTarget(undefined);
-              void reorderSidebarProject(projectId, target.areaName ?? "未分类", target.projectId, target.zone);
+              void reorderSidebarProject(projectId, target.areaName ?? "Nicht kategorisiert", target.projectId, target.zone);
             }}
           /> : <button className="sidebar-create-project" type="button" onClick={() => {
             window.dispatchEvent(new Event(OPEN_PROJECT_DIALOG_EVENT));
             setSidebarOpen(false);
-          }}><Plus size={13} />创建第一个项目</button>)}
+          }}><Plus size={13} />Erstes Projekt erstellen</button>)}
         </div>}
 
         <div className="sidebar-user-area" ref={userMenuRef}>
           {userMenuOpen && (
             <div className="sidebar-user-menu" role="menu">
               <Link href="/settings" role="menuitem" onClick={() => { setUserMenuOpen(false); setSidebarOpen(false); }}>
-                <Settings size={16} /><span><strong>账户设置</strong><small>邮件、日历与服务连接</small></span>
+                <Settings size={16} /><span><strong>Kontoeinstellungen</strong><small>E-Mail-, Kalender- und Dienstverbindungen</small></span>
               </Link>
               <button type="button" role="menuitem" onClick={() => void logout()}>
-                <LogOut size={16} /><span><strong>退出登录</strong><small>结束当前工作台会话</small></span>
+                <LogOut size={16} /><span><strong>Abmelden</strong><small>Beenden Sie die aktuelle Workstation-Sitzung</small></span>
               </button>
             </div>
           )}
@@ -1571,7 +1571,7 @@ function WorkspaceAppContent({
         <SidebarResizeHandle width={sidebarWidth} onChange={setSidebarWidth} />
       </aside>
 
-      {sidebarOpen && <button className="sidebar-scrim" aria-label="关闭导航" onClick={() => setSidebarOpen(false)} />}
+      {sidebarOpen && <button className="sidebar-scrim" aria-label="Navigator Weniger anzeigen" onClick={() => setSidebarOpen(false)} />}
 
       <section className="workspace">
         <GlobalCommandBar
@@ -1589,7 +1589,7 @@ function WorkspaceAppContent({
             <PageContent section={section} currentUser={currentUser} desktopAvailable={desktopAvailable} initialMessageId={initialMessageId} initialMailFolderId={initialMailFolderId} initialMailCorrespondent={initialMailCorrespondent} initialComposeTo={initialComposeTo} initialTaskId={initialTaskId} initialTaskView={initialTaskView} initialCreateTask={initialCreateTask} initialScheduleTaskId={initialScheduleTaskId} initialEventId={initialEventId} initialCalendarDate={initialCalendarDate} initialNoteId={initialNoteId} initialNoteFilter={initialNoteFilter} initialProjectId={initialProjectId} onOpenAssistant={() => setAssistantOpen(true)} />
           </main>
           {assistantAvailable && assistantOpen && <>
-            <button className="assistant-scrim" type="button" aria-label="关闭上下文助手" onClick={() => setAssistantOpen(false)} />
+            <button className="assistant-scrim" type="button" aria-label="Kontextassistent Weniger anzeigen" onClick={() => setAssistantOpen(false)} />
             <ContextAssistantResizeHandle width={assistantWidth} onChange={setAssistantWidth} />
             <AssistantPanel title={pageAssistantTitles[section]} section={section} onClose={() => setAssistantOpen(false)} />
           </>}
@@ -1598,10 +1598,10 @@ function WorkspaceAppContent({
       <MobileBottomNav section={section} unreadCount={sidebarUnreadCount} />
       {sidebarSectionMenu && <ContextMenu
         anchor={{ x: sidebarSectionMenu.x, y: sidebarSectionMenu.y }}
-        ariaLabel={`${sidebarSectionMenu.title}列表操作`}
+        ariaLabel={`${sidebarSectionMenu.title}Listenaktionen`}
         commands={[{
           id: "sidebar.toggle-section",
-          label: collapsedSidebarSections.has(sidebarSectionMenu.sectionId) ? "展开列表" : "折叠列表",
+          label: collapsedSidebarSections.has(sidebarSectionMenu.sectionId) ? "Liste erweitern" : "Liste des Zusammenbruchs",
           group: "organize",
           risk: "read",
           icon: collapsedSidebarSections.has(sidebarSectionMenu.sectionId) ? "eye" : "eye-off",
@@ -1619,14 +1619,14 @@ function WorkspaceAppContent({
         const busy = sidebarMailSyncBusyId === account.id || account.syncStatus === "syncing";
         return <ContextMenu
           anchor={{ x: sidebarMailAccountMenu.x, y: sidebarMailAccountMenu.y }}
-          ariaLabel={`邮箱账户操作：${account.displayName}`}
+          ariaLabel={`Mailbox-Kontobetrieb:${account.displayName}`}
           commands={[{
             id: "mail-account.sync",
-            label: busy ? "正在同步…" : "立即同步",
+            label: busy ? "Wird synchronisiert…" : "Jetzt synchronisieren",
             group: "primary",
             risk: "external-write",
             icon: "refresh",
-            disabledReason: account.syncStatus === "paused" ? "账户已暂停" : busy ? "同步进行中" : undefined,
+            disabledReason: account.syncStatus === "paused" ? "Konto angehalten" : busy ? "Synchronisierung im Gange" : undefined,
           }]}
           heading={account.displayName}
           returnFocus={sidebarMailAccountMenu.returnFocus}
@@ -1643,14 +1643,14 @@ function WorkspaceAppContent({
         const busy = sidebarCalendarSyncBusyId === calendar.id;
         return <ContextMenu
           anchor={{ x: sidebarCalendarMenu.x, y: sidebarCalendarMenu.y }}
-          ariaLabel={`日历操作：${calendar.name}`}
+          ariaLabel={`Kalender-Operation:${calendar.name}`}
           commands={[{
             id: "calendar-account.sync",
-            label: busy ? "正在刷新…" : "立即刷新",
+            label: busy ? "Wird aktualisiert …" : "Jetzt aktualisieren",
             group: "primary",
             risk: calendar.providerData?.accountId ? "external-write" : "read",
             icon: "refresh",
-            disabledReason: busy ? "刷新进行中" : undefined,
+            disabledReason: busy ? "Aktualisierung läuft" : undefined,
           }]}
           heading={calendar.name}
           returnFocus={sidebarCalendarMenu.returnFocus}
@@ -1664,7 +1664,7 @@ function WorkspaceAppContent({
       {sidebarCalendarNotice && <TransientToast message={sidebarCalendarNotice} onClose={() => setSidebarCalendarNotice(undefined)} duration={4_000} testId="calendar-account-sync-notice" />}
       {sidebarProjectMenu && sidebarProjectMenuTarget && <ContextMenu
         anchor={{ x: sidebarProjectMenu.x, y: sidebarProjectMenu.y }}
-        ariaLabel={`项目操作：${sidebarProjectMenuTarget.name}`}
+        ariaLabel={`Projektbetrieb:${sidebarProjectMenuTarget.name}`}
         commands={resolveContextCommands({
           kind: "project",
           id: sidebarProjectMenuTarget.id,
@@ -1680,12 +1680,12 @@ function WorkspaceAppContent({
       />}
       {sidebarProjectAreaMenu && <ContextMenu
         anchor={{ x: sidebarProjectAreaMenu.x, y: sidebarProjectAreaMenu.y }}
-        ariaLabel={`领域操作：${sidebarProjectAreaMenu.areaName}`}
+        ariaLabel={`Aktionen für Bereich: ${sidebarProjectAreaMenu.areaName}`}
         commands={[
-          { id: "project-area.create-project", label: "在此领域新建项目", group: "primary", risk: "local-write", icon: "folder" },
-          { id: "project-area.rename", label: "重命名领域", group: "primary", risk: "local-write", icon: "edit", disabledReason: sidebarProjectAreaMenu.areaName === "未分类" ? "系统分组不能重命名" : sidebarProjectBusyId ? "操作进行中" : undefined },
-          { id: "project-area.toggle", label: collapsedProjectAreas.has(sidebarProjectAreaMenu.areaName) ? "展开领域" : "折叠领域", group: "organize", risk: "read", icon: collapsedProjectAreas.has(sidebarProjectAreaMenu.areaName) ? "eye" : "eye-off" },
-          { id: "project-area.collapse-others", label: "折叠其他领域", group: "organize", risk: "read", icon: "archive" },
+          { id: "project-area.create-project", label: "Neues Projekt in diesem Bereich", group: "primary", risk: "local-write", icon: "folder" },
+          { id: "project-area.rename", label: "Bereich umbenennen", group: "primary", risk: "local-write", icon: "edit", disabledReason: sidebarProjectAreaMenu.areaName === "Nicht kategorisiert" ? "Systemgruppen können nicht umbenannt werden" : sidebarProjectBusyId ? "Aktion läuft" : undefined },
+          { id: "project-area.toggle", label: collapsedProjectAreas.has(sidebarProjectAreaMenu.areaName) ? "Bereich aufklappen" : "Bereich zuklappen", group: "organize", risk: "read", icon: collapsedProjectAreas.has(sidebarProjectAreaMenu.areaName) ? "eye" : "eye-off" },
+          { id: "project-area.collapse-others", label: "Andere Bereiche zuklappen", group: "organize", risk: "read", icon: "archive" },
         ]}
         heading={sidebarProjectAreaMenu.areaName}
         returnFocus={sidebarProjectAreaMenu.returnFocus}
@@ -1697,11 +1697,11 @@ function WorkspaceAppContent({
         if (event.target === event.currentTarget && !sidebarProjectBusyId) setSidebarProjectAreaTargetId(undefined);
       }}>
         <section className="calendar-dialog project-area-dialog panel" role="dialog" aria-modal="true" aria-labelledby="project-area-dialog-title">
-          <header><div><h2 id="project-area-dialog-title">移动到领域</h2></div><button aria-label="关闭" disabled={Boolean(sidebarProjectBusyId)} onClick={() => setSidebarProjectAreaTargetId(undefined)}><X size={18} /></button></header>
-          <p>“{sidebarProjectAreaTarget.name}”所属领域</p>
+          <header><div><h2 id="project-area-dialog-title">In Bereich verschieben</h2></div><button aria-label="Schließen" disabled={Boolean(sidebarProjectBusyId)} onClick={() => setSidebarProjectAreaTargetId(undefined)}><X size={18} /></button></header>
+          <p>Projekt „{sidebarProjectAreaTarget.name}“ verschieben nach:</p>
           <div className="project-area-options">
-            {Array.from(new Set([...allSidebarProjectAreas, "未分类"])).map((areaName) => {
-              const currentAreaName = sidebarProjectAreaTarget.areaName?.trim() || "未分类";
+            {Array.from(new Set([...allSidebarProjectAreas, "Nicht kategorisiert"])).map((areaName) => {
+              const currentAreaName = sidebarProjectAreaTarget.areaName?.trim() || "Nicht kategorisiert";
               const current = areaName === currentAreaName;
               return <button key={areaName} type="button" className={current ? "active" : ""} disabled={current || Boolean(sidebarProjectBusyId)} onClick={() => {
                 setSidebarProjectAreaTargetId(undefined);
@@ -1776,13 +1776,13 @@ function SidebarResizeHandle({
     <div
       className="sidebar-resize-handle"
       role="separator"
-      aria-label="调整左侧导航宽度"
+      aria-label="Passen Sie die Navigationsbreite links an"
       aria-orientation="vertical"
       aria-valuemin={MIN_SIDEBAR_WIDTH}
       aria-valuemax={MAX_SIDEBAR_WIDTH}
       aria-valuenow={width}
       tabIndex={0}
-      title="拖动调整宽度；双击恢复默认"
+      title="Ziehen, um die Breite anzupassen; Doppelklicken, um die Standardeinstellung wiederherzustellen"
       onDoubleClick={() => onChange(DEFAULT_SIDEBAR_WIDTH)}
       onKeyDown={handleKeyDown}
       onPointerCancel={handlePointerEnd}
@@ -1853,13 +1853,13 @@ function ContextAssistantResizeHandle({
     <div
       className="assistant-resize-handle"
       role="separator"
-      aria-label="调整邮件与助手的宽度"
+      aria-label="Passen Sie die Breite der Mail an die des Assistenten an"
       aria-orientation="vertical"
       aria-valuemin={MIN_CONTEXT_ASSISTANT_WIDTH}
       aria-valuemax={MAX_CONTEXT_ASSISTANT_WIDTH}
       aria-valuenow={width}
       tabIndex={0}
-      title="拖动调整宽度；双击恢复默认"
+      title="Ziehen, um die Breite anzupassen; Doppelklicken, um die Standardeinstellung wiederherzustellen"
       onDoubleClick={() => onChange(DEFAULT_CONTEXT_ASSISTANT_WIDTH)}
       onKeyDown={handleKeyDown}
       onPointerCancel={handlePointerEnd}
@@ -1960,15 +1960,15 @@ function MailFolderTree({
   ) => {
     if (folderBusyId) return;
     setFolderBusyId(folderId);
-    setFolderNotice("正在同步文件夹操作到邮箱服务器…");
+    setFolderNotice("Ordner wird mit dem Mailserver synchronisiert …");
     try {
       const response = await fetch(url, init);
       const payload = await response.json() as { readonly message?: string; readonly result?: { readonly refreshed?: boolean } };
-      if (!response.ok) throw new Error(payload.message || "文件夹操作失败");
+      if (!response.ok) throw new Error(payload.message || "Ordner-Operation fehlgeschlagen");
       await onRefresh();
-      setFolderNotice(payload.result?.refreshed === false ? `${successMessage}；服务器已修改，后台同步稍后完成` : successMessage);
+      setFolderNotice(payload.result?.refreshed === false ? `${successMessage}; die Änderung wurde auf dem Server gespeichert und wird später synchronisiert` : successMessage);
     } catch (error) {
-      setFolderNotice(error instanceof Error ? error.message : "文件夹操作失败");
+      setFolderNotice(error instanceof Error ? error.message : "Ordner-Operation fehlgeschlagen");
     } finally {
       setFolderBusyId(undefined);
     }
@@ -1980,10 +1980,10 @@ function MailFolderTree({
     if (!folder) return;
     if (commandId === "mail-folder.create-child" || commandId === "mail-folder.create-sibling") {
       const name = await appPrompt({
-        title: commandId === "mail-folder.create-child" ? "新建子文件夹" : "新建同级文件夹",
-        description: commandId === "mail-folder.create-child" ? `位置：“${mailFolderLabel(folder)}”` : undefined,
-        placeholder: "输入文件夹名称",
-        confirmLabel: "创建",
+        title: commandId === "mail-folder.create-child" ? "Neuen Unterordner erstellen" : "Neuen Ordner auf dieser Ebene erstellen",
+        description: commandId === "mail-folder.create-child" ? `Übergeordneter Ordner: „${mailFolderLabel(folder)}“` : undefined,
+        placeholder: "Ordnernamen eingeben",
+        confirmLabel: "Erstellen",
       });
       if (!name?.trim()) return;
       const parentFolderId = commandId === "mail-folder.create-child" ? folder.id : folder.parentId;
@@ -1991,15 +1991,15 @@ function MailFolderTree({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accountId, parentFolderId, name }),
-      }, `已创建文件夹“${name.trim()}”`);
+      }, `Ordner „${name.trim()}“ erstellt`);
       return;
     }
     if (commandId === "mail-folder.rename") {
       const name = await appPrompt({
-        title: "重命名文件夹",
+        title: "Ordner umbenennen",
         defaultValue: folder.name,
-        placeholder: "输入文件夹名称",
-        confirmLabel: "重命名",
+        placeholder: "Ordnernamen eingeben",
+        confirmLabel: "Umbenennen",
         selectOnFocus: true,
       });
       if (!name?.trim() || name.trim() === folder.name) return;
@@ -2007,30 +2007,30 @@ function MailFolderTree({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "rename", name }),
-      }, `已重命名为“${name.trim()}”`);
+      }, `Ordner in „${name.trim()}“ umbenannt`);
       return;
     }
     if (commandId === "mail-folder.move-root") {
       setFolderConfirmation({
         kind: "move-root",
         sourceId: folder.id,
-        title: "移动到邮箱顶层？",
-        description: `“${folder.name}”将不再属于当前上级文件夹。`,
-        detail: "文件夹中的邮件和子文件夹会保持不变。",
-        confirmLabel: "确认移动",
+        title: "Ordner auf die oberste Ebene verschieben?",
+        description: `„${folder.name}“ gehört danach nicht mehr zum aktuellen übergeordneten Ordner.`,
+        detail: "E-Mails und Unterordner bleiben unverändert.",
+        confirmLabel: "Verschieben",
       });
       return;
     }
     if (commandId === "mail-folder.delete") {
       const descendants = countFolderDescendants(folder.id, children);
-      const detail = `${folder.totalCount ?? 0} 封邮件${descendants ? `、${descendants} 个子文件夹` : ""}`;
+      const detail = `${folder.totalCount ?? 0} E-Mail(s)${descendants ? `, ${descendants} Unterordner` : ""}`;
       setFolderConfirmation({
         kind: "delete",
         sourceId: folder.id,
-        title: "删除这个文件夹？",
-        description: `“${folder.name}”将移至已删除邮件。`,
-        detail: `其中包含 ${detail}，之后仍可在 Outlook 中恢复。`,
-        confirmLabel: "移至已删除邮件",
+        title: "Diesen Ordner löschen?",
+        description: `„${folder.name}“ wird in „Gelöschte Elemente“ verschoben.`,
+        detail: `Enthält ${detail} und kann in Outlook wiederhergestellt werden.`,
+        confirmLabel: "In Gelöschte Elemente verschieben",
         danger: true,
       });
     }
@@ -2044,18 +2044,18 @@ function MailFolderTree({
     setFolderConfirmation(undefined);
     if (!source) return;
     if (confirmation.kind === "move-child" && !target) {
-      setFolderNotice("目标文件夹已发生变化，请重新操作");
+      setFolderNotice("Zielordner hat sich geändert, bitte neu starten");
       return;
     }
     if (confirmation.kind === "delete") {
-      await runFolderRequest(source.id, `/api/mail-folders/${encodeURIComponent(source.id)}`, { method: "DELETE" }, `已将“${source.name}”移至已删除邮件`);
+      await runFolderRequest(source.id, `/api/mail-folders/${encodeURIComponent(source.id)}`, { method: "DELETE" }, `„${source.name}“ wurde in „Gelöschte Elemente“ verschoben`);
       return;
     }
     await runFolderRequest(source.id, `/api/mail-folders/${encodeURIComponent(source.id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(confirmation.kind === "move-root" ? { action: "move" } : { action: "move", parentFolderId: target?.id }),
-    }, confirmation.kind === "move-root" ? `已将“${source.name}”移动到顶层` : `已将“${source.name}”移动到“${target?.name ?? "目标文件夹"}”`);
+    }, confirmation.kind === "move-root" ? `„${source.name}“ wurde auf die oberste Ebene verschoben` : `„${source.name}“ wurde nach „${target?.name ?? "Zielordner"}“ verschoben`);
     if (confirmation.kind === "move-child" && target) {
       setExpandedFolderIds((current) => new Set([...current, target.id]));
     }
@@ -2070,7 +2070,7 @@ function MailFolderTree({
     if (!source || source.id === target.id || folderBusyId) return;
     if (zone === "before" || zone === "after") {
       if (source.parentId !== target.parentId || !isMutableMailFolder(target)) {
-        setFolderNotice("上下排序仅适用于同一层级的自定义文件夹；拖到名称中央可移动为子文件夹");
+        setFolderNotice("Das Sortieren nach oben und unten wird nur für Benutzerdefiniert Ordner auf der gleichen Ebene verwendet; ziehen Sie in die Mitte des Namens, um zu einem Unterordner zu bewegen");
         return;
       }
       const siblings = [...(children.get(source.parentId) ?? [])].filter(isMutableMailFolder).sort(compareMailFolders);
@@ -2084,17 +2084,17 @@ function MailFolderTree({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accountId, parentFolderId: source.parentId, orderedFolderIds: siblings.map((folder) => folder.id) }),
-      }, "文件夹顺序已保存");
+      }, "Ordner-Ordner-Ordner-Ordner gespeichert");
       return;
     }
     setFolderConfirmation({
       kind: "move-child",
       sourceId: source.id,
       targetId: target.id,
-      title: "移动文件夹？",
-      description: `把“${source.name}”移动到“${target.name}”中。`,
-      detail: "此操作会同步修改 RWTH/Outlook 中的文件夹层级。",
-      confirmLabel: "确认移动",
+      title: "Ordner verschieben?",
+      description: `set "${source.name}"Zu bewegen"${target.name}". (Das Parlament nimmt den Entwurf der legislativen Entschließung an.)`,
+      detail: "Diese Operation synchronisiert die Ordnerebene in RWTH/ Outlook.",
+      confirmLabel: "Bestätigung zum Verschieben",
     });
   };
 
@@ -2107,16 +2107,16 @@ function MailFolderTree({
     try {
       dragged = JSON.parse(event.dataTransfer.getData(MAIL_MESSAGE_DRAG_TYPE)) as MailMessageDragPayload;
     } catch {
-      setFolderNotice("无法识别拖动的邮件");
+      setFolderNotice("Die gezogene E-Mail konnte nicht erkannt werden");
       return;
     }
     if (!dragged?.messageId || !dragged.accountId || !dragged.subject) return;
     if (dragged.accountId !== accountId) {
-      setFolderNotice("邮件只能移动到同一个邮箱账户的文件夹");
+      setFolderNotice("E-Mails können nur in Ordner desselben Mailkontos verschoben werden");
       return;
     }
     setFolderBusyId(target.id);
-    setFolderNotice(`正在将“${dragged.subject}”移动到“${mailFolderLabel(target)}”…`);
+    setFolderNotice(`„${dragged.subject}“ wird nach „${mailFolderLabel(target)}“ verschoben …`);
     try {
       const response = await fetch(`/api/messages/${encodeURIComponent(dragged.messageId)}/actions`, {
         method: "PATCH",
@@ -2127,13 +2127,13 @@ function MailFolderTree({
         readonly message?: string;
         readonly result?: { readonly movedCount?: number; readonly destinationFolderId?: string };
       };
-      if (!response.ok || !payload.result) throw new Error(payload.message || "邮件移动失败");
+      if (!response.ok || !payload.result) throw new Error(payload.message || "E-Mail konnte nicht verschoben werden");
       await onRefresh();
       const movedCount = Math.max(1, payload.result.movedCount ?? 1);
       const destinationName = mailFolderLabel(target);
       setFolderNotice(movedCount > 1
-        ? `已将会话中的 ${movedCount} 封邮件移动到“${destinationName}”`
-        : `已将邮件移动到“${destinationName}”`);
+        ? `${movedCount} E-Mails wurden nach „${destinationName}“ verschoben`
+        : `E-Mail wurde nach „${destinationName}“ verschoben`);
       window.dispatchEvent(new CustomEvent<MailMessageMovedDetail>(MAIL_MESSAGE_MOVED_EVENT, {
         detail: {
           ...dragged,
@@ -2143,7 +2143,7 @@ function MailFolderTree({
         },
       }));
     } catch (error) {
-      setFolderNotice(error instanceof Error ? error.message : "邮件移动失败");
+      setFolderNotice(error instanceof Error ? error.message : "E-Mail konnte nicht verschoben werden");
     } finally {
       setFolderBusyId(undefined);
     }
@@ -2211,7 +2211,7 @@ function MailFolderTree({
         >
           {hasChildren ? <button
             className={`mail-folder-toggle ${expanded ? "expanded" : ""}`}
-            aria-label={`${expanded ? "折叠" : "展开"}${mailFolderLabel(folder)}`}
+            aria-label={`${expanded ? "Einklappen" : "Erweitern"}${mailFolderLabel(folder)}`}
             aria-expanded={expanded}
             onClick={() => setExpandedFolderIds((current) => {
               const next = new Set(current);
@@ -2232,7 +2232,7 @@ function MailFolderTree({
           </Link>
           {mutable && <span
             className="mail-folder-drag-handle"
-            title="拖动排序或移动文件夹"
+            title="Ordner zum Sortieren oder Verschieben ziehen"
           ><GripVertical size={13} /></span>}
         </div>
         {hasChildren && expanded && renderLevel(folder.id, depth + 1, new Set([...visited, folder.id]))}
@@ -2241,12 +2241,12 @@ function MailFolderTree({
   const contextFolder = accountFolders.find((folder) => folder.id === folderMenu?.folderId);
   const contextMutable = contextFolder ? isMutableMailFolder(contextFolder) : false;
   const contextCommands: readonly ResolvedContextCommand[] = contextFolder ? [
-    { id: "mail-folder.create-child", label: "新建子文件夹", group: "primary", risk: "external-write", icon: "note" },
-    { id: "mail-folder.create-sibling", label: "新建同级文件夹", group: "primary", risk: "external-write", icon: "copy" },
+    { id: "mail-folder.create-child", label: "Neuen Unterordner erstellen", group: "primary", risk: "external-write", icon: "note" },
+    { id: "mail-folder.create-sibling", label: "Neuen Ordner auf dieser Ebene erstellen", group: "primary", risk: "external-write", icon: "copy" },
     ...(contextMutable ? [
-      { id: "mail-folder.rename", label: "重命名", group: "organize", risk: "external-write", icon: "edit" },
-      ...(contextFolder.parentId ? [{ id: "mail-folder.move-root", label: "移动到邮箱顶层", group: "organize", risk: "external-write", icon: "archive" } as const] : []),
-      { id: "mail-folder.delete", label: "删除文件夹", group: "danger", risk: "destructive", icon: "trash" },
+      { id: "mail-folder.rename", label: "Umbenennen", group: "organize", risk: "external-write", icon: "edit" },
+      ...(contextFolder.parentId ? [{ id: "mail-folder.move-root", label: "Auf die oberste Postfachebene verschieben", group: "organize", risk: "external-write", icon: "archive" } as const] : []),
+      { id: "mail-folder.delete", label: "Ordner löschen", group: "danger", risk: "destructive", icon: "trash" },
     ] as const : []),
   ] : [];
   return <div className="mail-folder-tree">
@@ -2254,7 +2254,7 @@ function MailFolderTree({
     {renderLevel(undefined, 0, new Set())}
     {folderMenu && contextFolder && <ContextMenu
       anchor={{ x: folderMenu.x, y: folderMenu.y }}
-      ariaLabel={`文件夹操作：${contextFolder.name}`}
+      ariaLabel={`Ordner-Operation:${contextFolder.name}`}
       heading={contextFolder.name}
       commands={contextCommands}
       onClose={() => setFolderMenu(undefined)}
@@ -2264,13 +2264,13 @@ function MailFolderTree({
       <section className={`app-confirmation ${folderConfirmation.danger ? "danger" : ""}`} role="alertdialog" aria-modal="true" aria-labelledby="mail-folder-confirmation-title" aria-describedby="mail-folder-confirmation-description">
         <header>
           <span className="app-confirmation-icon">{folderConfirmation.danger ? <Trash2 size={18} /> : <Folder size={18} />}</span>
-          <div><small>同步到邮箱服务器</small><h2 id="mail-folder-confirmation-title">{folderConfirmation.title}</h2></div>
-          <button aria-label="关闭" disabled={Boolean(folderBusyId)} onClick={() => setFolderConfirmation(undefined)}><X size={17} /></button>
+          <div><small>Mit dem Mailserver synchronisieren</small><h2 id="mail-folder-confirmation-title">{folderConfirmation.title}</h2></div>
+          <button aria-label="Schließen" disabled={Boolean(folderBusyId)} onClick={() => setFolderConfirmation(undefined)}><X size={17} /></button>
         </header>
         <p id="mail-folder-confirmation-description">{folderConfirmation.description}</p>
         <div className="app-confirmation-detail">{folderConfirmation.detail}</div>
         <footer>
-          <button className="secondary-button" disabled={Boolean(folderBusyId)} onClick={() => setFolderConfirmation(undefined)}>取消</button>
+          <button className="secondary-button" disabled={Boolean(folderBusyId)} onClick={() => setFolderConfirmation(undefined)}>Abbrechen</button>
           <button className={`app-confirmation-submit ${folderConfirmation.danger ? "danger" : ""}`} disabled={Boolean(folderBusyId)} autoFocus onClick={() => void confirmFolderAction()}>{folderBusyId ? <LoaderCircle className="spin" size={15} /> : null}{folderConfirmation.confirmLabel}</button>
         </footer>
       </section>
@@ -2314,7 +2314,7 @@ function compareMailFolders(left: SidebarMailFolder, right: SidebarMailFolder): 
 }
 
 function mailFolderLabel(folder: SidebarMailFolder): string {
-  return ({ inbox: "收件箱", drafts: "草稿", sent: "已发送", archive: "归档", all: "所有邮件", junk: "垃圾邮件", spam: "垃圾邮件", trash: "已删除" } as Record<string, string>)[folder.role] ?? folder.name;
+  return ({ inbox: "Posteingang", drafts: "Entwürfe", sent: "Gesendet", archive: "Archiv", all: "Alle E-Mails", junk: "Spam", spam: "Spam", trash: "Gelöscht" } as Record<string, string>)[folder.role] ?? folder.name;
 }
 
 function mailFolderIcon(role: string): typeof Folder {
@@ -2357,7 +2357,7 @@ function useVisualViewportLayout() {
 function MobileBottomNav({ section, unreadCount }: { readonly section: WorkspaceSection; readonly unreadCount: number }) {
   const items = navigation.filter((item) => item.section !== "ai");
   return (
-    <nav className="mobile-bottom-nav" aria-label="移动端主导航">
+    <nav className="mobile-bottom-nav" aria-label="Mobile End Master Navigation">
       {items.map(({ section: item, label, icon: Icon }) => (
         <Link className={item === section ? "active" : ""} href={`/${item}`} key={item} aria-current={item === section ? "page" : undefined}>
           <span><Icon size={20} strokeWidth={1.8} />{item === "inbox" && unreadCount > 0 && <em>{unreadCount > 99 ? "99+" : unreadCount}</em>}</span>
@@ -2375,26 +2375,26 @@ function formatSidebarSyncTime(accounts: readonly SidebarMailAccount[]): string 
     if (Number.isNaN(value)) return current;
     return current === undefined ? value : Math.max(current, value);
   }, undefined);
-  if (latest === undefined) return "尚未完成同步";
+  if (latest === undefined) return "Noch nicht synchronisiert";
   const minutes = Math.max(0, Math.round((Date.now() - latest) / 60_000));
-  if (minutes < 1) return "刚刚同步";
-  if (minutes < 60) return `${minutes} 分钟前同步`;
+  if (minutes < 1) return "nur synchronisiert";
+  if (minutes < 60) return `${minutes} Vor Minuten synchronisieren`;
   const hours = Math.round(minutes / 60);
-  return hours < 24 ? `${hours} 小时前同步` : `${Math.round(hours / 24)} 天前同步`;
+  return hours < 24 ? `${hours} Vor Stunde synchronisieren` : `${Math.round(hours / 24)} Vor dem Tag synchronisieren`;
 }
 
 function sidebarCalendarSourceLabel(calendar: SidebarCalendarSource): string {
   const provider = calendar.providerData?.providerId;
   const source = provider === "local-calendar"
-    ? "本地"
+    ? "Ort"
     : provider === "caldav"
       ? "CalDAV"
       : provider === "exchange"
         ? "Exchange"
         : provider === "ics"
           ? "ICS"
-          : "日历";
-  return `${source}${calendar.readOnly ? " · 只读" : ""}`;
+          : "Kalender";
+  return `${source}${calendar.readOnly ? " · Nur lesen" : ""}`;
 }
 
 function createSidebarProjectTaskCounts(tasks: readonly SidebarTaskSummary[]): ReadonlyMap<string, number> {
@@ -2414,18 +2414,18 @@ interface SidebarProjectGroup {
 function groupSidebarProjectsByArea(projects: readonly SidebarProjectSummary[]): readonly SidebarProjectGroup[] {
   const groups = new Map<string, SidebarProjectSummary[]>();
   for (const project of projects) {
-    const areaName = project.areaName?.trim() || "未分类";
+    const areaName = project.areaName?.trim() || "Nicht kategorisiert";
     const entries = groups.get(areaName) ?? [];
     entries.push(project);
     groups.set(areaName, entries);
   }
   return Array.from(groups, ([areaName, entries]) => ({
     areaName,
-    projects: entries.sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "zh-CN")),
+    projects: entries.sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "de-DE")),
   })).sort((left, right) => {
-    if (left.areaName === "未分类") return 1;
-    if (right.areaName === "未分类") return -1;
-    return left.areaName.localeCompare(right.areaName, "zh-CN");
+    if (left.areaName === "Nicht kategorisiert") return 1;
+    if (right.areaName === "Nicht kategorisiert") return -1;
+    return left.areaName.localeCompare(right.areaName, "de-DE");
   });
 }
 
@@ -2461,7 +2461,7 @@ function SidebarProjectGroups({
   dropTarget,
   selectedProjectId,
   counts,
-  countLabel = "个未完成任务",
+  countLabel = "eine herausragende Aufgabe",
   projectHref = (project) => `/projects?project=${encodeURIComponent(project.id)}`,
   onNavigate,
   onAreaContextMenu,
@@ -2517,7 +2517,7 @@ function SidebarProjectGroups({
         event.preventDefault();
         onProjectDrop(projectId, { areaName: group.areaName });
       }}><button type="button" aria-expanded={!collapsed} onClick={() => onToggleArea(group.areaName)}><ChevronRight size={11} />{group.areaName}</button><span>{group.projects.length}</span></h3>
-      {!collapsed && <nav className="sidebar-project-list" aria-label={`${group.areaName}项目`}>
+      {!collapsed && <nav className="sidebar-project-list" aria-label={`${group.areaName}Projekt`}>
         {group.projects.map((project) => <SidebarProjectLink
           active={selectedProjectId === project.id}
           dragging={draggedProjectId === project.id}
@@ -2698,129 +2698,129 @@ function SettingsPage({ currentUser, desktopAvailable }: { readonly currentUser:
 
 const shortcutGroups = [
   {
-    title: "全局",
+    title: "global",
     shortcuts: [
-      { keys: ["Ctrl/Cmd", "K"], action: "打开全局搜索" },
-      { keys: ["Esc"], action: "关闭搜索、菜单或当前确认弹窗" },
+      { keys: ["Ctrl/Cmd", "K"], action: "Globale Suche öffnen" },
+      { keys: ["Esc"], action: "Das Such-, Menü- oder aktuelle Bestätigungsfenster Weniger anzeigen" },
     ],
   },
   {
-    title: "搜索",
+    title: "Suchen",
     shortcuts: [
-      { keys: ["Enter"], action: "打开当前搜索结果" },
-      { keys: ["Esc"], action: "关闭搜索面板" },
-      { keys: ["菜单键"], action: "打开搜索结果操作菜单" },
-      { keys: ["Shift", "F10"], action: "打开搜索结果操作菜单" },
+      { keys: ["Enter"], action: "Öffnet das aktuelle Suchergebnis" },
+      { keys: ["Esc"], action: "Suchfeld Weniger anzeigen" },
+      { keys: ["Menütasten"], action: "Suchergebnismenü öffnen" },
+      { keys: ["Shift", "F10"], action: "Suchergebnismenü öffnen" },
     ],
   },
   {
-    title: "上下文菜单",
+    title: "Kontextmenü",
     shortcuts: [
-      { keys: ["↑↓"], action: "在菜单项之间移动焦点" },
-      { keys: ["Home"], action: "跳到第一个菜单项" },
-      { keys: ["End"], action: "跳到最后一个菜单项" },
-      { keys: ["Esc"], action: "关闭菜单并恢复焦点" },
+      { keys: ["↑↓"], action: "Fokus zwischen Menüpunkten verschieben" },
+      { keys: ["Home"], action: "Zum ersten Menüeintrag springen" },
+      { keys: ["End"], action: "Zum letzten Menüeintrag springen" },
+      { keys: ["Esc"], action: "Menü Weniger anzeigen und Fokus wiederherstellen" },
     ],
   },
   {
-    title: "左侧导航",
+    title: "Links-Navigator",
     shortcuts: [
-      { keys: ["←"], action: "缩小左侧导航" },
-      { keys: ["→"], action: "放大左侧导航" },
-      { keys: ["Shift", "←/→"], action: "以更大步进调整左侧导航宽度" },
-      { keys: ["Home"], action: "设置为最小宽度" },
-      { keys: ["End"], action: "设置为最大宽度" },
+      { keys: ["←"], action: "schmale linke Navigation" },
+      { keys: ["→"], action: "nach links einzoomen" },
+      { keys: ["Shift", "←/→"], action: "Navigationsbreite in größeren Schritten ändern" },
+      { keys: ["Home"], action: "auf Mindestbreite eingestellt" },
+      { keys: ["End"], action: "auf maximale Breite eingestellt" },
     ],
   },
   {
-    title: "邮件",
+    title: "E-Mail",
     shortcuts: [
-      { keys: ["↑↓"], action: "选择上一封或下一封邮件" },
-      { keys: ["Shift", "↑↓"], action: "连续选择多封邮件" },
-      { keys: ["Ctrl/Cmd", "点击"], action: "增减选择单封邮件" },
-      { keys: ["Shift", "点击"], action: "从上次选择位置连续选择" },
-      { keys: ["Ctrl/Cmd", "A"], action: "全选当前筛选结果" },
-      { keys: ["Esc"], action: "清除邮件多选" },
-      { keys: ["Enter"], action: "打开当前选中的邮件" },
-      { keys: ["Delete/Entf"], action: "删除当前邮件或已多选的邮件" },
-      { keys: ["菜单键"], action: "打开邮件操作菜单" },
-      { keys: ["Shift", "F10"], action: "打开邮件操作菜单" },
-      { keys: ["Enter"], action: "展开或收起聚焦的邮件线程" },
-      { keys: ["Space"], action: "展开或收起聚焦的邮件线程" },
+      { keys: ["↑↓"], action: "Vorherige oder Nächste E-Mail auswählen" },
+      { keys: ["Shift", "↑↓"], action: "Auswahl mehrerer Mails auf kontinuierlicher Basis" },
+      { keys: ["Ctrl/Cmd", "klicken"], action: "Erhöhung oder Abnahme der Auswahl von einzelnen E-Mail" },
+      { keys: ["Shift", "klicken"], action: "kontinuierlich aus dem letzten Standort ausgewählt" },
+      { keys: ["Ctrl/Cmd", "A"], action: "Alle aktuellen Filterergebnisse auswählen" },
+      { keys: ["Esc"], action: "Multi-Select-Mail löschen" },
+      { keys: ["Enter"], action: "Öffnet die aktuell ausgewählte E-Mail" },
+      { keys: ["Delete/Entf"], action: "aktuelle oder mehrere E-Mails löschen" },
+      { keys: ["Menütasten"], action: "Öffnen Sie das Menü Mail-Bedienung" },
+      { keys: ["Shift", "F10"], action: "Öffnen Sie das Menü Mail-Bedienung" },
+      { keys: ["Enter"], action: "ein aktiver oder fokussierter Mail-Thread" },
+      { keys: ["Space"], action: "ein aktiver oder fokussierter Mail-Thread" },
     ],
   },
   {
-    title: "日历",
+    title: "Kalender",
     shortcuts: [
-      { keys: ["菜单键"], action: "打开日历事件操作菜单" },
-      { keys: ["Shift", "F10"], action: "打开日历事件操作菜单" },
-      { keys: ["Shift", "右键"], action: "保留浏览器原生右键菜单" },
+      { keys: ["Menütasten"], action: "Öffnen Sie das Kalender-Veranstaltungsmenü" },
+      { keys: ["Shift", "F10"], action: "Öffnen Sie das Kalender-Veranstaltungsmenü" },
+      { keys: ["Shift", "Rechter Schlüssel"], action: "Speichern Sie das originale rechte Knopfmenü für Browser" },
     ],
   },
   {
-    title: "项目计划",
+    title: "Projektplan",
     shortcuts: [
-      { keys: ["Ctrl", "滚轮"], action: "缩放项目甘特图时间轴" },
-      { keys: ["Enter"], action: "编辑聚焦的计划任务" },
-      { keys: ["Space"], action: "编辑聚焦的计划任务" },
-      { keys: ["菜单键"], action: "打开计划任务操作菜单" },
-      { keys: ["Shift", "F10"], action: "打开计划任务操作菜单" },
+      { keys: ["Ctrl", "Räder"], action: "Skalierung Projekt Gantt Diagramm Zeitachse" },
+      { keys: ["Enter"], action: "Fokussierte geplante Aufgaben bearbeiten" },
+      { keys: ["Space"], action: "Fokussierte geplante Aufgaben bearbeiten" },
+      { keys: ["Menütasten"], action: "Öffnen Sie das Menü Planbetrieb" },
+      { keys: ["Shift", "F10"], action: "Öffnen Sie das Menü Planbetrieb" },
     ],
   },
   {
-    title: "笔记",
+    title: "Notiz",
     shortcuts: [
-      { keys: ["菜单键"], action: "打开笔记操作菜单" },
-      { keys: ["Shift", "F10"], action: "打开笔记操作菜单" },
-      { keys: ["Ctrl/Cmd", "B"], action: "加粗" },
-      { keys: ["Ctrl/Cmd", "I"], action: "斜体" },
-      { keys: ["Ctrl/Cmd", "U"], action: "下划线" },
-      { keys: ["Ctrl/Cmd", "E"], action: "行内代码" },
-      { keys: ["Ctrl/Cmd", "Shift", "X"], action: "删除线" },
-      { keys: ["Ctrl/Cmd", ","], action: "下标" },
-      { keys: ["Ctrl/Cmd", "."], action: "上标" },
-      { keys: ["Ctrl/Cmd", "Shift", "H"], action: "高亮" },
-      { keys: ["Ctrl/Cmd", "Shift", "M"], action: "添加评论草稿" },
+      { keys: ["Menütasten"], action: "Hinweis öffnen Menü für die Operation öffnen" },
+      { keys: ["Shift", "F10"], action: "Hinweis öffnen Menü für die Operation öffnen" },
+      { keys: ["Ctrl/Cmd", "B"], action: "dicker" },
+      { keys: ["Ctrl/Cmd", "I"], action: "kursiv" },
+      { keys: ["Ctrl/Cmd", "U"], action: "unterstrichen" },
+      { keys: ["Ctrl/Cmd", "E"], action: "Zeilencode" },
+      { keys: ["Ctrl/Cmd", "Shift", "X"], action: "Streik" },
+      { keys: ["Ctrl/Cmd", ","], action: "Subskript" },
+      { keys: ["Ctrl/Cmd", "."], action: "Superskript" },
+      { keys: ["Ctrl/Cmd", "Shift", "H"], action: "Hervorhebung" },
+      { keys: ["Ctrl/Cmd", "Shift", "M"], action: "Entwurf von Kommentaren hinzufügen" },
     ],
   },
   {
-    title: "设置与运维",
+    title: "Einstellungen und Verdrahtung",
     shortcuts: [
-      { keys: ["菜单键"], action: "打开当前任务或备份的操作菜单" },
-      { keys: ["Shift", "F10"], action: "打开当前任务或备份的操作菜单" },
-      { keys: ["Esc"], action: "关闭用户菜单或文件夹编辑浮层" },
+      { keys: ["Menütasten"], action: "Öffnet das aktuelle Task- oder Backup-Menü" },
+      { keys: ["Shift", "F10"], action: "Öffnet das aktuelle Task- oder Backup-Menü" },
+      { keys: ["Esc"], action: "Benutzermenü oder schwebendes Fenster schließen" },
     ],
   },
   {
-    title: "编辑器块级格式",
+    title: "Formatierung auf Blockebene des Editors",
     shortcuts: [
-      { keys: ["Ctrl/Cmd", "Alt", "1-6"], action: "切换为 1 至 6 级标题" },
-      { keys: ["Ctrl/Cmd", "Alt", "8"], action: "切换代码块" },
-      { keys: ["Ctrl/Cmd", "Shift", "."], action: "切换引用块" },
-      { keys: ["Ctrl/Cmd", "Enter"], action: "在当前块后插入退出换行" },
-      { keys: ["Ctrl/Cmd", "Shift", "Enter"], action: "在当前块前插入退出换行" },
+      { keys: ["Ctrl/Cmd", "Alt", "1-6"], action: "Umschalten auf Level 1 bis 6" },
+      { keys: ["Ctrl/Cmd", "Alt", "8"], action: "Code-Blocks umschalten" },
+      { keys: ["Ctrl/Cmd", "Shift", "."], action: "Referenzblöcke umschalten" },
+      { keys: ["Ctrl/Cmd", "Enter"], action: "Exit Break nach dem aktuellen Block einfügen" },
+      { keys: ["Ctrl/Cmd", "Shift", "Enter"], action: "Exit Break vor dem aktuellen Block einfügen" },
     ],
   },
   {
-    title: "编辑器 AI 与工具弹层",
+    title: "Editor AI und Werkzeugschicht",
     shortcuts: [
-      { keys: ["Tab"], action: "接受 AI 补全文本" },
-      { keys: ["Ctrl/Cmd", "→"], action: "接受 AI 补全的下一个词" },
-      { keys: ["Ctrl", "Space"], action: "触发 AI 补全建议" },
-      { keys: ["Esc"], action: "拒绝 AI 补全或停止编辑器 AI 输出" },
-      { keys: ["Enter"], action: "提交编辑器 AI 输入" },
-      { keys: ["Backspace"], action: "在空 AI 输入中关闭 AI 菜单" },
-      { keys: ["↓"], action: "打开媒体上传按钮的附加菜单" },
-      { keys: ["Enter"], action: "确认媒体 URL 或字号输入" },
-      { keys: ["Enter"], action: "提交评论回复" },
-      { keys: ["Shift", "Enter"], action: "在评论回复中换行" },
+      { keys: ["Tab"], action: "Akzeptieren Sie den vollständigen Wortlaut der KI" },
+      { keys: ["Ctrl/Cmd", "→"], action: "Akzeptieren Sie das nächste Wort für KI-Vervollständigung" },
+      { keys: ["Ctrl", "Space"], action: "Empfehlungen zur KI-Vervollständigung auslösen" },
+      { keys: ["Esc"], action: "KI-Vervollständigung verweigern oder den Editor KI-Ausgabe stoppen" },
+      { keys: ["Enter"], action: "KI-Eingang des Editors abschicken" },
+      { keys: ["Backspace"], action: "KI-Menü bei leerer Eingabe schließen" },
+      { keys: ["↓"], action: "Zusätzliches Menü zum Öffnen von Medien-Upload-Schaltflächen" },
+      { keys: ["Enter"], action: "Medien-URL oder Zeicheneingabe bestätigen" },
+      { keys: ["Enter"], action: "Übermittlung von Stellungnahmen" },
+      { keys: ["Shift", "Enter"], action: "Zeilenbruch in Kommentaren" },
     ],
   },
   {
     title: "AI Command",
     shortcuts: [
-      { keys: ["Enter"], action: "发送当前消息" },
-      { keys: ["Shift", "Enter"], action: "在消息中换行" },
+      { keys: ["Enter"], action: "Senden Sie die aktuelle Nachricht" },
+      { keys: ["Shift", "Enter"], action: "Zeilenbruch in der Nachricht" },
     ],
   },
 ] as const;
@@ -2829,7 +2829,7 @@ function ShortcutsSettings() {
   return (
     <section className="shortcuts-settings panel">
       <div className="settings-section-heading">
-        <h2>快捷键</h2>
+        <h2>Tastenkürzel</h2>
       </div>
       <div className="shortcuts-layout">
         {shortcutGroups.map((group) => (
@@ -2921,10 +2921,10 @@ function JobCenterSettings() {
       const status = filter === "active" ? "" : `?status=${encodeURIComponent(filter)}`;
       const response = await fetch(`/api/jobs${status}`, { cache: "no-store" });
       const payload = await response.json() as { readonly ok?: boolean; readonly jobs?: readonly AppJobPayload[]; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.jobs) throw new Error(payload.message || "无法读取任务");
+      if (!response.ok || !payload.ok || !payload.jobs) throw new Error(payload.message || "Aufgabe kann nicht gelesen werden");
       setJobs(filter === "active" ? payload.jobs.filter((job) => job.status === "queued" || job.status === "running" || job.status === "failed") : payload.jobs);
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法读取任务" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Aufgabe kann nicht gelesen werden" });
     } finally {
       setLoading(false);
     }
@@ -2968,11 +2968,11 @@ function JobCenterSettings() {
         body: JSON.stringify({ action }),
       });
       const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message || "任务操作失败");
-      setFeedback({ kind: "success", message: action === "retry" ? "任务已重新排队" : "任务已取消" });
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "Aufgabenoperation fehlgeschlagen");
+      setFeedback({ kind: "success", message: action === "retry" ? "Aufgabe wieder in die in Warteschlange gestellt" : "Annullierung der Aufgabe" });
       await loadJobs();
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "任务操作失败" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Aufgabenoperation fehlgeschlagen" });
     } finally {
       setBusyJobId(undefined);
     }
@@ -2980,20 +2980,20 @@ function JobCenterSettings() {
 
   const deleteJobRecord = async (job: AppJobPayload) => {
     if (!await appConfirm({
-      title: `删除任务记录“${job.title}”？`,
-      description: "只会删除任务历史和日志，不会删除任务已经生成的备份或其他数据。",
-      confirmLabel: "删除记录",
+      title: `Aufgabenprotokoll „${job.title}“ löschen?`,
+      description: "Es werden nur der Aufgabenverlauf und die Protokolle gelöscht, nicht die von der Aufgabe erstellten Sicherungen oder sonstigen Daten.",
+      confirmLabel: "Protokoll löschen",
       tone: "danger",
     })) return;
     setBusyJobId(job.id);
     try {
       const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}`, { method: "DELETE" });
       const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message || "无法删除任务记录");
-      setFeedback({ kind: "success", message: "任务记录已删除" });
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "Aufgabenprotokoll kann nicht gelöscht werden");
+      setFeedback({ kind: "success", message: "Aufgabenprotokoll gelöscht" });
       await loadJobs();
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法删除任务记录" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Aufgabenprotokoll kann nicht gelöscht werden" });
     } finally {
       setBusyJobId(undefined);
     }
@@ -3002,11 +3002,11 @@ function JobCenterSettings() {
   const menuJob = menu ? jobs.find((job) => job.id === menu.id) : undefined;
   const menuJobFinished = menuJob ? !["queued", "running"].includes(menuJob.status) : false;
   const jobCommands: readonly ResolvedContextCommand[] = menuJob ? [
-    { id: "job.copy-id", label: "复制任务 ID", group: "primary", risk: "read", icon: "copy" },
-    { id: "job.copy-logs", label: "复制日志", group: "primary", risk: "read", icon: "info", disabledReason: menuJob.logLines.length ? undefined : "暂无日志" },
-    { id: "job.retry", label: "重新排队", group: "state", risk: "local-write", icon: "restore", disabledReason: menuJob.status === "failed" || menuJob.status === "cancelled" ? undefined : "只有失败或取消的任务可重试" },
-    { id: "job.cancel", label: "取消任务", group: "danger", risk: "local-write", icon: "trash", disabledReason: menuJob.status === "queued" ? undefined : "只能取消排队任务" },
-    { id: "job.delete", label: "删除任务记录", group: "danger", risk: "destructive", icon: "trash", disabledReason: menuJobFinished ? undefined : "排队或运行中的任务不能删除" },
+    { id: "job.copy-id", label: "Aufgaben-ID kopieren", group: "primary", risk: "read", icon: "copy" },
+    { id: "job.copy-logs", label: "Protokoll kopieren", group: "primary", risk: "read", icon: "info", disabledReason: menuJob.logLines.length ? undefined : "kein Protokoll verfügbar" },
+    { id: "job.retry", label: "Re-queuierung", group: "state", risk: "local-write", icon: "restore", disabledReason: menuJob.status === "failed" || menuJob.status === "cancelled" ? undefined : "nur fehlgeschlagene oder stornierte Aufgaben können erneut getestet werden" },
+    { id: "job.cancel", label: "Aufgabe abbrechen", group: "danger", risk: "local-write", icon: "trash", disabledReason: menuJob.status === "queued" ? undefined : "Nur Aufgaben löschen" },
+    { id: "job.delete", label: "Task-Aufzeichnungen löschen", group: "danger", risk: "destructive", icon: "trash", disabledReason: menuJobFinished ? undefined : "Aufgaben in in Warteschlange oder Ausführung können nicht gelöscht werden" },
   ] : [];
 
   const openJobMenu = (event: ReactMouseEvent<HTMLElement>, job: AppJobPayload) => {
@@ -3016,8 +3016,8 @@ function JobCenterSettings() {
 
   const selectJobCommand = (commandId: ContextCommandId) => {
     if (!menuJob) return;
-    if (commandId === "job.copy-id") void copyText(menuJob.id, "任务 ID 已复制", setFeedback);
-    if (commandId === "job.copy-logs") void copyText(menuJob.logLines.join("\n"), "任务日志已复制", setFeedback);
+    if (commandId === "job.copy-id") void copyText(menuJob.id, "Aufgaben-ID kopiert", setFeedback);
+    if (commandId === "job.copy-logs") void copyText(menuJob.logLines.join("\n"), "Aufgabenprotokoll kopiert", setFeedback);
     if (commandId === "job.retry") void updateJob(menuJob, "retry");
     if (commandId === "job.cancel") void updateJob(menuJob, "cancel");
     if (commandId === "job.delete") void deleteJobRecord(menuJob);
@@ -3026,14 +3026,14 @@ function JobCenterSettings() {
   return (
     <section className="job-center-settings panel">
       <div className="settings-section-heading">
-        <h2>后台任务</h2>
-        <span className="step-badge">{loading ? "读取中" : `${jobs.length} 个任务`}</span>
+        <h2>Hintergrundaufgaben</h2>
+        <span className="step-badge">{loading ? "Lesen" : `${jobs.length} eine Aufgabe`}</span>
       </div>
       <div className="job-toolbar">
         {["active", "queued", "running", "failed", "succeeded", "cancelled"].map((item) => (
           <button key={item} className={filter === item ? "active" : ""} onClick={() => { setLoading(true); setFilter(item); }}>{jobFilterLabel(item)}</button>
         ))}
-        <button className="secondary-button" disabled={loading} onClick={() => { setLoading(true); void loadJobs(); }}><RefreshCw size={14} />刷新</button>
+        <button className="secondary-button" disabled={loading} onClick={() => { setLoading(true); void loadJobs(); }}><RefreshCw size={14} />Aktualisieren</button>
       </div>
       <div className="job-list">
         {jobs.length ? jobs.map((job) => (
@@ -3055,20 +3055,20 @@ function JobCenterSettings() {
             </header>
             <div className="job-progress"><i><b style={{ width: `${job.progress}%` }} /></i><small>{job.progress}%</small></div>
             {job.errorMessage && <p>{job.errorMessage}</p>}
-            {job.logLines.length > 0 && <details><summary>日志</summary>{job.logLines.slice(0, 8).map((line, index) => <code key={`${job.id}-${index}`}>{line}</code>)}</details>}
+            {job.logLines.length > 0 && <details><summary>Protokoll</summary>{job.logLines.slice(0, 8).map((line, index) => <code key={`${job.id}-${index}`}>{line}</code>)}</details>}
             <footer>
-              {job.status === "queued" && <button className="ghost-button" disabled={busyJobId === job.id} onClick={() => void updateJob(job, "cancel")}><X size={13} />取消</button>}
-              {(job.status === "failed" || job.status === "cancelled") && <button className="secondary-button" disabled={busyJobId === job.id} onClick={() => void updateJob(job, "retry")}><RefreshCw size={13} />重试</button>}
-              {!["queued", "running"].includes(job.status) && <button className="ghost-button danger-button" disabled={busyJobId === job.id} onClick={() => void deleteJobRecord(job)}><Trash2 size={13} />删除记录</button>}
+              {job.status === "queued" && <button className="ghost-button" disabled={busyJobId === job.id} onClick={() => void updateJob(job, "cancel")}><X size={13} />Abbrechen</button>}
+              {(job.status === "failed" || job.status === "cancelled") && <button className="secondary-button" disabled={busyJobId === job.id} onClick={() => void updateJob(job, "retry")}><RefreshCw size={13} />Erneut versuchen</button>}
+              {!["queued", "running"].includes(job.status) && <button className="ghost-button danger-button" disabled={busyJobId === job.id} onClick={() => void deleteJobRecord(job)}><Trash2 size={13} />Datensätze löschen</button>}
             </footer>
           </article>
-        )) : <div className="accounts-empty">{loading ? "正在读取任务…" : "暂无任务"}</div>}
+        )) : <div className="accounts-empty">{loading ? "Aufgaben werden geladen…" : "Derzeit keine Aufgaben"}</div>}
       </div>
       {feedback && <div className={`user-settings-feedback ${feedback.kind}`}>{feedback.message}</div>}
       {menu && menuJob && (
         <ContextMenu
           anchor={{ x: menu.x, y: menu.y }}
-          ariaLabel={`任务操作：${menuJob.title}`}
+          ariaLabel={`Aufgabe: ${menuJob.title}`}
           commands={jobCommands}
           heading={menuJob.title}
           returnFocus={menu.returnFocus}
@@ -3120,11 +3120,11 @@ function OperationsSettings() {
     try {
       const response = await fetch("/api/admin/diagnostics", { cache: "no-store" });
       const payload = await response.json() as { readonly ok?: boolean; readonly operations?: OperationsPayload; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.operations) throw new Error(payload.message || "无法读取运维状态");
+      if (!response.ok || !payload.ok || !payload.operations) throw new Error(payload.message || "Systemstatus konnte nicht gelesen werden");
       setOperations(payload.operations);
       setFeedback(undefined);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法读取运维状态");
+      setFeedback(error instanceof Error ? error.message : "Systemstatus konnte nicht gelesen werden");
     }
   }, []);
 
@@ -3133,69 +3133,69 @@ function OperationsSettings() {
   return (
     <section className="operations-settings panel">
       <div className="settings-section-heading">
-        <h2>系统状态</h2>
-        <button className="secondary-button" onClick={() => void loadOperations()}><RefreshCw size={14} />刷新</button>
+        <h2>Systemstatus</h2>
+        <button className="secondary-button" onClick={() => void loadOperations()}><RefreshCw size={14} />Aktualisieren</button>
       </div>
       {operations ? (
         <>
           <div className="operations-grid">
-            <article><span><DatabaseBackup size={17} /></span><small>数据库</small><strong>{operations.database.connected ? "已连接" : "异常"}</strong><p>v{operations.database.currentVersion} / v{operations.database.latestVersion}{operations.database.pendingVersions.length ? ` · 待迁移 ${operations.database.pendingVersions.join(", ")}` : ""}</p></article>
-            <article><span><Clock3 size={17} /></span><small>任务队列</small><strong>{operations.jobs.running} 运行 · {operations.jobs.queued} 排队</strong><p>{operations.jobs.failed} 个失败</p></article>
-            <article><span><HardDrive size={17} /></span><small>数据目录</small><strong>{operations.dataDirectory.writable ? "可写" : "不可写"}</strong><p>{operations.dataDirectory.path}</p></article>
-            <article><span><ShieldCheck size={17} /></span><small>主密钥</small><strong>{operations.masterKey.configured ? "环境变量" : "未配置"}</strong><p>KALENDER_MASTER_KEY</p></article>
-            <article><span><DatabaseBackup size={17} /></span><small>备份工具</small><strong>{operations.backup.strategy?.tools.pgDump && operations.backup.strategy.tools.pgRestore ? "pg_dump/restore 可用" : "工具缺失"}</strong><p>{operations.backup.strategy?.backupDirectory}</p></article>
-            <article><span><Paperclip size={17} /></span><small>附件</small><strong>{operations.backup.attachmentFiles} 个</strong><p>{formatFileSize(operations.backup.attachmentBytes)}</p></article>
+            <article><span><DatabaseBackup size={17} /></span><small>Datenbank</small><strong>{operations.database.connected ? "Verbunden" : "Fehler"}</strong><p>v{operations.database.currentVersion} / v{operations.database.latestVersion}{operations.database.pendingVersions.length ? ` · Ausstehende Migrationen: ${operations.database.pendingVersions.join(", ")}` : ""}</p></article>
+            <article><span><Clock3 size={17} /></span><small>Task-Warteschlange</small><strong>{operations.jobs.running} aktiv · {operations.jobs.queued} in Warteschlange</strong><p>{operations.jobs.failed} fehlgeschlagen</p></article>
+            <article><span><HardDrive size={17} /></span><small>Datenverzeichnis</small><strong>{operations.dataDirectory.writable ? "schreibbar" : "nicht schreibbar"}</strong><p>{operations.dataDirectory.path}</p></article>
+            <article><span><ShieldCheck size={17} /></span><small>Hauptschlüssel</small><strong>{operations.masterKey.configured ? "Umgebungsvariable" : "nicht konfiguriert"}</strong><p>KALENDER_MASTER_KEY</p></article>
+            <article><span><DatabaseBackup size={17} /></span><small>Sicherungswerkzeuge</small><strong>{operations.backup.strategy?.tools.pgDump && operations.backup.strategy.tools.pgRestore ? "pg_dump/restore verfügbar" : "Werkzeuge fehlen"}</strong><p>{operations.backup.strategy?.backupDirectory}</p></article>
+            <article><span><Paperclip size={17} /></span><small>Anhänge</small><strong>{operations.backup.attachmentFiles} Dateien</strong><p>{formatFileSize(operations.backup.attachmentBytes)}</p></article>
           </div>
           <div className="operations-detail-grid">
             <section>
-              <h3>功能配置</h3>
+              <h3>Funktionskonfiguration</h3>
               <div className="operations-check-list">
-                <span className={operations.environment.aiAutoExecutionEnabled ? "ready" : "optional"}><Check size={13} />AI 自动执行：{operations.environment.aiAutoExecutionEnabled ? "开启" : "关闭"}</span>
-                <span className={operations.environment.backupPasswordConfigured ? "ready" : "optional"}>{operations.environment.backupPasswordConfigured ? <Check size={13} /> : <Circle size={13} />}自动备份密码：{operations.environment.backupPasswordConfigured ? "已配置" : "按需配置"}</span>
-                <span className={operations.environment.healthcheckTokenConfigured ? "ready" : "optional"}><ShieldCheck size={13} />健康检查：{operations.environment.healthcheckTokenConfigured ? "受令牌保护" : "公开轻量检查"}</span>
+                <span className={operations.environment.aiAutoExecutionEnabled ? "ready" : "optional"}><Check size={13} />Automatische AI-Ausführung: {operations.environment.aiAutoExecutionEnabled ? "Aktiv" : "Inaktiv"}</span>
+                <span className={operations.environment.backupPasswordConfigured ? "ready" : "optional"}>{operations.environment.backupPasswordConfigured ? <Check size={13} /> : <Circle size={13} />}Passwort für automatische Sicherungen: {operations.environment.backupPasswordConfigured ? "konfiguriert" : "nach Bedarf konfiguriert"}</span>
+                <span className={operations.environment.healthcheckTokenConfigured ? "ready" : "optional"}><ShieldCheck size={13} />Statusprüfung: {operations.environment.healthcheckTokenConfigured ? "geschützt durch Token" : "Öffentlich erreichbar"}</span>
               </div>
             </section>
             <section>
-              <h3>存储目录</h3>
+              <h3>Speicherverzeichnis</h3>
               <div className="operations-storage-list">
                 {operations.storage.layout.map((item) => (
                   <article key={item.id}>
                     <div><strong>{item.label}</strong><small>{item.path}</small></div>
-                    <span>{item.exists ? "存在" : "未创建"} · {item.writable ? "可写" : "不可写"} · {formatFileSize(item.bytes)} · {item.files} 文件</span>
+                    <span>{item.exists ? "vorhanden" : "nicht erstellt"} · {item.writable ? "schreibbar" : "nicht schreibbar"} · {formatFileSize(item.bytes)} · {item.files} Dateien</span>
                   </article>
                 ))}
               </div>
             </section>
             <section>
-              <h3>最近错误</h3>
+              <h3>Letzte Fehler</h3>
               <div className="operations-error-list">
                 {operations.recentErrors.length ? operations.recentErrors.map((item) => (
                   <article key={item.id}><strong>{item.title}</strong><small>{formatAccountTime(item.createdAt)}</small><p>{item.message}</p></article>
-                )) : <div className="accounts-empty">最近没有失败任务</div>}
+                )) : <div className="accounts-empty">Keine kürzlich fehlgeschlagenen Aufgaben</div>}
               </div>
             </section>
           </div>
         </>
-      ) : <div className="accounts-empty">{feedback ?? "正在读取运维状态…"}</div>}
+      ) : <div className="accounts-empty">{feedback ?? "Systemstatus wird geladen…"}</div>}
       {feedback && <div className="user-settings-feedback error">{feedback}</div>}
     </section>
   );
 }
 
 const backgroundSyncIntervals = [
-  { value: 60_000, label: "1 分钟" },
-  { value: 3 * 60_000, label: "3 分钟" },
-  { value: 5 * 60_000, label: "5 分钟" },
-  { value: 10 * 60_000, label: "10 分钟" },
-  { value: 15 * 60_000, label: "15 分钟" },
-  { value: 30 * 60_000, label: "30 分钟" },
+  { value: 60_000, label: "1 Minute" },
+  { value: 3 * 60_000, label: "3 Minuten" },
+  { value: 5 * 60_000, label: "5 Minuten" },
+  { value: 10 * 60_000, label: "10 Minuten" },
+  { value: 15 * 60_000, label: "15 Minuten" },
+  { value: 30 * 60_000, label: "30 Minuten" },
 ] as const;
 
 const clientRefreshIntervals = [
-  { value: 15_000, label: "15 秒" },
-  { value: 30_000, label: "30 秒" },
-  { value: 60_000, label: "1 分钟" },
-  { value: 2 * 60_000, label: "2 分钟" },
+  { value: 15_000, label: "15 Sekunden" },
+  { value: 30_000, label: "30 Sekunden" },
+  { value: 60_000, label: "1 Minute" },
+  { value: 2 * 60_000, label: "2 Minuten" },
 ] as const;
 
 function SyncSettings() {
@@ -3219,9 +3219,9 @@ function SyncSettings() {
     try {
       const saved = await save(draft);
       setDraft(saved);
-      setFeedback({ kind: "success", message: "同步设置已保存，后台定时器与页面刷新频率已立即更新。" });
+      setFeedback({ kind: "success", message: "Synchronisierungseinstellungen gespeichert. Hintergrundintervalle und Seitenaktualisierung wurden sofort übernommen." });
     } catch (saveError) {
-      setFeedback({ kind: "error", message: saveError instanceof Error ? saveError.message : "无法保存同步设置" });
+      setFeedback({ kind: "error", message: saveError instanceof Error ? saveError.message : "Sync-Einstellungen können nicht gespeichert werden" });
     } finally {
       setSaving(false);
     }
@@ -3230,8 +3230,8 @@ function SyncSettings() {
   return (
     <section className="sync-settings panel" aria-labelledby="sync-settings-title">
       <div className="settings-section-heading">
-        <h2 id="sync-settings-title">同步</h2>
-        <span className="step-badge">{loading ? "读取中" : `${activeServices}/2 项运行`}</span>
+        <h2 id="sync-settings-title">Synchronisierung</h2>
+        <span className="step-badge">{loading ? "Lesen" : `${activeServices} Dienste aktiv`}</span>
       </div>
 
       <div className={`sync-realtime-overview ${realtime.status}`} role="status">
@@ -3246,38 +3246,38 @@ function SyncSettings() {
           <strong>{realtimeStatus.title}</strong>
           <small>
             {realtime.status === "connected"
-              ? "邮件、日历、任务和备份变化会立即推送到当前页面。"
+              ? "Änderungen an E-Mails, Kalendern, Aufgaben und Sicherungen werden in Echtzeit auf dieser Seite angezeigt."
               : fallbackActive
-                ? `当前使用 ${formatRealtimeFallbackInterval(draft.clientRefreshIntervalMs)} 断线备用刷新。`
+                ? `zur Zeit in Gebrauch ${formatRealtimeFallbackInterval(draft.clientRefreshIntervalMs)} Fallback-Aktualisierung.`
                 : realtimeStatus.description}
           </small>
         </div>
         <dl className="sync-realtime-metrics">
-          <div><dt>最近事件</dt><dd>{realtime.lastEvent ? `${realtimeTopicLabel(realtime.lastEvent.topic)} · ${formatAccountTime(realtime.lastEvent.occurredAt)}` : "暂无"}</dd></div>
-          <div><dt>本次连接</dt><dd>{realtime.connectedAt ? formatAccountTime(realtime.connectedAt) : "尚未连接"}</dd></div>
-          <div><dt>自动重连</dt><dd>{realtime.reconnectCount} 次</dd></div>
+          <div><dt>Letztes Ereignis</dt><dd>{realtime.lastEvent ? `${realtimeTopicLabel(realtime.lastEvent.topic)} · ${formatAccountTime(realtime.lastEvent.occurredAt)}` : "nicht verfügbar"}</dd></div>
+          <div><dt>Aktuelle Verbindung</dt><dd>{realtime.connectedAt ? formatAccountTime(realtime.connectedAt) : "nicht Verbunden"}</dd></div>
+          <div><dt>Automatische Wiederverbindungen</dt><dd>{realtime.reconnectCount}-mal</dd></div>
         </dl>
         <button
           type="button"
           className="secondary-button"
           disabled={realtime.status === "connecting"}
-          title="重新建立实时连接"
+          title="Echtzeitverbindung neu herstellen"
           onClick={realtime.reconnect}
         >
           <RefreshCw size={14} />
-          重新连接
+          Wiederverbinden
         </button>
       </div>
 
       <div className="sync-settings-group">
         <header>
-          <div><h3>后台数据同步</h3></div>
-          <span>{activeServices ? "运行中" : "已暂停"}</span>
+          <div><h3>Hintergrundsynchronisierung</h3></div>
+          <span>{activeServices ? "Aktiv" : "Pausiert"}</span>
         </header>
         <SyncSettingsRow
           icon={<Mail size={17} />}
-          title="邮件自动同步"
-          description="更新文件夹、未读状态和邮件索引。"
+          title="E-Mails automatisch synchronisieren"
+          description="Ordner, Lesestatus und E-Mail-Index automatisch aktualisieren."
           enabled={draft.mailSyncEnabled}
           intervalMs={draft.mailSyncIntervalMs}
           intervals={backgroundSyncIntervals}
@@ -3287,8 +3287,8 @@ function SyncSettings() {
         />
         <SyncSettingsRow
           icon={<CalendarDays size={17} />}
-          title="日历自动同步"
-          description="更新远程日历、事件变更和参与者信息。"
+          title="Kalender automatisch synchronisieren"
+          description="Remote-Kalender, Terminänderungen und Teilnehmerinformationen aktualisieren."
           enabled={draft.calendarSyncEnabled}
           intervalMs={draft.calendarSyncIntervalMs}
           intervals={backgroundSyncIntervals}
@@ -3300,13 +3300,13 @@ function SyncSettings() {
 
       <div className="sync-settings-group">
         <header>
-          <div><h3>断线备用刷新</h3></div>
-          <span>{draft.clientRefreshEnabled ? "备用已开启" : "备用已关闭"}</span>
+          <div><h3>Fallback-Aktualisierung</h3></div>
+          <span>{draft.clientRefreshEnabled ? "Aktiv" : "Deaktiviert"}</span>
         </header>
         <SyncSettingsRow
           icon={<Monitor size={17} />}
-          title="可见页面备用刷新"
-          description="仅在实时连接断开且页面可见时运行；切回窗口时校验一次。"
+          title="Sichtbare Seite regelmäßig aktualisieren"
+          description="Nur bei getrennter Echtzeitverbindung und sichtbarer Seite; beim Zurückkehren zum Fenster wird einmal aktualisiert."
           enabled={draft.clientRefreshEnabled}
           intervalMs={draft.clientRefreshIntervalMs}
           intervals={clientRefreshIntervals}
@@ -3324,7 +3324,7 @@ function SyncSettings() {
       )}
 
       <footer className="sync-settings-actions">
-        <span>{canEdit ? changed ? "有尚未保存的修改" : "当前设置已生效" : "只有管理员可以修改这些设置"}</span>
+        <span>{canEdit ? changed ? "Nicht gespeicherte Änderungen" : "Einstellungen sind aktuell" : "Nur Administratoren können diese Einstellungen ändern"}</span>
         <button
           type="button"
           className="primary-button"
@@ -3332,7 +3332,7 @@ function SyncSettings() {
           onClick={() => void saveSettings()}
         >
           {saving ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}
-          保存设置
+          Einstellungen speichern
         </button>
       </footer>
     </section>
@@ -3343,30 +3343,30 @@ function realtimeConnectionCopy(status: ReturnType<typeof useRealtimeConnection>
   readonly title: string;
   readonly description: string;
 } {
-  if (status === "connected") return { title: "WebSocket 已连接", description: "实时推送工作正常。" };
-  if (status === "connecting") return { title: "正在连接实时服务", description: "正在建立经过会话鉴权的连接。" };
-  if (status === "offline") return { title: "浏览器当前离线", description: "网络恢复后会自动重新连接。" };
-  return { title: "实时连接已断开", description: "系统正在自动重连。" };
+  if (status === "connected") return { title: "WebSocket verbunden", description: "Echtzeitübertragung ist aktiv." };
+  if (status === "connecting") return { title: "Verbindung zum Echtzeitdienst wird hergestellt", description: "Die Sitzung stellt die Verbindung her." };
+  if (status === "offline") return { title: "Browser derzeit offline", description: "Die Verbindung wird automatisch wiederhergestellt, sobald das Netzwerk verfügbar ist." };
+  return { title: "Echtzeitverbindung getrennt", description: "Das System versucht automatisch, die Verbindung wiederherzustellen." };
 }
 
 function realtimeTopicLabel(topic: RealtimeTopic): string {
   return ({
-    system: "连接",
-    mail: "邮件",
-    calendar: "日历",
-    task: "任务",
-    project: "项目",
-    note: "笔记",
-    relation: "关联",
-    job: "后台任务",
-    backup: "备份",
-    settings: "设置",
+    system: "Verbindung",
+    mail: "E-Mail",
+    calendar: "Kalender",
+    task: "Aufgabe",
+    project: "Projekt",
+    note: "Notiz",
+    relation: "Verknüpfung",
+    job: "Hintergrundaufgaben",
+    backup: "Datensicherung",
+    settings: "Einstellungen",
   } as Record<RealtimeTopic, string>)[topic];
 }
 
 function formatRealtimeFallbackInterval(intervalMs: number): string {
-  if (intervalMs < 60_000) return `${Math.round(intervalMs / 1_000)} 秒`;
-  return `${Math.round(intervalMs / 60_000)} 分钟`;
+  if (intervalMs < 60_000) return `${Math.round(intervalMs / 1_000)} Sekunden`;
+  return `${Math.round(intervalMs / 60_000)} Minuten`;
 }
 
 function SyncSettingsRow({
@@ -3395,9 +3395,9 @@ function SyncSettingsRow({
       <span className="sync-settings-row-icon">{icon}</span>
       <div className="sync-settings-row-copy"><strong>{title}</strong><small>{description}</small></div>
       <label className="sync-settings-interval">
-        <span>频率</span>
+        <span>Häufigkeit</span>
         <AppSelect
-          ariaLabel={`${title}同步频率`}
+          ariaLabel={`${title} – Synchronisierungsintervall`}
           size="compact"
           value={String(intervalMs)}
           disabled={disabled || !enabled}
@@ -3413,7 +3413,7 @@ function SyncSettingsRow({
           onChange={(event) => onEnabledChange(event.target.checked)}
         />
         <span aria-hidden="true"><i /></span>
-        <em>{enabled ? "开启" : "关闭"}</em>
+        <em>{enabled ? "Aktiv" : "Inaktiv"}</em>
       </label>
     </div>
   );
@@ -3453,7 +3453,7 @@ function AppearanceSettings() {
       setPreference(next);
       setFeedback(undefined);
     } catch {
-      setFeedback("无法保存外观设置");
+      setFeedback("Darstellungseinstellungen konnten nicht gespeichert werden");
     }
   };
 
@@ -3478,24 +3478,24 @@ function AppearanceSettings() {
   return (
     <section className="appearance-settings panel">
       <div className="settings-section-heading">
-        <h2>外观</h2>
+        <h2>Erscheinungsbild</h2>
       </div>
       <div className="appearance-layout">
         <section>
-          <h3>模式</h3>
+          <h3>Modus</h3>
           <div className="appearance-choice-grid mode">
-            <button className={preference.mode === "system" ? "active" : ""} onClick={() => setMode("system")}><Monitor size={17} /><strong>跟随系统</strong><small>自动匹配设备深浅模式</small></button>
-            <button className={preference.mode === "light" ? "active" : ""} onClick={() => setMode("light")}><Sun size={17} /><strong>浅色</strong><small>默认使用浅色办公界面</small></button>
-            <button className={preference.mode === "dark" ? "active" : ""} onClick={() => setMode("dark")}><Moon size={17} /><strong>深色</strong><small>适合夜间或弱光环境</small></button>
+            <button className={preference.mode === "system" ? "active" : ""} onClick={() => setMode("system")}><Monitor size={17} /><strong>System</strong><small>Automatisch an den Systemmodus anpassen</small></button>
+            <button className={preference.mode === "light" ? "active" : ""} onClick={() => setMode("light")}><Sun size={17} /><strong>Hell</strong><small>Helle Oberfläche für den täglichen Gebrauch</small></button>
+            <button className={preference.mode === "dark" ? "active" : ""} onClick={() => setMode("dark")}><Moon size={17} /><strong>Dunkel</strong><small>Geeignet für die Nacht und Umgebungen mit wenig Licht</small></button>
           </div>
         </section>
         <section>
-          <h3>浅色色调</h3>
+          <h3>Helles Farbschema</h3>
           <div className="appearance-choice-grid tone">
             {[
-              { id: "light-fog" as const, title: "雾灰", text: "现代、专业、默认推荐", swatches: ["#f5f7f8", "#ffffff", "#4f8fcf", "#4f9d69"] },
-              { id: "light-warm" as const, title: "暖白", text: "柔和、亲切、适合长时间阅读", swatches: ["#fbfaf7", "#ffffff", "#5e8fb8", "#8f7659"] },
-              { id: "light-blue" as const, title: "蓝灰", text: "企业、稳重、适合运维视角", swatches: ["#eef3f6", "#ffffff", "#2d78b8", "#27a3a3"] },
+              { id: "light-fog" as const, title: "Nebelgrau", text: "Modern und professionell; empfohlen", swatches: ["#f5f7f8", "#ffffff", "#4f8fcf", "#4f9d69"] },
+              { id: "light-warm" as const, title: "Warmweiß", text: "Weich und angenehm für längeres Lesen", swatches: ["#fbfaf7", "#ffffff", "#5e8fb8", "#8f7659"] },
+              { id: "light-blue" as const, title: "Blaugrau", text: "Sachlich und ruhig mit klarer Tiefenwirkung", swatches: ["#eef3f6", "#ffffff", "#2d78b8", "#27a3a3"] },
             ].map((tone) => (
               <button key={tone.id} className={preference.lightTone === tone.id ? "active" : ""} onClick={() => setLightTone(tone.id)}>
                 <span className="appearance-swatches">{tone.swatches.map((color) => <i key={color} style={{ background: color }} />)}</span>
@@ -3506,12 +3506,12 @@ function AppearanceSettings() {
           </div>
         </section>
         <section>
-          <h3>深色色调</h3>
+          <h3>Dunkel Hue</h3>
           <div className="appearance-choice-grid tone single">
             <button className={preference.darkTone === "dark-pro" ? "active" : ""} onClick={() => setDarkTone("dark-pro")}>
               <span className="appearance-swatches">{["#151817", "#222725", "#76b7f2", "#d8a24e"].map((color) => <i key={color} style={{ background: color }} />)}</span>
-              <strong>专业深色</strong>
-              <small>保留深色习惯，但提升层次和对比</small>
+              <strong>Professionell dunkel</strong>
+              <small>Vertraute dunkle Oberfläche mit verbessertem Kontrast</small>
             </button>
           </div>
         </section>
@@ -3532,7 +3532,7 @@ function ProfileSettings({ currentUser }: { readonly currentUser: WorkspaceUser 
 
   async function saveProfile() {
     if (newPassword && newPassword !== confirmPassword) {
-      setFeedback({ kind: "error", message: "两次输入的新密码不一致" });
+      setFeedback({ kind: "error", message: "Die neuen Passwörter stimmen nicht überein" });
       return;
     }
     setBusy(true);
@@ -3548,14 +3548,14 @@ function ProfileSettings({ currentUser }: { readonly currentUser: WorkspaceUser 
         }),
       });
       const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
-      if (!response.ok) throw new Error(payload?.message || "无法更新个人账号");
+      if (!response.ok) throw new Error(payload?.message || "Profil konnte nicht aktualisiert werden");
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      setFeedback({ kind: "success", message: "个人账号已更新" });
+      setFeedback({ kind: "success", message: "Profil aktualisiert" });
       router.refresh();
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法更新个人账号" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Profil konnte nicht aktualisiert werden" });
     } finally {
       setBusy(false);
     }
@@ -3564,20 +3564,20 @@ function ProfileSettings({ currentUser }: { readonly currentUser: WorkspaceUser 
   return (
     <section className="profile-settings panel" aria-labelledby="profile-settings-title">
       <div className="settings-section-heading">
-        <h2 id="profile-settings-title">账号</h2>
+        <h2 id="profile-settings-title">Konten</h2>
         <span className="step-badge">{roleLabel(currentUser.role)}</span>
       </div>
       <div className="account-form profile-form">
-        <label><span>昵称</span><input value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoComplete="name" /></label>
-        <label><span>登录邮箱</span><input value={currentUser.email} disabled /></label>
-        <label><span>当前密码</span><input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" placeholder="修改密码时必填" /></label>
-        <label><span>新密码</span><input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" placeholder="至少 8 个字符" /></label>
-        <label><span>确认新密码</span><input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" /></label>
+        <label><span>Anzeigename</span><input value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoComplete="name" /></label>
+        <label><span>E-Mail-Adresse für die Anmeldung</span><input value={currentUser.email} disabled /></label>
+        <label><span>Aktuelles Passwort</span><input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" placeholder="Für eine Passwortänderung erforderlich" /></label>
+        <label><span>Neues Passwort</span><input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" placeholder="mindestens 8 Zeichen" /></label>
+        <label><span>Neues Passwort bestätigen</span><input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" /></label>
       </div>
       {feedback && <div className={`user-settings-feedback ${feedback.kind}`} role="status">{feedback.message}</div>}
       <footer className="settings-actions">
         <button className="primary-button" disabled={busy || displayName.trim().length < 2 || Boolean(newPassword) !== Boolean(currentPassword)} onClick={() => void saveProfile()}>
-          {busy ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}{busy ? "正在保存…" : "保存个人账号"}
+          {busy ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}{busy ? "Speichern..." : "Profil speichern"}
         </button>
       </footer>
     </section>
@@ -3607,9 +3607,9 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
       const usersPayload = await usersResponse.json().catch(() => null) as { readonly users?: readonly ManagedUser[]; readonly message?: string } | null;
       const invitationsPayload = await invitationsResponse.json().catch(() => null) as { readonly invitations?: readonly ManagedInvitation[]; readonly message?: string } | null;
       const accountsPayload = await accountsResponse.json().catch(() => null) as { readonly accounts?: readonly SavedMailAccount[]; readonly message?: string } | null;
-      if (!usersResponse.ok) throw new Error(usersPayload?.message || "无法读取用户");
-      if (!invitationsResponse.ok) throw new Error(invitationsPayload?.message || "无法读取邀请");
-      if (!accountsResponse.ok) throw new Error(accountsPayload?.message || "无法读取发件账户");
+      if (!usersResponse.ok) throw new Error(usersPayload?.message || "Benutzer kann nicht gelesen werden");
+      if (!invitationsResponse.ok) throw new Error(invitationsPayload?.message || "die Einladung kann nicht gelesen werden");
+      if (!accountsResponse.ok) throw new Error(accountsPayload?.message || "es ist nicht möglich, das Absenderkonto zu lesen");
       setUsers(usersPayload?.users ?? []);
       setInvitations(invitationsPayload?.invitations ?? []);
       const senders = (accountsPayload?.accounts ?? []).filter((account) => account.syncStatus !== "paused");
@@ -3620,7 +3620,7 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
         return senders[0]?.id ?? "";
       });
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法读取用户" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Benutzer kann nicht gelesen werden" });
     } finally {
       setLoading(false);
     }
@@ -3638,12 +3638,12 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
         body: JSON.stringify(draft),
       });
       const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
-      if (!response.ok) throw new Error(payload?.message || "无法创建用户");
+      if (!response.ok) throw new Error(payload?.message || "Benutzer kann nicht erstellt werden");
       setDraft({ displayName: "", email: "", password: "", role: "user", mustChangePassword: true });
       await loadUsers();
-      setFeedback({ kind: "success", message: "用户已创建" });
+      setFeedback({ kind: "success", message: "Benutzer erstellt" });
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法创建用户" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Benutzer kann nicht erstellt werden" });
     } finally {
       setBusyId(undefined);
     }
@@ -3659,9 +3659,9 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
         body: JSON.stringify(changes),
       });
       const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
-      if (!response.ok) throw new Error(payload?.message || "无法更新用户");
+      if (!response.ok) throw new Error(payload?.message || "Benutzer kann nicht aktualisiert werden");
       await loadUsers();
-      setFeedback({ kind: "success", message: "用户已更新" });
+      setFeedback({ kind: "success", message: "Benutzer aktualisiert" });
       if ("displayName" in changes || "email" in changes || "role" in changes || "password" in changes) {
         setEditing((current) => {
           const next = { ...current };
@@ -3670,7 +3670,7 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
         });
       }
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法更新用户" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Benutzer kann nicht aktualisiert werden" });
     } finally {
       setBusyId(undefined);
     }
@@ -3679,9 +3679,9 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
   async function deleteUser(user: ManagedUser) {
     if (user.id === currentUser.id || busyId) return;
     if (!await appConfirm({
-      title: `永久删除用户“${user.displayName}”？`,
-      description: "该用户的邮箱连接、已同步邮件、日历、项目、笔记、任务和 AI 配置将一并删除。此操作无法撤销。",
-      confirmLabel: "永久删除",
+      title: `Benutzer „${user.displayName}“ dauerhaft löschen?`,
+      description: "Die Mailboxverbindung, synchronisierte E-Mail, Kalender, Projekte, Notizen, Aufgaben und KI-Konfiguration des Benutzers werden gelöscht. Diese Operation kann nicht widerrufen werden.",
+      confirmLabel: "Dauerhaft löschen",
       tone: "danger",
     })) return;
     setBusyId(user.id);
@@ -3689,16 +3689,16 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
     try {
       const response = await fetch(`/api/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
       const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
-      if (!response.ok) throw new Error(payload?.message || "无法删除用户");
+      if (!response.ok) throw new Error(payload?.message || "Benutzer kann nicht entfernt werden");
       setEditing((current) => {
         const next = { ...current };
         delete next[user.id];
         return next;
       });
       await loadUsers();
-      setFeedback({ kind: "success", message: `用户“${user.displayName}”已永久删除` });
+      setFeedback({ kind: "success", message: `Benutzer „${user.displayName}“ dauerhaft gelöscht` });
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法删除用户" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Benutzer kann nicht entfernt werden" });
     } finally {
       setBusyId(undefined);
     }
@@ -3722,7 +3722,7 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
         };
         readonly message?: string;
       } | null;
-      if (!response.ok || !payload?.invitation) throw new Error(payload?.message || "无法创建邀请");
+      if (!response.ok || !payload?.invitation) throw new Error(payload?.message || "Einladung konnte nicht erstellt werden");
       setInviteDraft({ displayName: "", email: "", role: "user" });
       const deliveryStatus = payload.delivery?.status ?? "not-requested";
       if (deliveryStatus !== "sent" && payload.invitation.inviteUrl) {
@@ -3730,14 +3730,14 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
       }
       await loadUsers();
       if (deliveryStatus === "sent") {
-        setFeedback({ kind: "success", message: `邀请邮件已通过 ${payload.delivery?.senderAddress ?? "所选邮箱"} 发送` });
+        setFeedback({ kind: "success", message: `Einladung wurde über ${payload.delivery?.senderAddress ?? "das ausgewählte Mailkonto"} gesendet` });
       } else if (deliveryStatus === "failed") {
-        setFeedback({ kind: "error", message: `邀请已创建，但邮件发送失败：${payload.delivery?.message ?? "请检查发件账户"}。邀请链接已复制` });
+        setFeedback({ kind: "error", message: `Einladung erstellt, aber E-Mail gesendet fehlgeschlagen:${payload.delivery?.message ?? "Prüfen Sie das Absenderkonto."}Der Einladungslink wurde kopiert` });
       } else {
-        setFeedback({ kind: "success", message: payload.invitation.inviteUrl ? "邀请链接已创建并复制" : "邀请已创建" });
+        setFeedback({ kind: "success", message: payload.invitation.inviteUrl ? "Einladungslink erstellt und kopiert" : "Einladung erstellt" });
       }
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法创建邀请" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Einladung konnte nicht erstellt werden" });
     } finally {
       setBusyId(undefined);
     }
@@ -3749,11 +3749,11 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
     try {
       const response = await fetch(`/api/invitations/${encodeURIComponent(invitation.id)}`, { method: "DELETE" });
       const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
-      if (!response.ok) throw new Error(payload?.message || "无法撤销邀请");
+      if (!response.ok) throw new Error(payload?.message || "Einladung konnte nicht widerrufen werden");
       await loadUsers();
-      setFeedback({ kind: "success", message: "邀请已撤销" });
+      setFeedback({ kind: "success", message: "Einladung widerrufen" });
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法撤销邀请" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Einladung konnte nicht widerrufen werden" });
     } finally {
       setBusyId(undefined);
     }
@@ -3762,35 +3762,35 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
   return (
     <section className="user-management-settings panel" aria-labelledby="user-management-title">
       <div className="settings-section-heading">
-        <h2 id="user-management-title">用户管理</h2>
-        <span className="step-badge">{users.filter((user) => !user.disabledAt).length} 个可用用户</span>
+        <h2 id="user-management-title">Benutzerverwaltung</h2>
+        <span className="step-badge">{users.filter((user) => !user.disabledAt).length} aktive Benutzer</span>
       </div>
 
       <div className="account-form user-create-form">
-        <label><span>昵称</span><input value={draft.displayName} onChange={(event) => setDraft({ ...draft, displayName: event.target.value })} /></label>
-        <label><span>邮箱</span><input type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
-        <label><span>初始密码</span><input type="password" value={draft.password} onChange={(event) => setDraft({ ...draft, password: event.target.value })} autoComplete="new-password" /></label>
-        <label><span>角色</span><AppSelect ariaLabel="用户角色" value={draft.role} onValueChange={(role) => setDraft({ ...draft, role: role as AppRole })} options={roleOptions()} /></label>
-        <label className="secure-toggle"><input type="checkbox" checked={draft.mustChangePassword} onChange={(event) => setDraft({ ...draft, mustChangePassword: event.target.checked })} /><span>首次登录必须改密码</span></label>
+        <label><span>Anzeigename</span><input value={draft.displayName} onChange={(event) => setDraft({ ...draft, displayName: event.target.value })} /></label>
+        <label><span>E-Mail-Adresse</span><input type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
+        <label><span>Initiales Passwort</span><input type="password" value={draft.password} onChange={(event) => setDraft({ ...draft, password: event.target.value })} autoComplete="new-password" /></label>
+        <label><span>Rolle</span><AppSelect ariaLabel="Benutzerrollen" value={draft.role} onValueChange={(role) => setDraft({ ...draft, role: role as AppRole })} options={roleOptions()} /></label>
+        <label className="secure-toggle"><input type="checkbox" checked={draft.mustChangePassword} onChange={(event) => setDraft({ ...draft, mustChangePassword: event.target.checked })} /><span>Passwortänderung bei der ersten Anmeldung verlangen</span></label>
       </div>
       <footer className="settings-actions">
         <button className="primary-button" disabled={busyId === "create" || draft.displayName.trim().length < 2 || !draft.email.includes("@") || draft.password.length < 8} onClick={() => void createUser()}>
-          {busyId === "create" ? <LoaderCircle className="spin" size={15} /> : <Plus size={15} />}{busyId === "create" ? "正在创建…" : "创建用户"}
+          {busyId === "create" ? <LoaderCircle className="spin" size={15} /> : <Plus size={15} />}{busyId === "create" ? "Erstellen..." : "Benutzer erstellen"}
         </button>
       </footer>
 
       <div className="account-form user-create-form">
-        <label><span>邀请昵称</span><input value={inviteDraft.displayName} onChange={(event) => setInviteDraft({ ...inviteDraft, displayName: event.target.value })} /></label>
-        <label><span>邀请邮箱</span><input type="email" value={inviteDraft.email} onChange={(event) => setInviteDraft({ ...inviteDraft, email: event.target.value })} /></label>
-        <label><span>邀请角色</span><AppSelect ariaLabel="邀请角色" value={inviteDraft.role} onValueChange={(role) => setInviteDraft({ ...inviteDraft, role: role as AppRole })} options={roleOptions()} /></label>
+        <label><span>Anzeigename der eingeladenen Person</span><input value={inviteDraft.displayName} onChange={(event) => setInviteDraft({ ...inviteDraft, displayName: event.target.value })} /></label>
+        <label><span>Einladungs-E-Mail-Adresse</span><input type="email" value={inviteDraft.email} onChange={(event) => setInviteDraft({ ...inviteDraft, email: event.target.value })} /></label>
+        <label><span>Einladungsrolle</span><AppSelect ariaLabel="Einladungsrolle" value={inviteDraft.role} onValueChange={(role) => setInviteDraft({ ...inviteDraft, role: role as AppRole })} options={roleOptions()} /></label>
         <label>
-          <span>发送方式</span>
+          <span>Versandart</span>
           <AppSelect
-            ariaLabel="邀请发送方式"
+            ariaLabel="Versandart der Einladung"
             value={inviteSenderAccountId}
             onValueChange={setInviteSenderAccountId}
             options={[
-              { value: "", label: "仅创建并复制链接" },
+              { value: "", label: "Nur Links erstellen und kopieren" },
               ...inviteSenderAccounts.map((account) => ({ value: account.id, label: `${account.displayName} <${account.emailAddress}>` })),
             ]}
           />
@@ -3798,7 +3798,7 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
         <div className="settings-actions inline">
           <button className="secondary-button" disabled={busyId === "invite" || !inviteDraft.email.includes("@")} onClick={() => void createInvitation()}>
             {busyId === "invite" ? <LoaderCircle className="spin" size={15} /> : inviteSenderAccountId ? <Send size={15} /> : <Link2 size={15} />}
-            {busyId === "invite" ? inviteSenderAccountId ? "正在发送…" : "正在创建…" : inviteSenderAccountId ? "发送邀请" : "创建邀请链接"}
+            {busyId === "invite" ? inviteSenderAccountId ? "Senden..." : "Erstellen..." : inviteSenderAccountId ? "Einladung senden" : "Einladungslink erstellen"}
           </button>
         </div>
       </div>
@@ -3812,10 +3812,10 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
                 <div><strong>{invitation.displayName || invitation.email}</strong><span>{invitation.email}</span></div>
                 <span className="sync-status sync-status-syncing">{roleLabel(invitation.role)}</span>
               </div>
-              <div className="saved-account-meta"><span>过期于 {formatAccountTime(invitation.expiresAt)}</span><span>创建于 {formatAccountTime(invitation.createdAt)}</span></div>
+              <div className="saved-account-meta"><span>Läuft ab: {formatAccountTime(invitation.expiresAt)}</span><span>Erstellt: {formatAccountTime(invitation.createdAt)}</span></div>
               <div className="saved-account-actions">
-                {invitation.inviteUrl && <button className="ghost-button" onClick={() => void navigator.clipboard?.writeText(invitation.inviteUrl!)}><Link2 size={14} />复制链接</button>}
-                <button className="ghost-button danger-button" disabled={busyId === invitation.id} onClick={() => void revokeInvitation(invitation)}>{busyId === invitation.id ? <LoaderCircle className="spin" size={14} /> : <X size={14} />}撤销</button>
+                {invitation.inviteUrl && <button className="ghost-button" onClick={() => void navigator.clipboard?.writeText(invitation.inviteUrl!)}><Link2 size={14} />Link kopieren</button>}
+                <button className="ghost-button danger-button" disabled={busyId === invitation.id} onClick={() => void revokeInvitation(invitation)}>{busyId === invitation.id ? <LoaderCircle className="spin" size={14} /> : <X size={14} />}Widerrufen</button>
               </div>
             </div>
           </article>
@@ -3823,7 +3823,7 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
       </div>}
 
       <div className="user-list">
-        {loading ? <div className="accounts-empty"><LoaderCircle className="spin" size={18} />正在读取用户…</div> : users.map((user) => {
+        {loading ? <div className="accounts-empty"><LoaderCircle className="spin" size={18} />Benutzer werden geladen…</div> : users.map((user) => {
           const edit = editing[user.id];
           const disabled = Boolean(user.disabledAt);
           const busy = busyId === user.id;
@@ -3833,41 +3833,41 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
               <div className="saved-account-main">
                 <div className="saved-account-title">
                   <div><strong>{user.displayName}</strong><span>{user.email}</span></div>
-                  <span className={`sync-status ${disabled ? "sync-status-paused" : "sync-status-ready"}`}>{disabled ? "已禁用" : roleLabel(user.role)}</span>
+                  <span className={`sync-status ${disabled ? "sync-status-paused" : "sync-status-ready"}`}>{disabled ? "Deaktiviert" : roleLabel(user.role)}</span>
                 </div>
                 <div className="saved-account-meta">
-                  <span>创建于 {formatAccountTime(user.createdAt)}</span>
-                  <span>更新于 {formatAccountTime(user.updatedAt)}</span>
-                  <span>最近登录 {user.lastLoginAt ? formatAccountTime(user.lastLoginAt) : "从未登录"}</span>
+                  <span>Erstellt: {formatAccountTime(user.createdAt)}</span>
+                  <span>Aktualisiert: {formatAccountTime(user.updatedAt)}</span>
+                  <span>Letzte Anmeldung: {user.lastLoginAt ? formatAccountTime(user.lastLoginAt) : "Nie"}</span>
                   <span>Session v{user.sessionVersion}</span>
-                  {user.mustChangePassword && <span>需改密码</span>}
-                  {user.id === currentUser.id && <span>当前账号</span>}
+                  {user.mustChangePassword && <span>Passwortänderung erforderlich</span>}
+                  {user.id === currentUser.id && <span>Aktuelles Konto</span>}
                 </div>
                 {edit && (
                   <div className="account-form user-edit-form">
-                    <label><span>昵称</span><input value={edit.displayName} onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, displayName: event.target.value } })} /></label>
-                    <label><span>邮箱</span><input type="email" value={edit.email} onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, email: event.target.value } })} /></label>
-                    <label><span>重置密码</span><input type="password" value={edit.password} placeholder="留空则不修改" onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, password: event.target.value } })} /></label>
-                    <label><span>角色</span><AppSelect ariaLabel={`${user.displayName}的角色`} value={edit.role} onValueChange={(role) => setEditing({ ...editing, [user.id]: { ...edit, role: role as AppRole } })} options={roleOptions()} /></label>
-                    <label className="secure-toggle"><input type="checkbox" checked={edit.mustChangePassword} onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, mustChangePassword: event.target.checked } })} /><span>要求改密</span></label>
+                    <label><span>Anzeigename</span><input value={edit.displayName} onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, displayName: event.target.value } })} /></label>
+                    <label><span>E-Mail-Adresse</span><input type="email" value={edit.email} onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, email: event.target.value } })} /></label>
+                    <label><span>Passwort zurücksetzen</span><input type="password" value={edit.password} placeholder="Leer lassen, um das Passwort beizubehalten" onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, password: event.target.value } })} /></label>
+                    <label><span>Rolle</span><AppSelect ariaLabel={`${user.displayName}Rolle`} value={edit.role} onValueChange={(role) => setEditing({ ...editing, [user.id]: { ...edit, role: role as AppRole } })} options={roleOptions()} /></label>
+                    <label className="secure-toggle"><input type="checkbox" checked={edit.mustChangePassword} onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, mustChangePassword: event.target.checked } })} /><span>Passwortänderung bei der nächsten Anmeldung verlangen</span></label>
                   </div>
                 )}
                 <div className="saved-account-actions">
                   {edit ? <>
-                    <button className="primary-button" disabled={busy || edit.displayName.trim().length < 2 || !edit.email.includes("@") || (edit.password.length > 0 && edit.password.length < 8)} onClick={() => void patchUser(user, { displayName: edit.displayName, email: edit.email, role: edit.role, password: edit.password || undefined, mustChangePassword: edit.mustChangePassword })}>{busy ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}保存</button>
-                    <button className="ghost-button" disabled={busy} onClick={() => setEditing((current) => { const next = { ...current }; delete next[user.id]; return next; })}>取消</button>
+                    <button className="primary-button" disabled={busy || edit.displayName.trim().length < 2 || !edit.email.includes("@") || (edit.password.length > 0 && edit.password.length < 8)} onClick={() => void patchUser(user, { displayName: edit.displayName, email: edit.email, role: edit.role, password: edit.password || undefined, mustChangePassword: edit.mustChangePassword })}>{busy ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}Speichern</button>
+                    <button className="ghost-button" disabled={busy} onClick={() => setEditing((current) => { const next = { ...current }; delete next[user.id]; return next; })}>Abbrechen</button>
                   </> : <>
-                    <button className="ghost-button" disabled={busy} onClick={() => setEditing({ ...editing, [user.id]: { displayName: user.displayName, email: user.email, role: user.role, password: "", mustChangePassword: user.mustChangePassword } })}><Pencil size={14} />编辑</button>
+                    <button className="ghost-button" disabled={busy} onClick={() => setEditing({ ...editing, [user.id]: { displayName: user.displayName, email: user.email, role: user.role, password: "", mustChangePassword: user.mustChangePassword } })}><Pencil size={14} />Bearbeiten</button>
                     <button className={`ghost-button ${disabled ? "" : "danger-button"}`} disabled={busy || user.id === currentUser.id} onClick={() => void patchUser(user, { disabled: !disabled })}>
-                      {busy ? <LoaderCircle className="spin" size={14} /> : disabled ? <Play size={14} /> : <Pause size={14} />}{disabled ? "启用" : "禁用"}
+                      {busy ? <LoaderCircle className="spin" size={14} /> : disabled ? <Play size={14} /> : <Pause size={14} />}{disabled ? "Aktivieren" : "Deaktiviert"}
                     </button>
                     <button
                       className="ghost-button danger-button"
                       disabled={busy || user.id === currentUser.id}
-                      title={user.id === currentUser.id ? "不能删除当前登录账号" : "永久删除用户"}
+                      title={user.id === currentUser.id ? "Das aktuell angemeldete Konto kann nicht gelöscht werden" : "Benutzer dauerhaft löschen"}
                       onClick={() => void deleteUser(user)}
                     >
-                      {busy ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />}删除
+                      {busy ? <LoaderCircle className="spin" size={14} /> : <Trash2 size={14} />}Löschen
                     </button>
                   </>}
                 </div>
@@ -3898,12 +3898,12 @@ function WorkspaceDiagnosticsSettings() {
         readonly auditEvents?: readonly AuditEventPayload[];
         readonly message?: string;
       } | null;
-      if (!response.ok || !payload?.diagnostic) throw new Error(payload?.message || "无法读取诊断数据");
+      if (!response.ok || !payload?.diagnostic) throw new Error(payload?.message || "Diagnosedaten können nicht gelesen werden");
       setDiagnostic(payload.diagnostic);
       setAuditEvents(payload.auditEvents ?? []);
       setTargetUserId((current) => current || payload.diagnostic?.users.find((user) => !user.disabledAt)?.userId || "");
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法读取诊断数据" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Diagnosedaten können nicht gelesen werden" });
     } finally {
       setLoading(false);
     }
@@ -3915,9 +3915,9 @@ function WorkspaceDiagnosticsSettings() {
     if (!targetUserId || assigning) return;
     const target = diagnostic?.users.find((user) => user.userId === targetUserId);
     if (!await appConfirm({
-      title: "分配未归属历史数据？",
-      description: `这些数据将分配给“${target?.displayName ?? "选中用户"}”。`,
-      confirmLabel: "确认分配",
+      title: "Nicht zugeordnete historische Daten zuweisen?",
+      description: `Diese Daten werden „${target?.displayName ?? "dem ausgewählten Benutzer"}“ zugewiesen.`,
+      confirmLabel: "Zuweisung bestätigen",
     })) return;
     setAssigning(true);
     setFeedback(undefined);
@@ -3928,12 +3928,12 @@ function WorkspaceDiagnosticsSettings() {
         body: JSON.stringify({ targetUserId }),
       });
       const payload = await response.json().catch(() => null) as { readonly diagnostic?: WorkspaceDiagnosticPayload; readonly message?: string } | null;
-      if (!response.ok || !payload?.diagnostic) throw new Error(payload?.message || "无法分配历史数据");
+      if (!response.ok || !payload?.diagnostic) throw new Error(payload?.message || "Historische Daten konnten nicht zugewiesen werden");
       setDiagnostic(payload.diagnostic);
-      setFeedback({ kind: "success", message: "未归属历史数据已分配" });
+      setFeedback({ kind: "success", message: "Historische Daten wurden zugewiesen" });
       await loadDiagnostics();
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法分配历史数据" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Historische Daten konnten nicht zugewiesen werden" });
     } finally {
       setAssigning(false);
     }
@@ -3944,37 +3944,37 @@ function WorkspaceDiagnosticsSettings() {
   return (
     <section className="workspace-diagnostics-settings panel" aria-labelledby="workspace-diagnostics-title">
       <div className="settings-section-heading">
-        <h2 id="workspace-diagnostics-title">数据诊断</h2>
+        <h2 id="workspace-diagnostics-title">Datendiagnose</h2>
         <button className="secondary-button" disabled={loading} onClick={() => { setLoading(true); void loadDiagnostics(); }}>
-          {loading ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}刷新
+          {loading ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}Aktualisieren
         </button>
       </div>
 
       <div className="diagnostic-summary">
-        <article><span><Users size={17} /></span><div><small>用户</small><strong>{loading ? "…" : diagnostic?.users.length ?? 0}</strong></div></article>
-        <article><span><ShieldCheck size={17} /></span><div><small>未归属数据</small><strong>{loading ? "…" : diagnostic?.totalUnowned ?? 0}</strong></div></article>
-        <article><span><DatabaseBackup size={17} /></span><div><small>审计事件</small><strong>{loading ? "…" : auditEvents.length}</strong></div></article>
+        <article><span><Users size={17} /></span><div><small>Benutzer</small><strong>{loading ? "…" : diagnostic?.users.length ?? 0}</strong></div></article>
+        <article><span><ShieldCheck size={17} /></span><div><small>Nicht zugeordnete Daten</small><strong>{loading ? "…" : diagnostic?.totalUnowned ?? 0}</strong></div></article>
+        <article><span><DatabaseBackup size={17} /></span><div><small>Audit-Ereignisse</small><strong>{loading ? "…" : auditEvents.length}</strong></div></article>
       </div>
 
       {unownedEntries.length > 0 && <div className="diagnostic-unowned">
         <div>
-          <strong>未归属历史数据</strong>
+          <strong>Nicht zugeordnete historische Daten</strong>
           <p>{unownedEntries.map(([key, count]) => `${diagnosticLabel(key)} ${count}`).join(" · ")}</p>
         </div>
         <div>
-          <AppSelect ariaLabel="选择历史数据目标用户" size="compact" value={targetUserId} onValueChange={setTargetUserId} options={[{ value: "", label: "选择用户" }, ...(diagnostic?.users ?? []).filter((user) => !user.disabledAt).map((user) => ({ value: user.userId, label: `${user.displayName} · ${user.email}` }))]} />
+          <AppSelect ariaLabel="Zielbenutzer für historische Daten auswählen" size="compact" value={targetUserId} onValueChange={setTargetUserId} options={[{ value: "", label: "Benutzer auswählen" }, ...(diagnostic?.users ?? []).filter((user) => !user.disabledAt).map((user) => ({ value: user.userId, label: `${user.displayName} · ${user.email}` }))]} />
           <button className="primary-button" disabled={assigning || !targetUserId} onClick={() => void assignUnownedData()}>
-            {assigning ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}{assigning ? "正在分配…" : "分配"}
+            {assigning ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}{assigning ? "Zuweisen..." : "Zuweisen"}
           </button>
         </div>
       </div>}
 
       <div className="diagnostic-user-grid">
-        {loading ? <div className="accounts-empty"><LoaderCircle className="spin" size={18} />正在读取诊断数据…</div> : (diagnostic?.users ?? []).map((user) => (
+        {loading ? <div className="accounts-empty"><LoaderCircle className="spin" size={18} />Diagnosedaten lesen...</div> : (diagnostic?.users ?? []).map((user) => (
           <article className={`diagnostic-user-card ${user.disabledAt ? "disabled" : ""}`} key={user.userId}>
             <header>
               <div><strong>{user.displayName}</strong><span>{user.email}</span></div>
-              <em>{user.disabledAt ? "已禁用" : roleLabel(user.role)}</em>
+              <em>{user.disabledAt ? "Deaktiviert" : roleLabel(user.role)}</em>
             </header>
             <div className="diagnostic-counts">
               {diagnosticCoreCounts(user.counts).map(([key, count]) => <span key={key}><small>{diagnosticLabel(key)}</small><strong>{count}</strong></span>)}
@@ -3985,18 +3985,18 @@ function WorkspaceDiagnosticsSettings() {
 
       <div className="diagnostic-audit">
         <div className="diagnostic-audit-heading">
-          <h3>最近审计</h3>
+          <h3>Letzte Audit-Ereignisse</h3>
           {auditEvents.length > 10 && <button className="quiet-button" onClick={() => setShowAllAuditEvents((current) => !current)}>
-            {showAllAuditEvents ? "收起" : `查看全部 ${auditEvents.length} 条`}
+            {showAllAuditEvents ? "Weniger anzeigen" : `Alle anzeigen ${auditEvents.length} Einträge`}
           </button>}
         </div>
         {visibleAuditEvents.length ? visibleAuditEvents.map((event) => (
           <article key={event.id}>
             <span>{auditActionLabel(event.action)}</span>
-            <strong>{event.actorDisplayName ?? event.actorEmail ?? "系统"}</strong>
-            <small>{event.targetDisplayName || event.targetEmail ? `目标：${event.targetDisplayName ?? event.targetEmail}` : "无目标"} · {formatAccountTime(event.createdAt)}</small>
+            <strong>{event.actorDisplayName ?? event.actorEmail ?? "System"}</strong>
+            <small>{event.targetDisplayName || event.targetEmail ? `Ziel: ${event.targetDisplayName ?? event.targetEmail}` : "Kein Ziel"} · {formatAccountTime(event.createdAt)}</small>
           </article>
-        )) : <div className="accounts-empty">暂无审计事件</div>}
+        )) : <div className="accounts-empty">kein Audit-Ereignisse zur Zeit</div>}
       </div>
 
       {feedback && <div className={`user-settings-feedback ${feedback.kind}`} role="status">{feedback.message}</div>}
@@ -4013,10 +4013,10 @@ function AiAutomationSettings() {
     try {
       const response = await fetch("/api/ai/actions/settings", { cache: "no-store" });
       const payload = await response.json() as { readonly ok?: boolean; readonly settings?: typeof settings; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.settings) throw new Error(payload.message || "无法读取 AI 自动执行设置");
+      if (!response.ok || !payload.ok || !payload.settings) throw new Error(payload.message || "Einstellungen für die automatische AI-Ausführung konnten nicht gelesen werden");
       setSettings(payload.settings);
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法读取 AI 自动执行设置" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Einstellungen für die automatische AI-Ausführung konnten nicht gelesen werden" });
     }
   }, []);
 
@@ -4031,11 +4031,11 @@ function AiAutomationSettings() {
         body: JSON.stringify(next),
       });
       const payload = await response.json() as { readonly ok?: boolean; readonly settings?: typeof settings; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.settings) throw new Error(payload.message || "无法保存 AI 自动执行设置");
+      if (!response.ok || !payload.ok || !payload.settings) throw new Error(payload.message || "Einstellungen für die automatische AI-Ausführung konnten nicht gespeichert werden");
       setSettings(payload.settings);
-      setFeedback({ kind: "success", message: "AI 自动执行设置已保存" });
+      setFeedback({ kind: "success", message: "Einstellungen für die automatische AI-Ausführung gespeichert" });
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法保存 AI 自动执行设置" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Einstellungen für die automatische AI-Ausführung konnten nicht gespeichert werden" });
     } finally {
       setSaving(false);
     }
@@ -4045,11 +4045,11 @@ function AiAutomationSettings() {
   return (
     <section className="ai-automation-settings panel">
       <div className="settings-section-heading">
-        <h2>AI 自动执行</h2>
+        <h2>Automatische AI-Ausführung</h2>
       </div>
       <div className="ai-automation-grid">
-        <label><input type="checkbox" checked={current.autoExecutionEnabled} disabled={saving} onChange={(event) => void save({ ...current, autoExecutionEnabled: event.target.checked, highRiskAutoEnabled: event.target.checked ? current.highRiskAutoEnabled : false })} /><span><strong>允许自动写入</strong><small>创建任务、笔记、日程和邮件草稿。</small></span></label>
-        <label><input type="checkbox" checked={current.highRiskAutoEnabled} disabled={saving || !current.autoExecutionEnabled} onChange={(event) => void save({ ...current, highRiskAutoEnabled: event.target.checked })} /><span><strong>允许高风险外部动作</strong><small>发送邮件、归档/删除/移动邮件等动作。</small></span></label>
+        <label><input type="checkbox" checked={current.autoExecutionEnabled} disabled={saving} onChange={(event) => void save({ ...current, autoExecutionEnabled: event.target.checked, highRiskAutoEnabled: event.target.checked ? current.highRiskAutoEnabled : false })} /><span><strong>Automatische Schreibaktionen erlauben</strong><small>Erstellen Sie Aufgaben, Notizen, Kalenderereignisse und E-Mail-Entwurf.</small></span></label>
+        <label><input type="checkbox" checked={current.highRiskAutoEnabled} disabled={saving || !current.autoExecutionEnabled} onChange={(event) => void save({ ...current, highRiskAutoEnabled: event.target.checked })} /><span><strong>Riskante externe Aktionen erlauben</strong><small>Aktionen wie E-Mails senden, archivieren, löschen oder verschieben.</small></span></label>
       </div>
       {feedback && <div className={`user-settings-feedback ${feedback.kind}`}>{feedback.message}</div>}
     </section>
@@ -4152,7 +4152,7 @@ function BackupSettings() {
     try {
       const response = await fetch("/api/backups", { cache: "no-store" });
       const payload = await response.json() as { readonly ok?: boolean; readonly status?: BackupStatusPayload; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.status) throw new Error(payload.message || "无法读取备份状态");
+      if (!response.ok || !payload.ok || !payload.status) throw new Error(payload.message || "Sicherungsstatus kann nicht gelesen werden");
       setStatus(payload.status);
       if (!options.preserveAutomaticDraft) setAutomaticDraft(payload.status.automatic);
       setSelectedBackupPolicy((current) => {
@@ -4163,7 +4163,7 @@ function BackupSettings() {
       });
     } catch (error) {
       if (!options.silent) {
-        setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法读取备份状态" });
+        setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Sicherungsstatus kann nicht gelesen werden" });
       }
     } finally {
       setLoading(false);
@@ -4183,18 +4183,18 @@ function BackupSettings() {
     if (!activeBackupJobId || event.entityId !== activeBackupJobId) return;
     if (event.status === "succeeded") {
       setActiveBackupJobId(undefined);
-      setFeedback({ kind: "success", message: "备份创建完成，历史记录已更新" });
+      setFeedback({ kind: "success", message: "Backup erstellt und Geschichte aktualisiert" });
       void refreshBackupStatus();
     } else if (event.status === "failed" || event.status === "cancelled") {
       setActiveBackupJobId(undefined);
-      setFeedback({ kind: "error", message: event.status === "failed" ? "备份创建失败，请在任务中心查看日志" : "备份任务已取消" });
+      setFeedback({ kind: "error", message: event.status === "failed" ? "Backup-Erstellung fehlgeschlagen. Bitte sehen Sie sich das Protokoll im Taskcenter an" : "Sicherungsaufgabe abgebrochen" });
       void refreshBackupStatus();
     }
   });
 
   const createBackup = async () => {
     if (encryptBackup && backupPassword.length < 8) {
-      setFeedback({ kind: "error", message: "加密备份密码至少需要 8 个字符" });
+      setFeedback({ kind: "error", message: "Verschlüsselungs-Backup-Passwort erfordert mindestens 8 Zeichen" });
       return;
     }
     setBusyBackupId("create");
@@ -4209,11 +4209,11 @@ function BackupSettings() {
         readonly job?: Pick<AppJobPayload, "id">;
         readonly message?: string;
       };
-      if (!response.ok || !payload.ok || !payload.job) throw new Error(payload.message || "无法创建备份任务");
+      if (!response.ok || !payload.ok || !payload.job) throw new Error(payload.message || "Sicherungsaufgabe kann nicht erstellt werden");
       setActiveBackupJobId(payload.job.id);
-      setFeedback({ kind: "info", message: "正在创建备份，完成后会自动更新历史" });
+      setFeedback({ kind: "info", message: "Erstellen von Backups und automatische Aktualisierung des Verlaufs nach Abschluss" });
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法创建备份任务" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Sicherungsaufgabe kann nicht erstellt werden" });
     } finally {
       setBusyBackupId(undefined);
     }
@@ -4228,11 +4228,11 @@ function BackupSettings() {
         body: file,
       });
       const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message || "无法上传备份");
-      setFeedback({ kind: "success", message: "备份文件已上传并加入历史" });
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "Backup kann nicht hochgeladen werden");
+      setFeedback({ kind: "success", message: "Backup-Datei hochgeladen und zum Verlauf hinzugefügt" });
       await loadStatus();
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法上传备份" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Backup kann nicht hochgeladen werden" });
     } finally {
       setBusyBackupId(undefined);
     }
@@ -4240,13 +4240,13 @@ function BackupSettings() {
 
   const restoreArtifact = async (artifact: BackupArtifactPayload) => {
     if (!await appConfirm({
-      title: `恢复备份“${artifact.filename}”？`,
-      description: "系统会先创建恢复前安全备份，然后替换当前数据库和附件。",
-      confirmLabel: "恢复备份",
+      title: `Sicherung „${artifact.filename}“ wiederherstellen?`,
+      description: "Das System erstellt zunächst ein sicheres Pre-Restoration-Backup und ersetzt dann die aktuelle Datenbank und Anhänge.",
+      confirmLabel: "Sicherung wiederherstellen",
       tone: "danger",
     })) return;
     if (artifact.encrypted && backupPassword.length < 8) {
-      setFeedback({ kind: "error", message: "恢复加密备份需要输入备份密码" });
+      setFeedback({ kind: "error", message: "das Backup-Passwort wird benötigt, um das Verschlüsselungs-Backup wiederherzustellen" });
       return;
     }
     setBusyBackupId(artifact.id);
@@ -4257,11 +4257,11 @@ function BackupSettings() {
         body: JSON.stringify({ confirmed: true, password: artifact.encrypted ? backupPassword : undefined }),
       });
       const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message || "无法创建恢复任务");
-      setFeedback({ kind: "success", message: "恢复任务已创建，可在任务中心查看进度" });
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "Wiederherstellungsaufgabe kann nicht erstellt werden");
+      setFeedback({ kind: "success", message: "Wiederherstellungsauftrag erstellt. Den Fortschritt finden Sie im Aufgabencenter." });
       await loadStatus();
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法创建恢复任务" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Wiederherstellungsaufgabe kann nicht erstellt werden" });
     } finally {
       setBusyBackupId(undefined);
     }
@@ -4269,20 +4269,20 @@ function BackupSettings() {
 
   const deleteArtifact = async (artifact: BackupArtifactPayload) => {
     if (!await appConfirm({
-      title: `永久删除备份“${artifact.filename}”？`,
-      description: `服务器上的备份文件和历史记录都会被删除，将释放 ${formatFileSize(artifact.sizeBytes)} 空间。此操作无法撤销。`,
-      confirmLabel: "删除备份",
+      title: `Sicherung „${artifact.filename}“ dauerhaft löschen?`,
+      description: `Die Sicherungsdatei und der zugehörige Verlauf werden vom Server gelöscht. Dadurch werden ${formatFileSize(artifact.sizeBytes)} Speicherplatz freigegeben. Diese Aktion kann nicht rückgängig gemacht werden.`,
+      confirmLabel: "Sicherung löschen",
       tone: "danger",
     })) return;
     setBusyBackupId(artifact.id);
     try {
       const response = await fetch(`/api/backups/${encodeURIComponent(artifact.id)}`, { method: "DELETE" });
       const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message || "无法删除备份");
-      setFeedback({ kind: "success", message: "备份文件和历史记录已删除" });
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "Backup kann nicht gelöscht werden");
+      setFeedback({ kind: "success", message: "Backup-Dateien und historische Datensätze gelöscht" });
       await loadStatus();
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法删除备份" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Backup kann nicht gelöscht werden" });
     } finally {
       setBusyBackupId(undefined);
     }
@@ -4304,12 +4304,12 @@ function BackupSettings() {
         }),
       });
       const payload = await response.json() as { readonly ok?: boolean; readonly settings?: AutomaticBackupPayload; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.settings) throw new Error(payload.message || "无法保存自动备份设置");
+      if (!response.ok || !payload.ok || !payload.settings) throw new Error(payload.message || "Autoback-Einstellungen können nicht gespeichert werden");
       setAutomaticDraft(payload.settings);
       setStatus((current) => current ? { ...current, automatic: payload.settings! } : current);
-      setFeedback({ kind: "success", message: "自动备份设置已保存" });
+      setFeedback({ kind: "success", message: "Autoback-Einstellungen gespeichert" });
     } catch (error) {
-      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法保存自动备份设置" });
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Autoback-Einstellungen können nicht gespeichert werden" });
     } finally {
       setBusyBackupId(undefined);
     }
@@ -4319,8 +4319,8 @@ function BackupSettings() {
   const toolsReady = Boolean(strategy?.tools.pgDump && strategy.tools.pgRestore && strategy.tools.tar);
   const backupOptions = strategy?.options ?? [{
     policy: "lightweight" as const,
-    label: "轻量工作区快照",
-    description: "备份数据库和草稿附件。",
+    label: "leichter Arbeitsraum-Snapshot",
+    description: "Backup-Datenbank und Entwurf Anhang.",
     recommended: true,
     available: true,
     coverage: strategy?.coverage ?? [],
@@ -4332,16 +4332,16 @@ function BackupSettings() {
   const availableBackupOptions = backupOptions.filter((option) => option.available);
   const mailCache = status?.mailCache;
   const mailCacheLabel = mailCache
-    ? `${mailCache.cachedBodies}/${mailCache.totalMessages} 封正文 · ${formatFileSize(mailCache.cachedBodyBytes)}`
+    ? `${mailCache.cachedBodies}/${mailCache.totalMessages} kodierter Text . ${formatFileSize(mailCache.cachedBodyBytes)}`
     : "—";
   const automatic = automaticDraft ?? status?.automatic;
   const artifactMenuItem = artifactMenu ? status?.artifacts?.find((artifact) => artifact.id === artifactMenu.id) : undefined;
   const artifactCommands: readonly ResolvedContextCommand[] = artifactMenuItem ? [
-    { id: "backup.download", label: "下载备份文件", group: "primary", risk: "read", icon: "download" },
-    { id: "backup.copy-name", label: "复制文件名", group: "primary", risk: "read", icon: "copy" },
-    { id: "backup.copy-checksum", label: "复制 SHA256", group: "primary", risk: "read", icon: "info" },
-    { id: "backup.restore", label: "从此备份恢复", group: "danger", risk: "destructive", icon: "restore" },
-    { id: "backup.delete", label: "永久删除备份", group: "danger", risk: "destructive", icon: "trash" },
+    { id: "backup.download", label: "Backup-Dateien herunterladen", group: "primary", risk: "read", icon: "download" },
+    { id: "backup.copy-name", label: "Dateiname kopieren", group: "primary", risk: "read", icon: "copy" },
+    { id: "backup.copy-checksum", label: "Kopieren von SHA256", group: "primary", risk: "read", icon: "info" },
+    { id: "backup.restore", label: "Sicherung von diesem", group: "danger", risk: "destructive", icon: "restore" },
+    { id: "backup.delete", label: "Sicherung dauerhaft löschen", group: "danger", risk: "destructive", icon: "trash" },
   ] : [];
 
   const openArtifactMenu = (event: ReactMouseEvent<HTMLElement>, artifact: BackupArtifactPayload) => {
@@ -4353,28 +4353,28 @@ function BackupSettings() {
     if (!artifactMenuItem) return;
     if (commandId === "backup.download") window.open(`/api/backups/${encodeURIComponent(artifactMenuItem.id)}/download`, "_blank", "noopener,noreferrer");
     if (commandId === "backup.restore") void restoreArtifact(artifactMenuItem);
-    if (commandId === "backup.copy-name") void copyText(artifactMenuItem.filename, "备份文件名已复制", setFeedback);
-    if (commandId === "backup.copy-checksum") void copyText(artifactMenuItem.checksumSha256, "SHA256 已复制", setFeedback);
+    if (commandId === "backup.copy-name") void copyText(artifactMenuItem.filename, "Dateinamen kopieren sichern", setFeedback);
+    if (commandId === "backup.copy-checksum") void copyText(artifactMenuItem.checksumSha256, "SHA256 kopiert", setFeedback);
     if (commandId === "backup.delete") void deleteArtifact(artifactMenuItem);
   };
 
   return (
     <section className="backup-settings panel" aria-labelledby="backup-settings-title">
       <div className="settings-section-heading">
-        <h2 id="backup-settings-title">备份</h2>
-        <span className="step-badge">{loading ? "检查中" : toolsReady ? "可执行" : "需安装工具"}</span>
+        <h2 id="backup-settings-title">Datensicherung</h2>
+        <span className="step-badge">{loading ? "Überprüfung" : toolsReady ? "ausführbar" : "zu installierende Werkzeuge"}</span>
       </div>
 
-      <div className="backup-summary" aria-label="当前数据概况">
-        <article><span><HardDrive size={17} /></span><div><small>数据库占用</small><strong>{loading ? "正在计算…" : formatFileSize(status?.databaseBytes ?? 0)}</strong></div></article>
-        <article title="根据 PostgreSQL 压缩转储和草稿附件估算；结果缓存 5 分钟，实际文件可能略有差异"><span><DatabaseBackup size={17} /></span><div><small>预计轻量备份</small><strong>{loading ? "正在估算…" : `约 ${formatFileSize(status?.estimatedLightweightBytes ?? 0)}`}</strong></div></article>
-        <article><span><Mail size={17} /></span><div><small>邮件缓存（不备份）</small><strong>{loading ? "—" : mailCacheLabel}</strong></div></article>
-        <article><span><Paperclip size={17} /></span><div><small>草稿附件</small><strong>{loading ? "—" : `${status?.attachmentFiles ?? 0} 个 · ${formatFileSize(status?.attachmentBytes ?? 0)}`}</strong></div></article>
+      <div className="backup-summary" aria-label="aktuelles Datenprofil">
+        <article><span><HardDrive size={17} /></span><div><small>Datenbankbelegung</small><strong>{loading ? "Berechnung..." : formatFileSize(status?.databaseBytes ?? 0)}</strong></div></article>
+        <article title="Schätzungen basierend auf PostgreSQL komprimierten Dumps und Entwurf von Anhängen; Ergebnisse cache 5 Minuten, tatsächliche Dokumente können leicht variieren"><span><DatabaseBackup size={17} /></span><div><small>Erwartete Lichtunterstützung</small><strong>{loading ? "Schätzung..." : `Angleichung ${formatFileSize(status?.estimatedLightweightBytes ?? 0)}`}</strong></div></article>
+        <article><span><Mail size={17} /></span><div><small>Mail-Cache (keine Sicherung)</small><strong>{loading ? "—" : mailCacheLabel}</strong></div></article>
+        <article><span><Paperclip size={17} /></span><div><small>Anlageentwurf</small><strong>{loading ? "—" : `${status?.attachmentFiles ?? 0} Eins... ${formatFileSize(status?.attachmentBytes ?? 0)}`}</strong></div></article>
       </div>
 
       {availableBackupOptions.length > 1 && (
-        <section className="backup-type-picker" aria-label="备份类型">
-          <header><h3>备份类型</h3></header>
+        <section className="backup-type-picker" aria-label="Art der Sicherung">
+          <header><h3>Art der Sicherung</h3></header>
           <div>
             {availableBackupOptions.map((option) => (
               <button
@@ -4397,9 +4397,9 @@ function BackupSettings() {
         <article className="backup-create-card">
           <header>
             <DatabaseBackup size={18} />
-            <div><h3>创建{selectedBackupOption ? backupPolicyLabel(selectedBackupOption.policy) : "备份"}</h3><p>保存工作区数据和草稿附件，邮件正文恢复后按需重新获取。</p></div>
+            <div><h3>Erstellen{selectedBackupOption ? backupPolicyLabel(selectedBackupOption.policy) : "Datensicherung"}</h3><p>speichert Workspace-Daten und Entwurf von Anhängen, re-records je nach Bedarf, nachdem der Mail-Körper wiederhergestellt wurde.</p></div>
           </header>
-          <div className="backup-scope-summary" aria-label="备份范围">
+          <div className="backup-scope-summary" aria-label="Backup-Bereich">
             {compactCoverage.map((item) => {
               const included = item.id === "master-key" ? encryptBackup : item.included;
               return (
@@ -4410,43 +4410,43 @@ function BackupSettings() {
             })}
           </div>
           <div className="backup-create-controls">
-            <label className="secure-toggle"><input type="checkbox" checked={encryptBackup} onChange={(event) => setEncryptBackup(event.target.checked)} /><span>加密备份</span></label>
-            {encryptBackup && <input value={backupPassword} type="password" placeholder="输入备份密码（至少 8 位）" onChange={(event) => setBackupPassword(event.target.value)} />}
-            <button className="primary-button" disabled={Boolean(busyBackupId) || !selectedPolicyAvailable || !toolsReady} onClick={() => void createBackup()}>{busyBackupId === "create" ? <LoaderCircle className="spin" size={14} /> : <DatabaseBackup size={14} />}创建备份</button>
+            <label className="secure-toggle"><input type="checkbox" checked={encryptBackup} onChange={(event) => setEncryptBackup(event.target.checked)} /><span>Verschlüsselungssicherung</span></label>
+            {encryptBackup && <input value={backupPassword} type="password" placeholder="Backup-Passwort eingeben (mindestens 8 Bit)" onChange={(event) => setBackupPassword(event.target.value)} />}
+            <button className="primary-button" disabled={Boolean(busyBackupId) || !selectedPolicyAvailable || !toolsReady} onClick={() => void createBackup()}>{busyBackupId === "create" ? <LoaderCircle className="spin" size={14} /> : <DatabaseBackup size={14} />}Backup erstellen</button>
           </div>
           {!selectedPolicyAvailable && selectedBackupOption?.disabledReason && <small className="backup-risk">{selectedBackupOption.disabledReason}</small>}
-          {!toolsReady && <small className="backup-risk">服务器缺少备份工具，请先完成运行环境配置。</small>}
+          {!toolsReady && <small className="backup-risk">Dem Server fehlen Backup-Tools. Bitte füllen Sie zuerst die Konfiguration der Betriebsumgebung aus.</small>}
           {encryptBackup
-            ? <small>恢复时只需此备份密码，账户连接会自动改用目标服务器的主密钥。</small>
-            : <small className="backup-risk">未加密备份不携带可迁移连接凭据；跨服务器恢复后需要重新输入账户密码。</small>}
+            ? <small>UI-Text: Dieses Backup-Passwort ist alles, was Sie zur Wiederherstellung benötigen, und die Kontoverbindung ändert sich automatisch am Hauptschlüssel des Zielservers.</small>
+            : <small className="backup-risk">Unverschlüsselte Backups führen keine migrationsfähigen Links; ein erneuter Eintrag von Kontopasswörtern ist erforderlich, nachdem der Server wiederhergestellt wurde.</small>}
         </article>
       </div>
 
       {automatic && (
         <div className="automatic-backup-card">
           <header>
-            <div><h3>自动备份</h3><p>后台任务会按间隔创建服务器历史备份，并按保留数量清理旧自动备份。</p></div>
-            <span className={automatic.enabled ? "ready" : ""}>{automatic.enabled ? "已开启" : "未开启"}</span>
+            <div><h3>Automatisches Zurück</h3><p>Back-Office-Aufgaben erstellen serverhistorische Backups in Abständen und reinigen alte automatische Backups in reservierten Mengen.</p></div>
+            <span className={automatic.enabled ? "ready" : ""}>{automatic.enabled ? "Aktiviert" : "ungeöffnet"}</span>
           </header>
           <div className="automatic-backup-controls">
-            <label><input type="checkbox" checked={automatic.enabled} onChange={(event) => setAutomaticDraft({ ...automatic, enabled: event.target.checked })} /><span>启用自动备份</span></label>
-            <label><span>间隔小时</span><input type="number" min={1} max={720} value={automatic.intervalHours} onChange={(event) => setAutomaticDraft({ ...automatic, intervalHours: Number(event.target.value) })} /></label>
-            <label><span>保留份数</span><input type="number" min={1} max={365} value={automatic.retentionCount} onChange={(event) => setAutomaticDraft({ ...automatic, retentionCount: Number(event.target.value) })} /></label>
-            <label><input type="checkbox" checked={automatic.encryptAutomatic} onChange={(event) => setAutomaticDraft({ ...automatic, encryptAutomatic: event.target.checked })} /><span>自动备份加密</span></label>
-            <button className="secondary-button" disabled={busyBackupId === "automatic"} onClick={() => void saveAutomaticSettings()}>{busyBackupId === "automatic" ? <LoaderCircle className="spin" size={13} /> : <Check size={13} />}保存策略</button>
+            <label><input type="checkbox" checked={automatic.enabled} onChange={(event) => setAutomaticDraft({ ...automatic, enabled: event.target.checked })} /><span>automatische Sicherung Aktivieren</span></label>
+            <label><span>Intervallstunden</span><input type="number" min={1} max={720} value={automatic.intervalHours} onChange={(event) => setAutomaticDraft({ ...automatic, intervalHours: Number(event.target.value) })} /></label>
+            <label><span>Anzahl der aufbewahrten Exemplare</span><input type="number" min={1} max={365} value={automatic.retentionCount} onChange={(event) => setAutomaticDraft({ ...automatic, retentionCount: Number(event.target.value) })} /></label>
+            <label><input type="checkbox" checked={automatic.encryptAutomatic} onChange={(event) => setAutomaticDraft({ ...automatic, encryptAutomatic: event.target.checked })} /><span>Autoback-Verschlüsselung</span></label>
+            <button className="secondary-button" disabled={busyBackupId === "automatic"} onClick={() => void saveAutomaticSettings()}>{busyBackupId === "automatic" ? <LoaderCircle className="spin" size={13} /> : <Check size={13} />}Richtlinie speichern</button>
           </div>
           <footer>
-            <small>下次执行：{automatic.enabled && automatic.nextRunAt ? formatAccountTime(automatic.nextRunAt) : "未计划"}</small>
-            <small>最近完成：{automatic.lastCompletedAt ? formatAccountTime(automatic.lastCompletedAt) : "暂无"}</small>
-            {automatic.encryptAutomatic && !automatic.encryptionPasswordConfigured && <small className="backup-risk">自动加密需要在服务器设置 KALENDER_BACKUP_PASSWORD。</small>}
-            {!automatic.encryptAutomatic && <small>未启用加密时，自动备份不需要备份密码。</small>}
+            <small>nächste Umsetzung:{automatic.enabled && automatic.nextRunAt ? formatAccountTime(automatic.nextRunAt) : "nicht geplant"}</small>
+            <small>vor kurzem abgeschlossen:{automatic.lastCompletedAt ? formatAccountTime(automatic.lastCompletedAt) : "nicht verfügbar"}</small>
+            {automatic.encryptAutomatic && !automatic.encryptionPasswordConfigured && <small className="backup-risk">Die automatische Verschlüsselung erfordert Servereinstellungen für KARENDER_BANKUP_PASSWORD.</small>}
+            {!automatic.encryptAutomatic && <small>Eine automatische Sicherung erfordert kein Backup-Passwort, wenn die Verschlüsselung nicht aktiviert ist.</small>}
           </footer>
         </div>
       )}
 
       <div className="backup-history">
         <div className="backup-history-heading">
-          <h3>备份历史</h3>
+          <h3>Sicherungshistorie</h3>
           <input
             ref={backupUploadRef}
             className="backup-file-input"
@@ -4459,7 +4459,7 @@ function BackupSettings() {
             }}
           />
           <button className="secondary-button" disabled={Boolean(busyBackupId)} onClick={() => backupUploadRef.current?.click()}>
-            {busyBackupId === "upload" ? <LoaderCircle className="spin" size={13} /> : <Upload size={13} />}上传备份
+            {busyBackupId === "upload" ? <LoaderCircle className="spin" size={13} /> : <Upload size={13} />}Backup hochladen
           </button>
         </div>
         {status?.artifacts?.length ? status.artifacts.map((artifact) => (
@@ -4474,20 +4474,20 @@ function BackupSettings() {
               setArtifactMenu({ id: artifact.id, x: bounds.right - 12, y: bounds.top + 28, returnFocus: event.currentTarget });
             }}
           >
-            <div><strong>{artifact.filename}</strong><small>{backupPolicyLabel(artifact.mailPolicy ?? "lightweight")} · {artifact.source === "safety" ? "恢复前安全备份" : artifact.source === "upload" ? "上传文件" : "服务器创建"} · {artifact.encrypted ? "已加密" : "未加密"} · {formatAccountTime(artifact.createdAt)}</small></div>
+            <div><strong>{artifact.filename}</strong><small>{backupPolicyLabel(artifact.mailPolicy ?? "lightweight")} · {artifact.source === "safety" ? "Sichere Sicherung vor der Wiederherstellung" : artifact.source === "upload" ? "Dateien hochladen" : "Server-Erstellung"} · {artifact.encrypted ? "verschlüsselt" : "unverschlüsselt"} · {formatAccountTime(artifact.createdAt)}</small></div>
             <span>{formatFileSize(artifact.sizeBytes)}</span>
-            <a className="secondary-button" href={`/api/backups/${encodeURIComponent(artifact.id)}/download`}><Download size={13} />下载</a>
-            <button className="danger-confirm-button" disabled={Boolean(busyBackupId)} onClick={() => void restoreArtifact(artifact)}>{busyBackupId === artifact.id ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}恢复</button>
-            <button className="ghost-button danger-button" disabled={Boolean(busyBackupId)} onClick={() => void deleteArtifact(artifact)}><Trash2 size={13} />删除</button>
+            <a className="secondary-button" href={`/api/backups/${encodeURIComponent(artifact.id)}/download`}><Download size={13} />herunterladen</a>
+            <button className="danger-confirm-button" disabled={Boolean(busyBackupId)} onClick={() => void restoreArtifact(artifact)}>{busyBackupId === artifact.id ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}Wiederherstellung</button>
+            <button className="ghost-button danger-button" disabled={Boolean(busyBackupId)} onClick={() => void deleteArtifact(artifact)}><Trash2 size={13} />Löschen</button>
           </article>
-        )) : <div className="accounts-empty">还没有备份历史</div>}
+        )) : <div className="accounts-empty">Keine Sicherungshistorie</div>}
       </div>
 
-      {feedback && <div className={`backup-feedback ${feedback.kind}`} role="status"><span>{feedback.message}</span><button aria-label="关闭提示" onClick={() => setFeedback(undefined)}><X size={13} /></button></div>}
+      {feedback && <div className={`backup-feedback ${feedback.kind}`} role="status"><span>{feedback.message}</span><button aria-label="Schalten Sie den Hinweis aus" onClick={() => setFeedback(undefined)}><X size={13} /></button></div>}
       {artifactMenu && artifactMenuItem && (
         <ContextMenu
           anchor={{ x: artifactMenu.x, y: artifactMenu.y }}
-          ariaLabel={`备份操作：${artifactMenuItem.filename}`}
+          ariaLabel={`Sicherungsoperationen:${artifactMenuItem.filename}`}
           commands={artifactCommands}
           heading={artifactMenuItem.filename}
           returnFocus={artifactMenu.returnFocus}
@@ -4541,9 +4541,9 @@ function formatFileSize(bytes: number): string {
 }
 
 function backupPolicyLabel(policy: BackupMailPolicyPayload): string {
-  if (policy === "configuration-only") return "仅配置备份";
-  if (policy === "full-archive") return "完整归档";
-  return "轻量备份";
+  if (policy === "configuration-only") return "Nur Sicherungskonfiguration";
+  if (policy === "full-archive") return "vollständiges Archiv";
+  return "Lichtunterstützung";
 }
 
 async function copyText(
@@ -4555,16 +4555,16 @@ async function copyText(
     await navigator.clipboard?.writeText(value);
     setFeedback({ kind: "success", message: successMessage });
   } catch {
-    setFeedback({ kind: "error", message: "复制失败，请手动选择文本" });
+    setFeedback({ kind: "error", message: "Kopieren fehlgeschlagen, bitte Text manuell auswählen" });
   }
 }
 
 function jobFilterLabel(value: string): string {
-  return { active: "活跃", queued: "排队", running: "运行", failed: "失败", succeeded: "成功", cancelled: "取消" }[value] ?? value;
+  return { active: "aktiv", queued: "Warteschlange", running: "Aktiv", failed: "fehlgeschlagen", succeeded: "Erfolg", cancelled: "Abbrechen" }[value] ?? value;
 }
 
 function jobStatusLabel(value: string): string {
-  return { queued: "排队", running: "运行中", succeeded: "成功", failed: "失败", cancelled: "已取消" }[value] ?? value;
+  return { queued: "Warteschlange", running: "Aktiv", succeeded: "Erfolg", failed: "fehlgeschlagen", cancelled: "Annulliert" }[value] ?? value;
 }
 
 function appJobStatus(value: string | undefined): AppJobPayload["status"] | undefined {
@@ -4579,46 +4579,46 @@ function appJobStatus(value: string | undefined): AppJobPayload["status"] | unde
 
 function jobKindLabel(value: string): string {
   return {
-    "backup.create": "创建备份",
-    "backup.restore": "恢复备份",
-    "mail.sync": "邮件同步",
-    "calendar.sync": "日历同步",
-    "ai.action": "AI 动作",
-    maintenance: "维护",
+    "backup.create": "Backup erstellen",
+    "backup.restore": "Sicherung wiederherstellen",
+    "mail.sync": "E-Mail synchronisieren",
+    "calendar.sync": "Kalender synchronisieren",
+    "ai.action": "KI-Maßnahmen",
+    maintenance: "Wartung",
   }[value] ?? value;
 }
 
 function roleLabel(role: AppRole): string {
-  return role === "admin" ? "管理员" : role === "viewer" ? "只读用户" : "普通用户";
+  return role === "admin" ? "Administrator" : role === "viewer" ? "Nur lesende Benutzer" : "Allgemeiner Benutzer";
 }
 
 function roleOptions() {
   return [
-    { value: "user", label: "普通用户" },
-    { value: "viewer", label: "只读用户" },
-    { value: "admin", label: "管理员" },
+    { value: "user", label: "Allgemeiner Benutzer" },
+    { value: "viewer", label: "Nur lesende Benutzer" },
+    { value: "admin", label: "Administrator" },
   ];
 }
 
 function diagnosticLabel(key: string): string {
   return ({
-    accounts: "邮箱账户",
-    calendar_accounts: "日历账户",
+    accounts: "E-Mail-Konten",
+    calendar_accounts: "Kalenderkonten",
     exchange_connections: "Exchange",
-    calendars: "日历",
-    calendar_events: "日程",
-    projects: "项目",
-    notes: "笔记",
-    tasks: "任务",
-    entity_links: "关联",
-    mail_drafts: "草稿",
-    mail_signatures: "邮件签名",
-    mail_draft_attachments: "草稿附件",
-    mail_messages: "邮件",
+    calendars: "Kalender",
+    calendar_events: "Termin",
+    projects: "Projekt",
+    notes: "Notiz",
+    tasks: "Aufgabe",
+    entity_links: "Verknüpfung",
+    mail_drafts: "Entwürfe",
+    mail_signatures: "E-Mail-Signatur",
+    mail_draft_attachments: "Anlageentwurf",
+    mail_messages: "E-Mail",
     ai_providers: "AI Provider",
-    ai_conversations: "AI 对话",
-    ai_feature_bindings: "AI 绑定",
-    ai_messages: "AI 消息",
+    ai_conversations: "KI-Dialog",
+    ai_feature_bindings: "KI-Bindung",
+    ai_messages: "KI-Nachrichten",
   } as Record<string, string>)[key] ?? key;
 }
 
@@ -4629,12 +4629,12 @@ function diagnosticCoreCounts(counts: Readonly<Record<string, number>>): readonl
 
 function auditActionLabel(action: string): string {
   return ({
-    "auth.login": "登录",
-    "user.create": "创建用户",
-    "user.update": "更新用户",
-    "user.profile.update": "修改个人账号",
-    "workspace.assign-unowned": "分配历史数据",
-    "sync.settings.update": "修改同步设置",
+    "auth.login": "Anmelden",
+    "user.create": "Benutzer erstellen",
+    "user.update": "Benutzer aktualisieren",
+    "user.profile.update": "Änderung der persönlichen Kontonummer",
+    "workspace.assign-unowned": "Verteile historische Daten",
+    "sync.settings.update": "Synchronisierungseinstellungen ändern",
   } as Record<string, string>)[action] ?? action;
 }
 
@@ -4648,7 +4648,7 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
   const [accountFeedback, setAccountFeedback] = useState("");
   const providerId = "imap";
   const [emailAddress, setEmailAddress] = useState("");
-  const [displayName, setDisplayName] = useState("个人邮箱");
+  const [displayName, setDisplayName] = useState("Persönliches Mailkonto");
   const [imapHost, setImapHost] = useState("");
   const [imapPort, setImapPort] = useState("993");
   const [imapSecure, setImapSecure] = useState(true);
@@ -4673,12 +4673,12 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
         readonly accounts?: readonly SavedMailAccount[];
         readonly scheduler?: { readonly enabled?: boolean; readonly intervalMs?: number };
       };
-      if (!response.ok) throw new Error("无法读取邮箱账户");
+      if (!response.ok) throw new Error("Mailkonten konnten nicht geladen werden");
       setAccounts(result.accounts ?? []);
       if (typeof result.scheduler?.enabled === "boolean") setSyncEnabled(result.scheduler.enabled);
       if (result.scheduler?.intervalMs) setSyncIntervalMs(result.scheduler.intervalMs);
     } catch (error) {
-      setAccountFeedback(error instanceof Error ? error.message : "无法读取邮箱账户");
+      setAccountFeedback(error instanceof Error ? error.message : "Mailkonten konnten nicht geladen werden");
     } finally {
       setAccountsLoading(false);
     }
@@ -4704,12 +4704,12 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
   async function performAccountAction(account: SavedMailAccount, kind: Exclude<AccountAction, "edit">) {
     if (kind === "delete" && !await appConfirm({
       title: account.providerId === "exchange-ews"
-        ? `移除“${account.displayName}”的邮件连接？`
-        : `删除邮件账户“${account.displayName}”？`,
+        ? `E-Mail-Verbindung „${account.displayName}“ entfernen?`
+        : `Mailkonto „${account.displayName}“ löschen?`,
       description: account.providerId === "exchange-ews"
-        ? "本地邮件索引会被删除，日历连接和共享加密凭据将保留。"
-        : "该账户的加密凭据、邮件索引和同步记录都会从本机删除。",
-      confirmLabel: account.providerId === "exchange-ews" ? "移除连接" : "删除账户",
+        ? "Der lokale Mail-Index wird gelöscht und die Kalenderverbindung und freigegebene Verschlüsselungsdateien werden beibehalten."
+        : "Verschlüsselung, E-Mail-Index und Synchronisation des Kontos werden vom Server entfernt.",
+      confirmLabel: account.providerId === "exchange-ews" ? "Verbindungen entfernen" : "Konto löschen",
       tone: "danger",
     })) return;
     setAccountAction({ id: account.id, kind });
@@ -4736,17 +4736,17 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
           readonly deepAuditRanges?: number;
         };
       };
-      if (!response.ok || !result.ok) throw new Error(result.message ?? "账户操作失败");
+      if (!response.ok || !result.ok) throw new Error(result.message ?? "Kontooperation fehlgeschlagen");
       await loadAccounts();
       setAccountFeedback(
-        kind === "delete" ? `已删除 ${account.displayName}`
-          : kind === "pause" ? `已暂停 ${account.displayName}`
-            : kind === "resume" ? `已启用 ${account.displayName}`
-              : `${account.displayName} 同步完成：新增/回填 ${result.sync?.messagesProcessed ?? 0} 封，校正状态 ${result.sync?.messagesReconciled ?? 0} 封，移除失效索引 ${result.sync?.messagesRemoved ?? 0} 封${(result.sync?.deepAuditRanges ?? 0) > 0 ? `，深度核对 ${result.sync?.deepAuditRanges} 个旧邮件区间` : ""}`,
+        kind === "delete" ? `gestrichen ${account.displayName}`
+          : kind === "pause" ? `Pausiert ${account.displayName}`
+            : kind === "resume" ? `aktiviert ${account.displayName}`
+              : `${account.displayName} Synchronisiert: Hinzugefügt/erfüllt ${result.sync?.messagesProcessed ?? 0} Versiegelung, korrigierter Zustand ${result.sync?.messagesReconciled ?? 0} Siegel, ungültigen Index entfernen ${result.sync?.messagesRemoved ?? 0} Versiegelung${(result.sync?.deepAuditRanges ?? 0) > 0 ? `eingehende Prüfung ${result.sync?.deepAuditRanges}ein alter E-Mail-Bereich` : ""}`,
       );
     } catch (error) {
       await loadAccounts();
-      setAccountFeedback(error instanceof Error ? error.message : "账户操作失败");
+      setAccountFeedback(error instanceof Error ? error.message : "Kontooperation fehlgeschlagen");
     } finally {
       setAccountAction(undefined);
     }
@@ -4769,7 +4769,7 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
           readonly smtp: { readonly host: string; readonly port: number; readonly secure: boolean; readonly username: string };
         };
       };
-      if (!response.ok || !result.ok || !result.settings) throw new Error(result.message ?? "无法读取账户配置");
+      if (!response.ok || !result.ok || !result.settings) throw new Error(result.message ?? "Kontokonfiguration kann nicht gelesen werden");
       setDisplayName(account.displayName);
       setEmailAddress(account.emailAddress);
       setSyncMode(account.syncMode);
@@ -4783,10 +4783,10 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
       setPassword("");
       setEditingAccountId(account.id);
       setState({ kind: "idle" });
-      setAccountFeedback("配置已载入。密码留空将继续使用已加密保存的原密码；输入新密码才会替换。");
+      setAccountFeedback("Die Konfiguration wird geladen. Das Passwort wird weiterhin mit dem ursprünglichen Passwort, das verschlüsselt wurde, leer sein; das neue Passwort wird als Ersatz eingegeben.");
       document.getElementById("add-mail-account")?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (error) {
-      setAccountFeedback(error instanceof Error ? error.message : "无法读取账户配置");
+      setAccountFeedback(error instanceof Error ? error.message : "Kontokonfiguration kann nicht gelesen werden");
     } finally {
       setAccountAction(undefined);
     }
@@ -4813,17 +4813,17 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
         readonly latencyMs?: number;
       };
       if (!response.ok || !result.ok) {
-        throw new Error(result.message ?? "连接测试失败");
+        throw new Error(result.message ?? "Verbindungstest fehlgeschlagen");
       }
       setState({
         kind: "success",
-        message: result.message ?? "连接成功",
+        message: result.message ?? "Erfolgreich Verbunden",
         latencyMs: result.latencyMs ?? 0,
       });
     } catch (error) {
       setState({
         kind: "error",
-        message: error instanceof Error ? error.message : "连接测试失败",
+        message: error instanceof Error ? error.message : "Verbindungstest fehlgeschlagen",
       });
     }
   }
@@ -4852,16 +4852,16 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
         readonly message?: string;
         readonly sync?: { readonly messagesProcessed?: number };
       };
-      if (!response.ok || !result.ok) throw new Error(result.message ?? "账户保存失败");
+      if (!response.ok || !result.ok) throw new Error(result.message ?? "Konto konnte nicht gespeichert werden");
       setPassword("");
       setState({
         kind: "success",
-        message: `账户已保存，已同步 ${result.sync?.messagesProcessed ?? 0} 封邮件`,
+        message: `Konto gespeichert, ${result.sync?.messagesProcessed ?? 0} E-Mails synchronisiert`,
         latencyMs: 0,
       });
       window.location.assign("/inbox");
     } catch (error) {
-      setState({ kind: "error", message: error instanceof Error ? error.message : "账户保存失败" });
+      setState({ kind: "error", message: error instanceof Error ? error.message : "Konto konnte nicht gespeichert werden" });
       setSaving(false);
     }
   }
@@ -4869,19 +4869,19 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
   return (<div className="account-settings-stack">
     <section className="saved-accounts panel" aria-labelledby="saved-accounts-title">
       <div className="settings-section-heading">
-        <h2 id="saved-accounts-title">邮箱账户</h2>
-        <span className="step-badge">{accounts.length} 个账户</span>
+        <h2 id="saved-accounts-title">E-Mail-Konten</h2>
+        <span className="step-badge">{accounts.length} {accounts.length === 1 ? "Konto" : "Konten"}</span>
       </div>
       {!online && (
         <div className="account-network-status" role="status">
           <WifiOff size={16} />
-          <div><strong>当前处于离线状态</strong><span>已缓存的邮件仍可阅读；连接恢复后会自动刷新状态并继续后台同步。</span></div>
+          <div><strong>Derzeit offline</strong><span>Gespeicherte E-Mails bleiben lesbar. Nach Wiederherstellung der Verbindung werden Status und Hintergrundsynchronisierung automatisch fortgesetzt.</span></div>
         </div>
       )}
       {accountsLoading ? (
-        <div className="accounts-empty"><LoaderCircle className="spin" size={18} />正在读取账户…</div>
+        <div className="accounts-empty"><LoaderCircle className="spin" size={18} />Konten werden geladen…</div>
       ) : accounts.length === 0 ? (
-        <div className="accounts-empty"><Mail size={20} /><div><strong>尚未添加真实邮箱</strong><span>完成上方连接测试并保存后，账户会显示在这里。</span></div></div>
+        <div className="accounts-empty"><Mail size={20} /><div><strong>Noch kein Postfach verbunden</strong><span>Nach einem erfolgreichen Verbindungstest und dem Speichern wird das Konto hier angezeigt.</span></div></div>
       ) : (
         <div className="account-card-list">
           {accounts.map((account) => {
@@ -4902,25 +4902,25 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
                     <span>{account.providerId === "exchange-ews" ? "Exchange / EWS" : "IMAP / SMTP"}</span>
                     <span>{syncModeLabel(account.syncMode)}</span>
                     <span title={account.lastSyncAt ? formatAccountTime(account.lastSyncAt) : undefined}>
-                      上次同步：{account.lastSyncAt ? formatAccountTime(account.lastSyncAt) : "尚未成功同步"}
+                      Letzte Synchronisierung: {account.lastSyncAt ? formatAccountTime(account.lastSyncAt) : "Noch Noch nicht synchronisiert"}
                     </span>
-                    <span>自动同步：{syncEnabled ? `每 ${formatSyncInterval(syncIntervalMs)}` : "已关闭"}</span>
+                    <span>Automatisch: {syncEnabled ? `alle ${formatSyncInterval(syncIntervalMs)}` : "Deaktiviert"}</span>
                   </div>
                   {account.syncStatus === "syncing" && account.latestSyncRun?.status === "running" && (
                     <p className="account-sync-progress" aria-live="polite">
-                      后台同步中 · 已完成 {account.latestSyncRun.foldersProcessed} 个文件夹 · 已索引 {account.latestSyncRun.messagesProcessed} 封邮件
+                      Hintergrundsynchronisierung… {account.latestSyncRun.foldersProcessed} Ordner · {account.latestSyncRun.messagesProcessed} E-Mails
                     </p>
                   )}
                   {account.syncError && <p className="account-sync-error">{account.syncError}</p>}
                   <div className="saved-account-actions">
                     <button className="secondary-button" disabled={!online || busy || account.syncStatus === "paused" || syncing} onClick={() => void performAccountAction(account, "sync")}>
-                      {busy && accountAction?.kind === "sync" ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}立即同步
+                      {busy && accountAction?.kind === "sync" ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}Jetzt synchronisieren
                     </button>
-                    <button className="ghost-button" disabled={busy || syncing} onClick={() => void editAccount(account)}><Pencil size={14} />{account.providerId === "exchange-ews" ? "管理 Exchange" : "重新配置"}</button>
+                    <button className="ghost-button" disabled={busy || syncing} onClick={() => void editAccount(account)}><Pencil size={14} />{account.providerId === "exchange-ews" ? "Exchange verwalten" : "Rekonfigurieren"}</button>
                     <button className="ghost-button" disabled={busy || syncing} onClick={() => void performAccountAction(account, account.syncStatus === "paused" ? "resume" : "pause")}>
-                      {account.syncStatus === "paused" ? <Play size={14} /> : <Pause size={14} />}{account.syncStatus === "paused" ? "启用" : "暂停"}
+                      {account.syncStatus === "paused" ? <Play size={14} /> : <Pause size={14} />}{account.syncStatus === "paused" ? "Fortsetzen" : "Pausieren"}
                     </button>
-                    <button className="ghost-button danger-button" disabled={busy || syncing} onClick={() => void performAccountAction(account, "delete")}><Trash2 size={14} />删除</button>
+                    <button className="ghost-button danger-button" disabled={busy || syncing} onClick={() => void performAccountAction(account, "delete")}><Trash2 size={14} />Löschen</button>
                   </div>
                 </div>
               </article>
@@ -4935,30 +4935,30 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
 
     <details className="account-settings panel" id="add-mail-account" open={editingAccountId ? true : undefined}>
       <summary className="settings-disclosure-heading">
-        <span><strong>{editingAccountId ? "重新配置邮箱账户" : "添加邮箱账户"}</strong><small>IMAP / SMTP</small></span>
+        <span><strong>{editingAccountId ? "Postfach neu konfigurieren" : "Postfach hinzufügen"}</strong><small>IMAP / SMTP</small></span>
         <ChevronDown size={16} />
       </summary>
       <div className="account-settings-body">
-        {editingAccountId && <p className="settings-inline-note">密码留空时保留原密码。</p>}
+        {editingAccountId && <p className="settings-inline-note">Lassen Sie das Passwort leer, um das bisherige Passwort beizubehalten.</p>}
         <div className="account-form">
-        <label><span>账户名称</span><input value={displayName} onChange={(event) => { setDisplayName(event.target.value); setState({ kind: "idle" }); }} placeholder="例如：工作邮箱" /></label>
-        <label><span>邮箱地址</span><input type="email" value={emailAddress} onChange={(event) => { setEmailAddress(event.target.value); setState({ kind: "idle" }); }} placeholder="name@example.com" /></label>
-        <label><span>IMAP 服务器</span><input value={imapHost} onChange={(event) => { setImapHost(event.target.value); setState({ kind: "idle" }); }} placeholder="imap.example.com" /></label>
-        <label><span>端口</span><input inputMode="numeric" value={imapPort} onChange={(event) => { setImapPort(event.target.value); setState({ kind: "idle" }); }} /></label>
-        <label><span>SMTP 服务器</span><input value={smtpHost} onChange={(event) => { setSmtpHost(event.target.value); setState({ kind: "idle" }); }} placeholder="smtp.example.com" /></label>
-        <label><span>端口</span><input inputMode="numeric" value={smtpPort} onChange={(event) => { setSmtpPort(event.target.value); setState({ kind: "idle" }); }} /></label>
-        <label><span>用户名</span><input value={username} onChange={(event) => { setUsername(event.target.value); setState({ kind: "idle" }); }} autoComplete="username" /></label>
-        <label><span>密码或应用专用密码</span><input type="password" value={password} onChange={(event) => { setPassword(event.target.value); setState({ kind: "idle" }); }} autoComplete="new-password" placeholder={editingAccountId ? "留空则保留原密码" : undefined} /></label>
-        <label className="secure-toggle"><input type="checkbox" checked={imapSecure} onChange={(event) => { setImapSecure(event.target.checked); setState({ kind: "idle" }); }} /><span>IMAP 使用直接 TLS（通常为 993）</span></label>
-        <label className="secure-toggle"><input type="checkbox" checked={smtpSecure} onChange={(event) => { setSmtpSecure(event.target.checked); setState({ kind: "idle" }); }} /><span>SMTP 使用直接 TLS（通常为 465；587 请取消）</span></label>
+        <label><span>Kontoname</span><input value={displayName} onChange={(event) => { setDisplayName(event.target.value); setState({ kind: "idle" }); }} placeholder="z.B. Arbeitspostfach" /></label>
+        <label><span>E-Mail-Adresse</span><input type="email" value={emailAddress} onChange={(event) => { setEmailAddress(event.target.value); setState({ kind: "idle" }); }} placeholder="name@example.com" /></label>
+        <label><span>IMAP-Server</span><input value={imapHost} onChange={(event) => { setImapHost(event.target.value); setState({ kind: "idle" }); }} placeholder="imap.example.com" /></label>
+        <label><span>Port</span><input inputMode="numeric" value={imapPort} onChange={(event) => { setImapPort(event.target.value); setState({ kind: "idle" }); }} /></label>
+        <label><span>SMTP-Server</span><input value={smtpHost} onChange={(event) => { setSmtpHost(event.target.value); setState({ kind: "idle" }); }} placeholder="smtp.example.com" /></label>
+        <label><span>Port</span><input inputMode="numeric" value={smtpPort} onChange={(event) => { setSmtpPort(event.target.value); setState({ kind: "idle" }); }} /></label>
+        <label><span>Benutzername</span><input value={username} onChange={(event) => { setUsername(event.target.value); setState({ kind: "idle" }); }} autoComplete="username" /></label>
+        <label><span>Passwort oder App-Passwort</span><input type="password" value={password} onChange={(event) => { setPassword(event.target.value); setState({ kind: "idle" }); }} autoComplete="new-password" placeholder={editingAccountId ? "Leer lassen, um das bisherige Passwort beizubehalten" : undefined} /></label>
+        <label className="secure-toggle"><input type="checkbox" checked={imapSecure} onChange={(event) => { setImapSecure(event.target.checked); setState({ kind: "idle" }); }} /><span>IMAP verwendet direktes TLS (normalerweise Port 993)</span></label>
+        <label className="secure-toggle"><input type="checkbox" checked={smtpSecure} onChange={(event) => { setSmtpSecure(event.target.checked); setState({ kind: "idle" }); }} /><span>SMTP verwendet direktes TLS (normalerweise Port 465; für Port 587 deaktivieren)</span></label>
         </div>
         <div className="sync-mode-picker">
-        <span>{editingAccountId ? "同步范围" : "首次同步范围"}</span>
+        <span>{editingAccountId ? "Synchronisierungszeitraum" : "Erster Synchronisierungszeitraum"}</span>
         <div>
           {([
-            ["quick", "快速", "最近 30 天"],
-            ["recommended", "推荐", "最近 90 天"],
-            ["full", "完整", "后台补齐全部"],
+            ["quick", "Schnell", "Letzte 30 Tage"],
+            ["recommended", "empfohlen", "Letzte 90 Tage"],
+            ["full", "vollständig", "Gesamten Verlauf im Hintergrund nachladen"],
           ] as const).map(([id, label, detail]) => (
             <button className={syncMode === id ? "active" : ""} key={id} onClick={() => { setSyncMode(id); setState({ kind: "idle" }); }}>
               <strong>{label}</strong><small>{detail}</small>
@@ -4967,20 +4967,20 @@ function MailAccountSettings({ onManageExchange }: { readonly onManageExchange: 
         </div>
         </div>
         <div className={`connection-result result-${state.kind}`} aria-live="polite">
-        {state.kind === "idle" && <><Circle size={17} /><span>尚未测试。测试成功后才可保存账户。</span></>}
-        {state.kind === "testing" && <><LoaderCircle className="spin" size={17} /><span>正在验证身份和读取权限…</span></>}
+        {state.kind === "idle" && <><Circle size={17} /><span>Noch nicht getestet. Das Konto kann erst nach einem erfolgreichen Test gespeichert werden.</span></>}
+        {state.kind === "testing" && <><LoaderCircle className="spin" size={17} /><span>Anmeldedaten und Leseberechtigungen werden geprüft…</span></>}
         {state.kind === "success" && <><CheckCircle2 size={17} /><span>{state.message} · {state.latencyMs} ms</span></>}
         {state.kind === "error" && <><X size={17} /><span>{state.message}</span></>}
         </div>
         <footer className="settings-actions">
         <button className="secondary-button test-button" disabled={!online || !canTest || state.kind === "testing"} onClick={testConnection}>
-          {state.kind === "testing" ? <LoaderCircle className="spin" size={16} /> : <CheckCircle2 size={16} />}测试连接
+          {state.kind === "testing" ? <LoaderCircle className="spin" size={16} /> : <CheckCircle2 size={16} />}Verbindung testen
         </button>
         <button className="primary-button" disabled={!online || state.kind !== "success" || saving} onClick={saveAccount}>
-          {saving && <LoaderCircle className="spin" size={16} />}{saving ? "正在保存和同步…" : "保存并开始同步"}
+          {saving && <LoaderCircle className="spin" size={16} />}{saving ? "Wird gespeichert und synchronisiert…" : "Speichern und synchronisieren"}
         </button>
         </footer>
-        <p className="settings-footnote">凭据会加密保存。Exchange / RWTH 邮箱请在“日历账户”中统一连接。</p>
+        <p className="settings-footnote">Die Zugangsdaten werden verschlüsselt gespeichert. Exchange/RWTH wird zentral unter „Kalenderkonten“ verbunden.</p>
       </div>
     </details>
   </div>);
@@ -5015,7 +5015,7 @@ function CalendarAccountSettings() {
   const [syncEnabled, setSyncEnabled] = useState(true);
   const [syncIntervalMs, setSyncIntervalMs] = useState(3 * 60 * 1000);
   const [providerId, setProviderId] = useState<"caldav" | "ics" | "exchange">("caldav");
-  const [displayName, setDisplayName] = useState("个人日历");
+  const [displayName, setDisplayName] = useState("Persönlicher Kalender");
   const [serverUrl, setServerUrl] = useState("");
   const [feedUrl, setFeedUrl] = useState("");
   const [username, setUsername] = useState("");
@@ -5035,12 +5035,12 @@ function CalendarAccountSettings() {
         readonly scheduler?: { readonly enabled?: boolean; readonly intervalMs?: number };
         readonly message?: string;
       };
-      if (!response.ok) throw new Error(payload.message || "无法读取日历账户");
+      if (!response.ok) throw new Error(payload.message || "Kalenderkonto kann nicht gelesen werden");
       setAccounts(payload.accounts ?? []);
       if (typeof payload.scheduler?.enabled === "boolean") setSyncEnabled(payload.scheduler.enabled);
       if (payload.scheduler?.intervalMs) setSyncIntervalMs(payload.scheduler.intervalMs);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法读取日历账户");
+      setFeedback(error instanceof Error ? error.message : "Kalenderkonto kann nicht gelesen werden");
     } finally {
       setLoading(false);
     }
@@ -5064,10 +5064,10 @@ function CalendarAccountSettings() {
         body: JSON.stringify({ providerId, displayName, serverUrl, feedUrl, username, password, emailAddress: exchangeEmailAddress }),
       });
       const payload = await response.json() as { readonly ok?: boolean; readonly message?: string; readonly latencyMs?: number };
-      if (!response.ok || !payload.ok) throw new Error(payload.message || "日历连接测试失败");
-      setState({ kind: "success", message: payload.message || "日历连接成功", latencyMs: payload.latencyMs ?? 0 });
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "Kalenderverbindungstest fehlgeschlagen");
+      setState({ kind: "success", message: payload.message || "Kalender erfolgreich verbunden", latencyMs: payload.latencyMs ?? 0 });
     } catch (error) {
-      setState({ kind: "error", message: error instanceof Error ? error.message : "日历连接测试失败" });
+      setState({ kind: "error", message: error instanceof Error ? error.message : "Kalenderverbindungstest fehlgeschlagen" });
     }
   };
 
@@ -5086,19 +5086,19 @@ function CalendarAccountSettings() {
         readonly sync?: { readonly calendarsProcessed?: number; readonly eventsProcessed?: number };
         readonly mailSync?: { readonly foldersProcessed?: number; readonly messagesProcessed?: number };
       };
-      if (!response.ok || !payload.ok) throw new Error(payload.message || "无法保存日历账户");
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "Kalenderkonto kann nicht gespeichert werden");
       setPassword("");
       if (providerId === "ics") setFeedUrl("");
       setState({
         kind: "success",
         message: providerId === "exchange"
-          ? `Exchange 账户已保存：${payload.sync?.eventsProcessed ?? 0} 项日程、${payload.mailSync?.messagesProcessed ?? 0} 封邮件`
-          : `账户已保存，读取 ${payload.sync?.calendarsProcessed ?? 0} 个日历、${payload.sync?.eventsProcessed ?? 0} 项日程`,
+          ? `Exchange-Konto gespeichert: ${payload.sync?.eventsProcessed ?? 0} Termine · ${payload.mailSync?.messagesProcessed ?? 0} E-Mails`
+          : `Konto gespeichert: ${payload.sync?.calendarsProcessed ?? 0} Kalender · ${payload.sync?.eventsProcessed ?? 0} Termine`,
         latencyMs: 0,
       });
       await loadAccounts();
     } catch (error) {
-      setState({ kind: "error", message: error instanceof Error ? error.message : "无法保存日历账户" });
+      setState({ kind: "error", message: error instanceof Error ? error.message : "Kalenderkonto kann nicht gespeichert werden" });
     } finally {
       setSaving(false);
     }
@@ -5106,9 +5106,9 @@ function CalendarAccountSettings() {
 
   const performAction = async (account: SavedCalendarAccount, kind: "sync" | "delete") => {
     if (kind === "delete" && !await appConfirm({
-      title: `删除日历账户“${account.displayName}”？`,
-      description: "加密凭据和已同步的本地日历索引将从本机删除，远端日历不会受到影响。",
-      confirmLabel: "删除账户",
+      title: `Kalenderkonto „${account.displayName}“ löschen?`,
+      description: "Verschlüsselte Zugangsdaten und der lokale Kalenderindex werden von diesem Gerät entfernt. Der entfernte Kalender bleibt unverändert.",
+      confirmLabel: "Konto löschen",
       tone: "danger",
     })) return;
     setAccountAction({ id: account.id, kind });
@@ -5123,14 +5123,14 @@ function CalendarAccountSettings() {
         readonly message?: string;
         readonly sync?: { readonly calendarsProcessed?: number; readonly eventsProcessed?: number };
       };
-      if (!response.ok || !payload.ok) throw new Error(payload.message || "日历账户操作失败");
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "Kalenderkonto-Aktion fehlgeschlagen");
       await loadAccounts();
       setFeedback(kind === "delete"
-        ? `已删除 ${account.displayName} 的本地连接，远端数据未修改`
-        : `${account.displayName} 同步完成：${payload.sync?.calendarsProcessed ?? 0} 个日历、${payload.sync?.eventsProcessed ?? 0} 项日程`);
+        ? `Lokale Verbindung zu „${account.displayName}“ gelöscht; entfernte Daten bleiben unverändert`
+        : `${account.displayName} synchronisiert: ${payload.sync?.calendarsProcessed ?? 0} Kalender · ${payload.sync?.eventsProcessed ?? 0} Termine`);
     } catch (error) {
       await loadAccounts();
-      setFeedback(error instanceof Error ? error.message : "日历账户操作失败");
+      setFeedback(error instanceof Error ? error.message : "Kalenderkonto-Aktion fehlgeschlagen");
     } finally {
       setAccountAction(undefined);
     }
@@ -5153,13 +5153,13 @@ function CalendarAccountSettings() {
         }),
       });
       const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message || "无法保存日历账户设置");
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "Kalender-Kontoeinstellungen können nicht gespeichert werden");
       const savedName = editingAccount.displayName.trim();
       setEditingAccount(undefined);
       await loadAccounts();
-      setFeedback(`已更新 ${savedName} 的名称和日历颜色`);
+      setFeedback(`Name und Kalenderfarbe von „${savedName}“ aktualisiert`);
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法保存日历账户设置");
+      setFeedback(error instanceof Error ? error.message : "Kalender-Kontoeinstellungen können nicht gespeichert werden");
     } finally {
       setAccountAction(undefined);
     }
@@ -5168,53 +5168,53 @@ function CalendarAccountSettings() {
   return (
     <section className="calendar-account-settings panel" aria-labelledby="calendar-accounts-title">
       <div className="settings-section-heading">
-        <h2 id="calendar-accounts-title">日历账户</h2>
+        <h2 id="calendar-accounts-title">Kalenderkonten</h2>
       </div>
       <div className="calendar-account-layout">
-        <div className="calendar-provider-options" role="radiogroup" aria-label="日历连接类型">
+        <div className="calendar-provider-options" role="radiogroup" aria-label="Kalender-Verbindungstyp">
           <button className={providerId === "caldav" ? "active" : ""} role="radio" aria-checked={providerId === "caldav"} onClick={() => { setProviderId("caldav"); resetTest(); }}>
-            <strong>CalDAV 账户</strong><span>服务器、用户名与密码</span>
+            <strong>CalDAV-Konto</strong><span>Server, Benutzername und Passwort</span>
           </button>
           <button className={providerId === "exchange" ? "active" : ""} role="radio" aria-checked={providerId === "exchange"} onClick={() => { setProviderId("exchange"); setServerUrl("https://mail.rwth-aachen.de/EWS/Exchange.asmx"); resetTest(); }}>
-            <strong>Exchange / RWTH</strong><span>一个账户连接邮件与日历</span>
+            <strong>Exchange / RWTH</strong><span>Ein Konto verbindet E-Mail und Kalender</span>
           </button>
           <button className={providerId === "ics" ? "active" : ""} role="radio" aria-checked={providerId === "ics"} onClick={() => { setProviderId("ics"); resetTest(); }}>
-            <strong>ICS 链接订阅</strong><span>Outlook、学校或公开日历</span>
+            <strong>ICS-Link abonnieren</strong><span>Outlook, Hochschule oder öffentlicher Kalender</span>
           </button>
         </div>
         <div className="calendar-account-form">
-          <label><span>账户名称</span><input value={displayName} onChange={(event) => { setDisplayName(event.target.value); resetTest(); }} placeholder="例如：工作日历" /></label>
+          <label><span>Kontoname</span><input value={displayName} onChange={(event) => { setDisplayName(event.target.value); resetTest(); }} placeholder="z.B. Arbeitskalender" /></label>
           {providerId === "ics" ? (
-            <label><span>ICS 订阅链接</span><input type="url" value={feedUrl} onChange={(event) => { setFeedUrl(event.target.value); resetTest(); }} placeholder="https://example.com/calendar.ics" autoComplete="off" /></label>
+            <label><span>ICS-Abonnementlink</span><input type="url" value={feedUrl} onChange={(event) => { setFeedUrl(event.target.value); resetTest(); }} placeholder="https://example.com/calendar.ics" autoComplete="off" /></label>
           ) : <>
-            <label><span>{providerId === "exchange" ? "Exchange EWS 服务地址" : "CalDAV 服务器地址"}</span><input type="url" value={serverUrl} onChange={(event) => { setServerUrl(event.target.value); resetTest(); }} placeholder={providerId === "exchange" ? "https://mail.rwth-aachen.de/EWS/Exchange.asmx" : "https://calendar.example.com/dav/"} /></label>
-            <label><span>{providerId === "exchange" ? "RWTH-E-Mail 用户名" : "用户名"}</span><input value={username} onChange={(event) => { setUsername(event.target.value); resetTest(); }} placeholder={providerId === "exchange" ? "ab123456@rwth-aachen.de" : undefined} autoComplete="username" /></label>
-            {providerId === "exchange" && <label><span>正式邮箱地址（发件/收件）</span><input type="email" value={exchangeEmailAddress} onChange={(event) => { setExchangeEmailAddress(event.target.value); resetTest(); }} placeholder="name@institute.rwth-aachen.de" autoComplete="email" /></label>}
-            <label><span>{providerId === "exchange" ? "RWTH-E-Mail 密码" : "密码或应用专用密码"}</span><input type="password" value={password} onChange={(event) => { setPassword(event.target.value); resetTest(); }} autoComplete="current-password" /></label>
+            <label><span>{providerId === "exchange" ? "Exchange-EWS-Dienstadresse" : "CalDAV-Serveradresse"}</span><input type="url" value={serverUrl} onChange={(event) => { setServerUrl(event.target.value); resetTest(); }} placeholder={providerId === "exchange" ? "https://mail.rwth-aachen.de/EWS/Exchange.asmx" : "https://calendar.example.com/dav/"} /></label>
+            <label><span>{providerId === "exchange" ? "RWTH-E-Mail-Benutzername" : "Benutzername"}</span><input value={username} onChange={(event) => { setUsername(event.target.value); resetTest(); }} placeholder={providerId === "exchange" ? "ab123456@rwth-aachen.de" : undefined} autoComplete="username" /></label>
+            {providerId === "exchange" && <label><span>Offizielle E-Mail-Adresse (Senden/Empfangen)</span><input type="email" value={exchangeEmailAddress} onChange={(event) => { setExchangeEmailAddress(event.target.value); resetTest(); }} placeholder="name@institute.rwth-aachen.de" autoComplete="email" /></label>}
+            <label><span>{providerId === "exchange" ? "RWTH-E-Mail-Passwort" : "Passwort oder App-Passwort"}</span><input type="password" value={password} onChange={(event) => { setPassword(event.target.value); resetTest(); }} autoComplete="current-password" /></label>
           </>}
         </div>
         <div className={`connection-result result-${state.kind}`} aria-live="polite">
-          {state.kind === "idle" && <><Circle size={17} /><span>尚未测试。测试只读取账户能力，不会创建、发送或修改远端内容。</span></>}
-          {state.kind === "testing" && <><LoaderCircle className="spin" size={17} /><span>{providerId === "ics" ? "正在下载并验证 ICS 日历…" : providerId === "exchange" ? "正在验证 Exchange 邮箱和默认日历权限…" : "正在验证 CalDAV 身份和日历读取权限…"}</span></>}
+          {state.kind === "idle" && <><Circle size={17} /><span>Noch nicht getestet. Der Test liest nur Kontofunktionen und verändert keine entfernten Inhalte.</span></>}
+          {state.kind === "testing" && <><LoaderCircle className="spin" size={17} /><span>{providerId === "ics" ? "ICS-Kalender wird heruntergeladen und geprüft…" : providerId === "exchange" ? "Exchange-Postfach und Standardkalender werden geprüft…" : "CalDAV-Anmeldedaten und Kalender-Leseberechtigungen werden geprüft…"}</span></>}
           {state.kind === "success" && <><CheckCircle2 size={17} /><span>{state.message}{state.latencyMs ? ` · ${state.latencyMs} ms` : ""}</span></>}
           {state.kind === "error" && <><X size={17} /><span>{state.message}</span></>}
         </div>
         <div className="settings-actions">
           <button className="secondary-button test-button" disabled={!canTest || state.kind === "testing"} onClick={() => void testConnection()}>
-            {state.kind === "testing" ? <LoaderCircle className="spin" size={16} /> : <CheckCircle2 size={16} />}测试连接
+            {state.kind === "testing" ? <LoaderCircle className="spin" size={16} /> : <CheckCircle2 size={16} />}Verbindung testen
           </button>
           <button className="primary-button" disabled={state.kind !== "success" || saving} onClick={() => void saveAccount()}>
-            {saving && <LoaderCircle className="spin" size={16} />}{saving ? "正在保存和同步…" : "保存并同步"}
+            {saving && <LoaderCircle className="spin" size={16} />}{saving ? "Wird gespeichert und synchronisiert…" : "Speichern und synchronisieren"}
           </button>
         </div>
       </div>
 
       <div className="calendar-account-list">
-        <div className="calendar-account-list-heading"><strong>已连接的日历账户</strong><span>{accounts.length} 个</span></div>
+        <div className="calendar-account-list-heading"><strong>Verbundene Kalenderkonten</strong><span>{accounts.length} Konten</span></div>
         {loading ? (
-          <div className="accounts-empty"><LoaderCircle className="spin" size={18} />正在读取日历账户…</div>
+          <div className="accounts-empty"><LoaderCircle className="spin" size={18} />Kalenderkonten werden geladen…</div>
         ) : accounts.length === 0 ? (
-          <div className="accounts-empty"><CalendarDays size={20} /><div><strong>尚未连接远端日历</strong><span>测试成功并保存后，远端日历会出现在周/月视图。</span></div></div>
+          <div className="accounts-empty"><CalendarDays size={20} /><div><strong>Noch kein entfernter Kalender verbunden</strong><span>Nach erfolgreichem Test und Speichern erscheint der entfernte Kalender in der Wochen- und Monatsansicht.</span></div></div>
         ) : accounts.map((account) => {
           const busy = accountAction?.id === account.id;
           const isEditing = editingAccount?.id === account.id;
@@ -5223,25 +5223,25 @@ function CalendarAccountSettings() {
               <div className="saved-account-color" style={{ background: isEditing ? editingAccount.color : account.color }} />
               <div className="saved-account-main">
                 <div className="saved-account-title">
-                  <div><strong>{account.displayName}</strong><span>{account.providerId === "ics" ? "链接订阅" : account.providerId === "exchange" ? `${account.emailAddress || account.username} · 登录：${account.username}` : account.username}</span></div>
+                  <div><strong>{account.displayName}</strong><span>{account.providerId === "ics" ? "Link-Abonnement" : account.providerId === "exchange" ? `${account.emailAddress || account.username} · Anmeldung: ${account.username}` : account.username}</span></div>
                   <span className={`sync-status sync-status-${account.syncStatus}`}>{account.syncStatus === "syncing" && <LoaderCircle className="spin" size={12} />}{accountStatusLabel(account.syncStatus)}</span>
                 </div>
-                <div className="saved-account-meta"><span>{account.providerId === "ics" ? "ICS 订阅 · 只读" : account.providerId === "exchange" ? `Exchange / RWTH · ${[account.mailEnabled && "邮件", account.calendarEnabled && "日历"].filter(Boolean).join(" + ") || "已暂停"}` : "CalDAV · 只读"}</span><span>{account.calendarsCount} 个日历</span><span>上次同步：{account.lastSyncAt ? formatAccountTime(account.lastSyncAt) : "尚未同步"}</span><span>自动同步：{syncEnabled ? `每 ${formatSyncInterval(syncIntervalMs)}` : "已关闭"}</span></div>
+                <div className="saved-account-meta"><span>{account.providerId === "ics" ? "ICS-Abonnement · Schreibgeschützt" : account.providerId === "exchange" ? `Exchange / RWTH · ${[account.mailEnabled && "E-Mail", account.calendarEnabled && "Kalender"].filter(Boolean).join(" + ") || "Pausiert"}` : "CalDAV · Schreibgeschützt"}</span><span>{account.calendarsCount} Kalender</span><span>Letzte Synchronisierung: {account.lastSyncAt ? formatAccountTime(account.lastSyncAt) : "Noch nicht synchronisiert"}</span><span>Automatisch: {syncEnabled ? `alle ${formatSyncInterval(syncIntervalMs)}` : "Deaktiviert"}</span></div>
                 {account.providerId === "exchange" && account.mailEnabled && (
                   <div className="saved-account-meta">
-                    <span>邮件：{accountStatusLabel(account.mailSyncStatus ?? "idle")}</span>
-                    <span>历史补齐：{account.mailHistoryFoldersComplete}/{account.mailHistoryFoldersTotal || 5} 个文件夹</span>
-                    <span>邮件同步：{account.mailLastSyncAt ? formatAccountTime(account.mailLastSyncAt) : "尚未同步"}</span>
+                    <span>E-Mail:{accountStatusLabel(account.mailSyncStatus ?? "idle")}</span>
+                    <span>Verlauf nachgeladen: {account.mailHistoryFoldersComplete}/{account.mailHistoryFoldersTotal || 5} Ordner</span>
+                    <span>E-Mail-Synchronisierung: {account.mailLastSyncAt ? formatAccountTime(account.mailLastSyncAt) : "Noch nicht synchronisiert"}</span>
                   </div>
                 )}
                 <small className="calendar-server-url" title={account.serverUrl}>{account.serverUrl}</small>
                 {account.syncError && <p className="account-sync-error">{account.syncError}</p>}
                 {isEditing && (
                   <div className="calendar-account-editor">
-                    <label><span>账户名称</span><input value={editingAccount.displayName} maxLength={80} onChange={(event) => setEditingAccount({ ...editingAccount, displayName: event.target.value })} /></label>
-                    {account.providerId === "exchange" && <label><span>正式邮箱地址</span><input type="email" value={editingAccount.emailAddress} onChange={(event) => setEditingAccount({ ...editingAccount, emailAddress: event.target.value })} /></label>}
+                    <label><span>Kontoname</span><input value={editingAccount.displayName} maxLength={80} onChange={(event) => setEditingAccount({ ...editingAccount, displayName: event.target.value })} /></label>
+                    {account.providerId === "exchange" && <label><span>Offizielle E-Mail-Adresse</span><input type="email" value={editingAccount.emailAddress} onChange={(event) => setEditingAccount({ ...editingAccount, emailAddress: event.target.value })} /></label>}
                     <fieldset>
-                      <legend>日历颜色</legend>
+                      <legend>Kalenderfarbe</legend>
                       <div className="calendar-color-options">
                         {calendarAccountColors.map((color) => (
                           <button
@@ -5249,34 +5249,34 @@ function CalendarAccountSettings() {
                             key={color}
                             className={editingAccount.color === color ? "active" : ""}
                             style={{ background: color }}
-                            aria-label={`选择颜色 ${color}`}
+                            aria-label={`Farbe auswählen ${color}`}
                             aria-pressed={editingAccount.color === color}
                             onClick={() => setEditingAccount({ ...editingAccount, color })}
                           >{editingAccount.color === color && <Check size={13} />}</button>
                         ))}
-                        <label className="calendar-custom-color" title="自定义颜色">
-                          <input type="color" value={editingAccount.color} aria-label="选择自定义颜色" onChange={(event) => setEditingAccount({ ...editingAccount, color: event.target.value })} />
-                          <span>自定义</span>
+                        <label className="calendar-custom-color" title="Benutzerdefinierte Farbe">
+                          <input type="color" value={editingAccount.color} aria-label="Benutzerdefinierte Farbe auswählen" onChange={(event) => setEditingAccount({ ...editingAccount, color: event.target.value })} />
+                          <span>Benutzerdefiniert</span>
                         </label>
                       </div>
                     </fieldset>
                     {account.providerId === "exchange" && <fieldset>
-                      <legend>Exchange 功能</legend>
+                      <legend>Exchange-Funktionen</legend>
                       <div className="calendar-exchange-feature-toggles">
-                        <label><input type="checkbox" checked={editingAccount.mailEnabled} onChange={(event) => setEditingAccount({ ...editingAccount, mailEnabled: event.target.checked })} /><span>邮件同步</span></label>
-                        <label><input type="checkbox" checked={editingAccount.calendarEnabled} onChange={(event) => setEditingAccount({ ...editingAccount, calendarEnabled: event.target.checked })} /><span>日历同步</span></label>
+                        <label><input type="checkbox" checked={editingAccount.mailEnabled} onChange={(event) => setEditingAccount({ ...editingAccount, mailEnabled: event.target.checked })} /><span>E-Mail synchronisieren</span></label>
+                        <label><input type="checkbox" checked={editingAccount.calendarEnabled} onChange={(event) => setEditingAccount({ ...editingAccount, calendarEnabled: event.target.checked })} /><span>Kalender synchronisieren</span></label>
                       </div>
                     </fieldset>}
                   </div>
                 )}
                 <div className="saved-account-actions">
                   {isEditing ? <>
-                    <button className="primary-button" disabled={busy || !editingAccount.displayName.trim() || (account.providerId === "exchange" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editingAccount.emailAddress))} onClick={() => void saveAccountSettings()}>{busy && accountAction?.kind === "update" ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}保存</button>
-                    <button className="ghost-button" disabled={busy} onClick={() => setEditingAccount(undefined)}>取消</button>
+                    <button className="primary-button" disabled={busy || !editingAccount.displayName.trim() || (account.providerId === "exchange" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editingAccount.emailAddress))} onClick={() => void saveAccountSettings()}>{busy && accountAction?.kind === "update" ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}Speichern</button>
+                    <button className="ghost-button" disabled={busy} onClick={() => setEditingAccount(undefined)}>Abbrechen</button>
                   </> : <>
-                    <button className="secondary-button" disabled={busy} onClick={() => void performAction(account, "sync")}>{busy && accountAction?.kind === "sync" ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}立即同步</button>
-                    <button className="ghost-button" disabled={busy} onClick={() => setEditingAccount({ id: account.id, displayName: account.displayName, color: account.color, emailAddress: account.emailAddress || account.username, mailEnabled: account.mailEnabled, calendarEnabled: account.calendarEnabled })}><Pencil size={14} />编辑</button>
-                    <button className="ghost-button danger-button" disabled={busy} onClick={() => void performAction(account, "delete")}><Trash2 size={14} />删除本地连接</button>
+                    <button className="secondary-button" disabled={busy} onClick={() => void performAction(account, "sync")}>{busy && accountAction?.kind === "sync" ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}Jetzt synchronisieren</button>
+                    <button className="ghost-button" disabled={busy} onClick={() => setEditingAccount({ id: account.id, displayName: account.displayName, color: account.color, emailAddress: account.emailAddress || account.username, mailEnabled: account.mailEnabled, calendarEnabled: account.calendarEnabled })}><Pencil size={14} />Bearbeiten</button>
+                    <button className="ghost-button danger-button" disabled={busy} onClick={() => void performAction(account, "delete")}><Trash2 size={14} />Lokale Verbindung löschen</button>
                   </>}
                 </div>
               </div>
@@ -5285,23 +5285,23 @@ function CalendarAccountSettings() {
         })}
       </div>
       {feedback && <TransientToast message={feedback} onClose={() => setFeedback("")} />}
-      <p className="settings-footnote">CalDAV 与 ICS 为只读；Exchange 凭据会加密保存。会议邀请和重复日程请在原服务中修改。</p>
+      <p className="settings-footnote">CalDAV und ICS sind schreibgeschützt; Exchange-Zugangsdaten werden verschlüsselt gespeichert. Besprechungseinladungen und Serientermine müssen im ursprünglichen Dienst geändert werden.</p>
     </section>
   );
 }
 
 function accountStatusLabel(status: AccountSyncStatus): string {
-  return { idle: "待同步", syncing: "同步中", ready: "正常", error: "需要处理", paused: "已暂停" }[status];
+  return { idle: "Ausstehend", syncing: "Synchronisierung läuft", ready: "Bereit", error: "Aktion erforderlich", paused: "Pausiert" }[status];
 }
 
 function syncModeLabel(mode: AccountSyncMode): string {
-  return { quick: "最近 30 天", recommended: "最近 90 天", full: "完整历史" }[mode];
+  return { quick: "Letzte 30 Tage", recommended: "Letzte 90 Tage", full: "Gesamter Verlauf" }[mode];
 }
 
 function formatAccountTime(value: string): string {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "时间未知";
-  return new Intl.DateTimeFormat("zh-CN", {
+  if (Number.isNaN(date.getTime())) return "Unbekannte Zeit";
+  return new Intl.DateTimeFormat("de-DE", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -5312,7 +5312,7 @@ function formatAccountTime(value: string): string {
 
 function formatSyncInterval(intervalMs: number): string {
   const minutes = Math.max(1, Math.round(intervalMs / 60_000));
-  return minutes < 60 ? `${minutes} 分钟` : `${Math.round(minutes / 60)} 小时`;
+  return minutes < 60 ? `${minutes} Minuten` : `${Math.round(minutes / 60)} Stunden`;
 }
 
 function AiPage() {
@@ -5341,11 +5341,11 @@ function AssistantPanel({
     const EmptyIcon = section === "calendar" ? CalendarClock : ListChecks;
     return (
       <aside className="assistant-panel context-assistant-panel" aria-label={title}>
-        <AssistantHeader title={title} subtitle="上下文助手" onClose={onClose} />
+        <AssistantHeader title={title} subtitle="Kontext-Assistent" onClose={onClose} />
         <section className="assistant-empty-state">
           <EmptyIcon size={22} />
-          <h3>当前页面还没有可用建议</h3>
-          <p>此模块尚未接入真实的{section === "calendar" ? "日程" : "任务"}上下文，因此不会生成或执行操作。</p>
+          <h3>die aktuelle Seite wird nicht empfohlen</h3>
+          <p>Dieses Modul wurde nicht mit dem realen{section === "calendar" ? "Termin" : "Aufgabe"}context, so dass keine Operation generiert oder ausgeführt wird.</p>
         </section>
       </aside>
     );
@@ -5353,70 +5353,70 @@ function AssistantPanel({
 
   return (
     <aside className="assistant-panel context-assistant-panel" aria-label={title}>
-      <AssistantHeader title={title} subtitle="当前邮件上下文" onClose={onClose} />
+      <AssistantHeader title={title} subtitle="aktueller Mail-Kontext" onClose={onClose} />
       {!mailSnapshot || mailSnapshot.loading ? (
         <section className="assistant-empty-state" role="status">
           <LoaderCircle className="spin" size={21} />
-          <h3>正在读取邮件上下文</h3>
+          <h3>E-Mail-Kontext lesen</h3>
         </section>
       ) : !mailSnapshot.hasAccounts ? (
         <section className="assistant-empty-state">
           <Mail size={22} />
-          <h3>尚未连接邮箱</h3>
-          <p>连接邮箱后，助手才能分析真实邮件内容。</p>
-          <Link className="secondary-button" href="/settings?tab=mail">连接邮箱</Link>
+          <h3>Kein Mailkonto verbunden</h3>
+          <p>Der Assistent kann E-Mail-Inhalte erst analysieren, wenn ein Mailkonto verbunden ist.</p>
+          <Link className="secondary-button" href="/settings?tab=mail">Mailkonto verbinden</Link>
         </section>
       ) : !selectedMessage ? (
         <section className="assistant-empty-state">
           <Mail size={22} />
-          <h3>选择一封邮件</h3>
-          <p>选择邮件后可生成摘要、提取行动项或准备回复草稿。</p>
+          <h3>eine E-Mail auswählen</h3>
+          <p>Wählen Sie E-Mail, um eine Zusammenfassung zu generieren, extrahieren Sie einen Aktionspunkt oder bereiten Sie einen Antwortentwurf vor.</p>
         </section>
       ) : (
         <>
           <section className="assistant-context-source">
-            <span>当前邮件</span>
+            <span>aktuelle E-Mail</span>
             <h3>{selectedMessage.subject}</h3>
             <p>{selectedMessage.sender} &lt;{selectedMessage.senderAddress}&gt;</p>
             <small>{selectedMessage.accountName} · {formatAssistantMailTime(selectedMessage.receivedAt)}</small>
           </section>
 
-          <section className="assistant-mail-actions" aria-label="邮件 AI 操作">
+          <section className="assistant-mail-actions" aria-label="E-Mail-KI-Betrieb">
             <button disabled={Boolean(mailSnapshot.aiBusy)} onClick={() => sendCommand({ type: "mail.run-ai", action: "summarize" })}>
               {mailSnapshot.aiBusy === "summarize" ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}
-              <span><strong>生成摘要</strong><small>概括请求、日期和风险</small></span>
+              <span><strong>Zusammenfassung erstellen</strong><small>summarische Anfrage, Datum und Risiko</small></span>
             </button>
             <button disabled={Boolean(mailSnapshot.aiBusy)} onClick={() => sendCommand({ type: "mail.run-ai", action: "extract-actions" })}>
               {mailSnapshot.aiBusy === "extract-actions" ? <LoaderCircle className="spin" size={16} /> : <ListChecks size={16} />}
-              <span><strong>提取行动项</strong><small>识别负责人和截止时间</small></span>
+              <span><strong>Aktionspunkte extrahieren</strong><small>Identifizierung der verantwortlichen Personen und Fristen</small></span>
             </button>
             <button disabled={Boolean(mailSnapshot.aiBusy)} onClick={() => sendCommand({ type: "mail.run-ai", action: "draft-reply" })}>
               {mailSnapshot.aiBusy === "draft-reply" ? <LoaderCircle className="spin" size={16} /> : <WandSparkles size={16} />}
-              <span><strong>准备回复草稿</strong><small>生成后仍需检查并手动发送</small></span>
+              <span><strong>Vorbereitung des Entwurfs von Antworten</strong><small>muss nach der Generierung noch manuell überprüft und gesendet werden</small></span>
             </button>
           </section>
 
           {result && <section className="assistant-ai-result" aria-live="polite">
             <header>
-              <div><Sparkles size={15} /><strong>{result.action === "summarize" ? "AI 摘要" : result.action === "extract-actions" ? "AI 行动项" : "AI 回复草稿"}</strong></div>
-              <button type="button" aria-label="关闭 AI 结果" title="关闭 AI 结果" onClick={() => sendCommand({ type: "mail.clear-result" })}><X size={14} /></button>
+              <div><Sparkles size={15} /><strong>{result.action === "summarize" ? "Zusammenfassung der AI" : result.action === "extract-actions" ? "KI-Aktionspunkt" : "Entwurf einer KI-Antwort"}</strong></div>
+              <button type="button" aria-label="Enges AI-Ergebnis" title="Enges AI-Ergebnis" onClick={() => sendCommand({ type: "mail.clear-result" })}><X size={14} /></button>
             </header>
-            <small>{result.modelName}{result.usedFallback ? " · 已使用备用模型" : ""}</small>
+            <small>{result.modelName}{result.usedFallback ? " · Back-up-Modell wurde verwendet" : ""}</small>
             <div>{result.text}</div>
           </section>}
 
           {mailSnapshot.notice && <div className="assistant-notice" role="status">{mailSnapshot.notice}</div>}
 
           <section className="assistant-write-action">
-            <header><CheckCircle2 size={16} /><strong>关联到任务</strong></header>
-            <p>以邮件主题创建待整理任务，并保留返回原邮件的链接。</p>
+            <header><CheckCircle2 size={16} /><strong>assoziiert mit der Aufgabe</strong></header>
+            <p>Erstellt die Aufgabe, die mit dem E-Mail-Theme sortiert werden soll und behält den Link zurück zur ursprünglichen E-Mail.</p>
             {confirmTask ? <div className="assistant-confirm-row">
               <button className="primary-button" disabled={mailSnapshot.actionBusy} onClick={() => {
                 sendCommand({ type: "mail.create-task" });
                 setConfirmTask(false);
-              }}>{mailSnapshot.actionBusy ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}确认创建</button>
-              <button className="ghost-button" disabled={mailSnapshot.actionBusy} onClick={() => setConfirmTask(false)}>取消</button>
-            </div> : <button className="secondary-button" disabled={mailSnapshot.actionBusy} onClick={() => setConfirmTask(true)}><Plus size={14} />创建关联任务</button>}
+              }}>{mailSnapshot.actionBusy ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}Bestätigung der Gründung</button>
+              <button className="ghost-button" disabled={mailSnapshot.actionBusy} onClick={() => setConfirmTask(false)}>Abbrechen</button>
+            </div> : <button className="secondary-button" disabled={mailSnapshot.actionBusy} onClick={() => setConfirmTask(true)}><Plus size={14} />Assoziationsaufgaben erstellen</button>}
           </section>
         </>
       )}
@@ -5436,14 +5436,14 @@ function AssistantHeader({
   return <header>
     <div className="assistant-icon"><Sparkles size={18} /></div>
     <div><h2>{title}</h2><p>{subtitle}</p></div>
-    <button className="assistant-close" type="button" aria-label="收起上下文助手" title="收起上下文助手" onClick={onClose}><X size={16} /></button>
+    <button className="assistant-close" type="button" aria-label="Kontext-Assistent zum Drop" title="Kontext-Assistent zum Drop" onClick={onClose}><X size={16} /></button>
   </header>;
 }
 
 function formatAssistantMailTime(value: string): string {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "时间未知";
-  return new Intl.DateTimeFormat("zh-CN", {
+  if (Number.isNaN(date.getTime())) return "Unbekannte Zeit";
+  return new Intl.DateTimeFormat("de-DE", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",

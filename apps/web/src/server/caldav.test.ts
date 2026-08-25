@@ -99,7 +99,7 @@ try {
   try {
     await deleteStoredCalendarEvent(calendarId, storedEvents[0]!.id);
   } catch (error) {
-    readOnlyProtected = error instanceof Error && error.message.includes("只读");
+    readOnlyProtected = error instanceof Error && error.message.includes("schreibgeschützt");
   }
   assert(readOnlyProtected, "remote calendar events cannot be deleted during read-only phase");
   assert((await listCalendarAccounts()).length === 1, "saved CalDAV account is listed");

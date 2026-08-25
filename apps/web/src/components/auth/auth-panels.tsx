@@ -24,7 +24,7 @@ export function ChangePasswordPanel({ displayName }: { readonly displayName: str
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (newPassword !== confirmPassword) {
-      setFeedback("两次输入的新密码不一致");
+      setFeedback("Neue, zweimal eingegebene Passwörter sind inkonsequent");
       return;
     }
     setBusy(true);
@@ -36,11 +36,11 @@ export function ChangePasswordPanel({ displayName }: { readonly displayName: str
         body: JSON.stringify({ displayName, currentPassword, newPassword }),
       });
       const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
-      if (!response.ok) throw new Error(payload?.message || "无法修改密码");
+      if (!response.ok) throw new Error(payload?.message || "Passwort kann nicht geändert werden");
       router.replace("/today");
       router.refresh();
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法修改密码");
+      setFeedback(error instanceof Error ? error.message : "Passwort kann nicht geändert werden");
     } finally {
       setBusy(false);
     }
@@ -55,15 +55,15 @@ export function ChangePasswordPanel({ displayName }: { readonly displayName: str
       <section className="auth-panel" aria-labelledby="change-password-title">
         <header>
           <div className="auth-panel-icon"><LockKeyhole size={19} /></div>
-          <h1 id="change-password-title">先修改初始密码</h1>
-          <p>管理员为你创建了账号。进入工作台前，请把临时密码换成只有你知道的新密码。</p>
+          <h1 id="change-password-title">Ändern Sie zuerst das erste Passwort</h1>
+          <p>Der Administrator erstellt eine Kontonummer für Sie. Bevor Sie den Schreibtisch eingeben, ändern Sie das temporäre Passwort auf ein neues Passwort, das nur Sie kennen.</p>
         </header>
         <form className="auth-form" onSubmit={(event) => void submit(event)}>
-          <label><span>当前密码</span><div className="auth-input"><LockKeyhole size={16} /><input autoComplete="current-password" type={showPassword ? "text" : "password"} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /><button type="button" aria-label={showPassword ? "隐藏密码" : "显示密码"} onClick={() => setShowPassword((value) => !value)}>{showPassword ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></label>
-          <label><span>新密码</span><div className="auth-input"><LockKeyhole size={16} /><input autoComplete="new-password" type={showPassword ? "text" : "password"} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="至少 8 个字符" required /></div></label>
-          <label><span>确认新密码</span><div className="auth-input"><LockKeyhole size={16} /><input autoComplete="new-password" type={showPassword ? "text" : "password"} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></div></label>
+          <label><span>aktuelles Passwort</span><div className="auth-input"><LockKeyhole size={16} /><input autoComplete="current-password" type={showPassword ? "text" : "password"} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /><button type="button" aria-label={showPassword ? "verstecktes Passwort" : "Passwort anzeigen"} onClick={() => setShowPassword((value) => !value)}>{showPassword ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></label>
+          <label><span>Neues Passwort</span><div className="auth-input"><LockKeyhole size={16} /><input autoComplete="new-password" type={showPassword ? "text" : "password"} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="mindestens 8 Zeichen" required /></div></label>
+          <label><span>Bestätigung des neuen Passworts</span><div className="auth-input"><LockKeyhole size={16} /><input autoComplete="new-password" type={showPassword ? "text" : "password"} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></div></label>
           {feedback && <div className="auth-feedback" role="alert">{feedback}</div>}
-          <button className="auth-submit" type="submit" disabled={busy || newPassword.length < 8}>{busy ? <LoaderCircle className="spin" size={16} /> : <ShieldCheck size={16} />}{busy ? "正在保存…" : "保存并进入工作台"}</button>
+          <button className="auth-submit" type="submit" disabled={busy || newPassword.length < 8}>{busy ? <LoaderCircle className="spin" size={16} /> : <ShieldCheck size={16} />}{busy ? "Speichern..." : "Speichern und Betreten der Workstation"}</button>
         </form>
       </section>
     </main>
@@ -98,11 +98,11 @@ export function InviteAcceptPanel({
         body: JSON.stringify({ token, displayName, password, confirmPassword }),
       });
       const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
-      if (!response.ok) throw new Error(payload?.message || "无法接受邀请");
+      if (!response.ok) throw new Error(payload?.message || "Einladung kann nicht angenommen werden");
       router.replace("/today");
       router.refresh();
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法接受邀请");
+      setFeedback(error instanceof Error ? error.message : "Einladung kann nicht angenommen werden");
     } finally {
       setBusy(false);
     }
@@ -117,15 +117,15 @@ export function InviteAcceptPanel({
       <section className="auth-panel" aria-labelledby="invite-title">
         <header>
           <div className="auth-panel-icon"><UserRound size={19} /></div>
-          <h1 id="invite-title">接受工作台邀请</h1>
-          <p>{email} 已被邀请加入这个工作台。设置密码后即可进入你的空间。</p>
+          <h1 id="invite-title">Einladung des Schreibtisches annehmen</h1>
+          <p>{email} Sie sind eingeladen, an dieser Workstation teilzunehmen. Das Passwort ist so eingestellt, dass Sie Ihren Speicherplatz eingeben können.</p>
         </header>
         <form className="auth-form" onSubmit={(event) => void submit(event)}>
-          <label><span>昵称</span><div className="auth-input"><UserRound size={16} /><input autoComplete="name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} required /></div></label>
-          <label><span>密码</span><div className="auth-input"><LockKeyhole size={16} /><input autoComplete="new-password" type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="至少 8 个字符" required /><button type="button" aria-label={showPassword ? "隐藏密码" : "显示密码"} onClick={() => setShowPassword((value) => !value)}>{showPassword ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></label>
-          <label><span>确认密码</span><div className="auth-input"><LockKeyhole size={16} /><input autoComplete="new-password" type={showPassword ? "text" : "password"} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></div></label>
+          <label><span>Nickname</span><div className="auth-input"><UserRound size={16} /><input autoComplete="name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} required /></div></label>
+          <label><span>Passwort</span><div className="auth-input"><LockKeyhole size={16} /><input autoComplete="new-password" type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="mindestens 8 Zeichen" required /><button type="button" aria-label={showPassword ? "verstecktes Passwort" : "Passwort anzeigen"} onClick={() => setShowPassword((value) => !value)}>{showPassword ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></label>
+          <label><span>Passwort bestätigen</span><div className="auth-input"><LockKeyhole size={16} /><input autoComplete="new-password" type={showPassword ? "text" : "password"} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></div></label>
           {feedback && <div className="auth-feedback" role="alert">{feedback}</div>}
-          <button className="auth-submit" type="submit" disabled={busy || displayName.trim().length < 2 || password.length < 8}>{busy ? <LoaderCircle className="spin" size={16} /> : <ShieldCheck size={16} />}{busy ? "正在加入…" : "加入工作台"}</button>
+          <button className="auth-submit" type="submit" disabled={busy || displayName.trim().length < 2 || password.length < 8}>{busy ? <LoaderCircle className="spin" size={16} /> : <ShieldCheck size={16} />}{busy ? "Hinzufügen..." : "Workstation hinzufügen"}</button>
         </form>
       </section>
     </main>
@@ -157,11 +157,11 @@ export function AuthPanel({ mode }: AuthPanelProps) {
         body: JSON.stringify(isSetup ? { displayName, email, password, confirmPassword } : { email, password, remember }),
       });
       const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
-      if (!response.ok) throw new Error(payload?.message || (isSetup ? "初始化失败" : "登录失败"));
+      if (!response.ok) throw new Error(payload?.message || (isSetup ? "Initialisierung fehlgeschlagen" : "Anmeldung fehlgeschlagen"));
       router.replace(nextPath);
       router.refresh();
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : (isSetup ? "初始化失败" : "登录失败"));
+      setFeedback(error instanceof Error ? error.message : (isSetup ? "Initialisierung fehlgeschlagen" : "Anmeldung fehlgeschlagen"));
     } finally {
       setBusy(false);
     }
@@ -180,21 +180,21 @@ export function AuthPanel({ mode }: AuthPanelProps) {
       <section className="auth-panel" aria-labelledby="auth-title">
         <header>
           <div className="auth-panel-icon"><LockKeyhole size={19} /></div>
-          <h1 id="auth-title">{isSetup ? "创建管理员账号" : "登录你的工作台"}</h1>
-          <p>{isSetup ? "先保护工作台，进入后再连接邮箱、日历和 AI 服务。" : "使用工作台账号进入你的邮件、日历、任务和笔记空间。"}</p>
+          <h1 id="auth-title">{isSetup ? "Kontonummer des Administrators erstellen" : "Melden Sie sich an Ihrer Workstation an"}</h1>
+          <p>{isSetup ? "Schützen Sie die Workstation, bevor Sie den Postfach-, Kalender- und KI-Service eingeben." : "Verwenden Sie ein Desktop-Konto, um auf Ihre E-Mail, Kalender, Aufgaben und Notizen Platz zugreifen."}</p>
         </header>
 
         <form className="auth-form" onSubmit={(event) => void submit(event)}>
           {isSetup && (
             <label>
-              <span>昵称</span>
+              <span>Nickname</span>
               <div className="auth-input">
                 <UserRound size={16} />
                 <input
                   autoComplete="name"
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="你的名字"
+                  placeholder="Ihr Name"
                   required
                 />
               </div>
@@ -202,7 +202,7 @@ export function AuthPanel({ mode }: AuthPanelProps) {
           )}
 
           <label>
-            <span>邮箱地址</span>
+            <span>Postfach-Adresse</span>
             <div className="auth-input">
               <Mail size={16} />
               <input
@@ -218,7 +218,7 @@ export function AuthPanel({ mode }: AuthPanelProps) {
           </label>
 
           <label>
-            <span>密码</span>
+            <span>Passwort</span>
             <div className="auth-input">
               <LockKeyhole size={16} />
               <input
@@ -226,10 +226,10 @@ export function AuthPanel({ mode }: AuthPanelProps) {
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder={isSetup ? "至少 8 个字符" : "输入密码"}
+                placeholder={isSetup ? "mindestens 8 Zeichen" : "Passwort eingeben"}
                 required
               />
-              <button type="button" aria-label={showPassword ? "隐藏密码" : "显示密码"} onClick={() => setShowPassword((value) => !value)}>
+              <button type="button" aria-label={showPassword ? "verstecktes Passwort" : "Passwort anzeigen"} onClick={() => setShowPassword((value) => !value)}>
                 {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
               </button>
             </div>
@@ -237,7 +237,7 @@ export function AuthPanel({ mode }: AuthPanelProps) {
 
           {isSetup && (
             <label>
-              <span>确认密码</span>
+              <span>Passwort bestätigen</span>
               <div className="auth-input">
                 <LockKeyhole size={16} />
                 <input
@@ -245,7 +245,7 @@ export function AuthPanel({ mode }: AuthPanelProps) {
                   type={showPassword ? "text" : "password"}
                   value={confirmPassword}
                   onChange={(event) => setConfirmPassword(event.target.value)}
-                  placeholder="再次输入密码"
+                  placeholder="Passwort erneut eingeben"
                   required
                 />
               </div>
@@ -257,21 +257,21 @@ export function AuthPanel({ mode }: AuthPanelProps) {
           {!isSetup && (
             <label className="auth-remember">
               <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
-              <span>保持登录 30 天</span>
+              <span>30 Tage für die Aufrechterhaltung der Anmeldung</span>
             </label>
           )}
 
           <button className="auth-submit" type="submit" disabled={busy}>
             {busy ? <LoaderCircle className="spin" size={16} /> : <ShieldCheck size={16} />}
-            {isSetup ? "创建并进入工作台" : "登录"}
+            {isSetup ? "Erstellen und Betreten der Workstation" : "Anmelden"}
           </button>
         </form>
       </section>
 
-      <aside className="auth-context" aria-label="登录说明">
-        <div><strong>本地账号优先</strong><span>进入工作台后再配置邮箱、日历和 AI Provider。</span></div>
-        <div><strong>默认私有</strong><span>没有管理员账号前才允许初始化；之后不开放公开注册。</span></div>
-        <div><strong>清晰授权</strong><span>外部服务连接和写入操作继续由用户确认。</span></div>
+      <aside className="auth-context" aria-label="Beschreibung des Logins">
+        <div><strong>Priorität des lokalen Kontos</strong><span>Konfigurieren Sie Postfächer, Kalender und AI-Anbieter nach der Eingabe der Workstation.</span></div>
+        <div><strong>Privater Standard</strong><span>Die Initialisierung ist nur ohne Administratorkonto erlaubt; die öffentliche Registrierung wird dann geschlossen.</span></div>
+        <div><strong>klare Genehmigung</strong><span>Externe Service-Verbindungen und Schreiben werden weiterhin vom Benutzer bestätigt.</span></div>
       </aside>
     </main>
   );

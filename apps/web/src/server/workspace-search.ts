@@ -41,7 +41,7 @@ export async function searchWorkspace(rawQuery: string, limitPerKindOrOptions: n
     kinds.has("mail") ? (
     database.query<{ id: string; subject: string; snippet: string; sender: string; account_name: string; received_at: string }>(
       `SELECT m.id, m.subject, m.snippet,
-              COALESCE(NULLIF(m.from_address->>'name', ''), m.from_address->>'address', '未知发件人') AS sender,
+              COALESCE(NULLIF(m.from_address->>'name', ''), m.from_address->>'address', 'Unbekannter Absender') AS sender,
               a.display_name AS account_name, m.received_at
          FROM mail_messages m
          JOIN accounts a ON a.id = m.account_id
@@ -166,7 +166,7 @@ export async function searchWorkspace(rawQuery: string, limitPerKindOrOptions: n
       id: item.id,
       kind: "project",
       title: item.name,
-      subtitle: item.area_name ?? "项目",
+      subtitle: item.area_name ?? "Projekt",
       snippet: compactSnippet(item.description),
       href: `/projects?project=${encodeURIComponent(item.id)}`,
       timestamp: item.updated_at,
@@ -175,7 +175,7 @@ export async function searchWorkspace(rawQuery: string, limitPerKindOrOptions: n
       id: item.id,
       kind: "ai",
       title: item.title,
-      subtitle: "AI 会话",
+      subtitle: "eine AI-Sitzung",
       snippet: compactSnippet(item.preview),
       href: `/ai?conversation=${encodeURIComponent(item.id)}`,
       timestamp: item.updated_at,
@@ -202,9 +202,9 @@ function compactSnippet(value?: string | null): string | undefined {
 }
 
 function taskStatusLabel(status: string): string {
-  return { inbox: "待整理", next: "下一步", waiting: "等待中", someday: "以后也许", done: "已完成" }[status] ?? "任务";
+  return { inbox: "zu vereinigen", next: "Weiter", waiting: "warten", someday: "Vielleicht später.", done: "abgeschlossen" }[status] ?? "Aufgabe";
 }
 
 function noteTypeLabel(type: string): string {
-  return { general: "普通笔记", meeting: "会议笔记", email: "邮件笔记", project: "项目笔记", daily: "每日笔记" }[type] ?? "笔记";
+  return { general: "normale Noten", meeting: "Sitzungsnotizen", email: "Briefbriefe", project: "Hinweis zum Projekt", daily: "Tagesnoten" }[type] ?? "Notiz";
 }

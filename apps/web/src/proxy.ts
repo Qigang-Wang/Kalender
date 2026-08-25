@@ -10,18 +10,18 @@ export async function proxy(request: NextRequest) {
   if (session) {
     if (session.mustChangePassword && pathname !== "/change-password" && !pathname.startsWith("/api/users/me") && !pathname.startsWith("/api/auth/logout")) {
       if (pathname.startsWith("/api/")) {
-        return NextResponse.json({ ok: false, message: "首次登录需要先修改密码" }, { status: 403 });
+        return NextResponse.json({ ok: false, message: "erste Anmeldung erfordert zuerst ein Passwort" }, { status: 403 });
       }
       return NextResponse.redirect(new URL("/change-password", request.url));
     }
     if (session.role === "viewer" && pathname.startsWith("/api/") && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
-      return NextResponse.json({ ok: false, message: "只读用户不能修改工作区数据" }, { status: 403 });
+      return NextResponse.json({ ok: false, message: "Nur Lese-Benutzer können Workspace-Daten nicht ändern" }, { status: 403 });
     }
     return NextResponse.next();
   }
 
   if (pathname.startsWith("/api/")) {
-    return NextResponse.json({ ok: false, message: "请先登录" }, { status: 401 });
+    return NextResponse.json({ ok: false, message: "Bitte melden Sie sich zuerst an" }, { status: 401 });
   }
 
   const loginUrl = new URL("/login", request.url);

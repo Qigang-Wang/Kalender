@@ -25,7 +25,7 @@ export async function DELETE(_request: Request, context: DraftRouteContext) {
   const { draftId } = await context.params;
   try {
     if (!await deleteMailDraft(draftId)) {
-      throw new MailDraftRepositoryError("DRAFT_NOT_FOUND", "草稿不存在或无法删除", 404);
+      throw new MailDraftRepositoryError("DRAFT_NOT_FOUND", "der Entwurf existiert nicht oder kann nicht gelöscht werden", 404);
     }
     await clearMailDraftAttachmentFiles(draftId);
     return NextResponse.json({ ok: true });

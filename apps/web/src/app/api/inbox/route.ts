@@ -10,20 +10,20 @@ export async function GET(request: NextRequest) {
   const folderId = request.nextUrl.searchParams.get("folder")?.trim() || undefined;
   const correspondent = request.nextUrl.searchParams.get("correspondent")?.trim().toLocaleLowerCase() || undefined;
   if (correspondent && (correspondent.length > 320 || !correspondent.includes("@"))) {
-    return NextResponse.json({ message: "联系人邮箱地址无效" }, { status: 400 });
+    return NextResponse.json({ message: "die Kontakt-Postfach-Adresse nicht gültig ist" }, { status: 400 });
   }
   const requestedLimit = Number(request.nextUrl.searchParams.get("limit") ?? 50);
   const limit = Number.isInteger(requestedLimit) ? Math.max(20, Math.min(requestedLimit, 100)) : 50;
   const before = request.nextUrl.searchParams.get("before")?.trim();
   const beforeId = request.nextUrl.searchParams.get("beforeId")?.trim();
   if ((before && !beforeId) || (!before && beforeId) || (before && Number.isNaN(Date.parse(before)))) {
-    return NextResponse.json({ message: "邮件分页游标无效" }, { status: 400 });
+    return NextResponse.json({ message: "Ungültiger Mail-Blatt-Cursor" }, { status: 400 });
   }
   const [folder, accounts] = await Promise.all([
     folderId ? getMailFolder(folderId) : Promise.resolve(undefined),
     listAccounts(),
   ]);
-  if (folderId && !folder) return NextResponse.json({ message: "邮件文件夹不存在" }, { status: 404 });
+  if (folderId && !folder) return NextResponse.json({ message: "Der Mail-Ordner existiert nicht" }, { status: 404 });
   const cursor = before && beforeId ? { receivedAt: before, id: beforeId } : undefined;
   const correspondence = correspondent
     ? await listMailCorrespondence(correspondent, limit + 1, cursor)

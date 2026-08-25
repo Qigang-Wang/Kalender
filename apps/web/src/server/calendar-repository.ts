@@ -247,8 +247,8 @@ export async function upsertStoredCalendarEvent(
     scope.active ? [input.calendarId, scope.userId] : [input.calendarId],
   );
   const calendar = existingCalendar.rows[0];
-  if (!calendar) throw new CalendarRepositoryError("CALENDAR_NOT_FOUND", "日历不存在", 404);
-  if (calendar.read_only) throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "该日历为只读", 409);
+  if (!calendar) throw new CalendarRepositoryError("CALENDAR_NOT_FOUND", "Kalender existiert nicht", 404);
+  if (calendar.read_only) throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "Dieser Kalender ist schreibgeschützt", 409);
 
   if (input.recurrenceSeriesId && input.recurrenceId) {
     return upsertRecurringOccurrence(input);
@@ -260,9 +260,9 @@ export async function upsertStoredCalendarEvent(
       scope.active ? [input.id, scope.userId] : [input.id],
     );
     const event = existingEvent.rows[0];
-    if (!event) throw new CalendarRepositoryError("EVENT_NOT_FOUND", "日程不存在", 404);
+    if (!event) throw new CalendarRepositoryError("EVENT_NOT_FOUND", "Termin nicht gefunden", 404);
     if (event.calendar_id !== input.calendarId) {
-      throw new CalendarRepositoryError("EVENT_CALENDAR_MISMATCH", "不能把日程移动到未知日历", 409);
+      throw new CalendarRepositoryError("EVENT_CALENDAR_MISMATCH", "Der Termin kann nicht in einen unbekannten Kalender verschoben werden", 409);
     }
   } else if (input.idempotencyKey) {
     const existingEvent = await database.query<CalendarEventRow>(
@@ -323,7 +323,7 @@ export async function upsertStoredCalendarEvent(
     ],
   );
   const row = result.rows[0];
-  if (!row) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "无法保存日程", 500);
+  if (!row) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "Termin konnte nicht gespeichert werden", 500);
   if (!recurrence) return mapCalendarEvent(row);
   return mapExpandedCalendarEvent(row, row.starts_at, row.ends_at);
 }
@@ -342,7 +342,7 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
     scope.active ? [input.recurrenceSeriesId, input.calendarId, scope.userId] : [input.recurrenceSeriesId, input.calendarId],
   );
   const master = masterResult.rows[0];
-  if (!master?.recurrence_rule) throw new CalendarRepositoryError("RECURRENCE_NOT_FOUND", "重复日程系列不存在", 404);
+  if (!master?.recurrence_rule) throw new CalendarRepositoryError("RECURRENCE_NOT_FOUND", "Terminserie nicht gefunden", 404);
   const recurrenceId = new Date(input.recurrenceId!).toISOString();
   const scopeMode = input.recurrenceScope ?? "occurrence";
 
@@ -391,7 +391,7 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
       ],
     );
     const exception = result.rows[0];
-    if (!exception) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "无法保存此次日程", 500);
+    if (!exception) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "Dieser Termin konnte nicht gespeichert werden", 500);
     return mapCalendarEvent(exception, master.recurrence_rule, master.reminder_minutes_before);
   }
 
@@ -436,7 +436,7 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
       ],
     );
     const updated = result.rows[0];
-    if (!updated) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "无法更新重复日程", 500);
+    if (!updated) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "Serientermin konnte nicht aktualisiert werden", 500);
     return mapExpandedCalendarEvent(updated, input.start, input.end);
   }
 
@@ -506,7 +506,7 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
       ],
     );
     const newMaster = result.rows[0];
-    if (!newMaster) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "无法拆分重复日程", 500);
+    if (!newMaster) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "Terminserie konnte nicht aufgeteilt werden", 500);
     return mapExpandedCalendarEvent(newMaster, input.start, input.end);
   });
 }
@@ -529,8 +529,8 @@ export async function deleteStoredCalendarEvent(
     scope.active ? [calendarId, scope.userId] : [calendarId],
   );
   const calendar = calendarResult.rows[0];
-  if (!calendar) throw new CalendarRepositoryError("CALENDAR_NOT_FOUND", "日历不存在", 404);
-  if (calendar.read_only) throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "该日历当前为只读", 409);
+  if (!calendar) throw new CalendarRepositoryError("CALENDAR_NOT_FOUND", "Kalender existiert nicht", 404);
+  if (calendar.read_only) throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "Dieser Kalender ist schreibgeschützt", 409);
 
   if (options.recurrenceSeriesId && options.recurrenceId) {
     const masterResult = await database.query<CalendarEventRow>(
@@ -544,7 +544,7 @@ export async function deleteStoredCalendarEvent(
       scope.active ? [options.recurrenceSeriesId, calendarId, scope.userId] : [options.recurrenceSeriesId, calendarId],
     );
     const master = masterResult.rows[0];
-    if (!master?.recurrence_rule) throw new CalendarRepositoryError("RECURRENCE_NOT_FOUND", "重复日程系列不存在", 404);
+    if (!master?.recurrence_rule) throw new CalendarRepositoryError("RECURRENCE_NOT_FOUND", "Terminserie nicht gefunden", 404);
     const recurrenceId = new Date(options.recurrenceId).toISOString();
     const recurrenceScope = options.recurrenceScope ?? "occurrence";
     if (recurrenceScope === "series") {
@@ -621,11 +621,7 @@ export async function deleteStoredCalendarEvent(
 async function ensureLocalCalendarForUser(userId: string): Promise<void> {
   const database = await getDatabase();
   await database.query(
-    `INSERT INTO calendars (
-       id, user_id, provider_id, provider_calendar_id, name, color,
-       read_only, is_primary, time_zone
-     ) VALUES ($1, $2, 'local-calendar', 'personal', '个人日历', '#86bdf5', false, true, 'Europe/Berlin')
-     ON CONFLICT (id) DO NOTHING`,
+    "INSERT INTO calendars (\n       id, user_id, provider_id, provider_calendar_id, name, color,\n       read_only, is_primary, time_zone\n     ) VALUES ($1, $2, 'local-calendar', 'personal', 'Persönlicher Kalender', '#86bdf5', false, true, 'Europe/Berlin')\n     ON CONFLICT (id) DO NOTHING",
     [`local:${userId}:personal`, userId],
   );
 }

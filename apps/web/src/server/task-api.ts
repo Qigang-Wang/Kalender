@@ -8,5 +8,5 @@ export function taskErrorResponse(error: unknown) {
     return NextResponse.json({ ok: false, message: error.message }, { status: error.status });
   }
   console.error("Task operation failed", error);
-  return NextResponse.json({ ok: false, message: "任务操作失败" }, { status: 500 });
+  return NextResponse.json({ ok: false, message: "Aufgabenoperation fehlgeschlagen" }, { status: 500 });
 }

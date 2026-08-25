@@ -24,8 +24,8 @@ interface DateTimeFieldProps {
   readonly minuteStep?: number;
 }
 
-const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"] as const;
-const MONTHS = ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"] as const;
+const WEEKDAYS = ["I. ENTWICKLUNG DER RECHTSVORSCHRIFTEN", "II.", "III. ENTWICKLUNG DER ENTWICKLUNG DER ENTWICKLUNG DER", "IV", "Fünf", "Sechs", "Tag"] as const;
+const MONTHS = ["Januar", "Tagungswoche", "März", "ENTWICKLUNG", "Mai", "Juni", "Juli", "ZEITSCHRIFTEN", "ENTWICKLUNG", "Tagungswoche", "ENTWICKLUNG", "Dezember"] as const;
 
 export function DateTimeField({
   label,
@@ -124,7 +124,7 @@ export function DateTimeField({
             disabled={disabled}
           >
             <CalendarDays size={15} />
-            <span>{displayValue || placeholder || (mode === "date" ? "选择日期" : "选择日期和时间")}</span>
+            <span>{displayValue || placeholder || (mode === "date" ? "Datum der Auswahl" : "Datum und Uhrzeit der Auswahl")}</span>
             {readOnly ? null : <ChevronDown size={14} />}
           </button>
         </PopoverTrigger>
@@ -138,11 +138,11 @@ export function DateTimeField({
           <div className="date-time-popover-shell">
             <section className="date-time-calendar-pane">
               <header className="date-time-calendar-header">
-                <button type="button" aria-label="上一个" onClick={() => shiftView(-1)}><ChevronLeft size={16} /></button>
+                <button type="button" aria-label="vorheriger" onClick={() => shiftView(-1)}><ChevronLeft size={16} /></button>
                 <button type="button" className="date-time-calendar-title" onClick={advanceLevel}>
                   {calendarTitle(viewDate, level)}
                 </button>
-                <button type="button" aria-label="下一个" onClick={() => shiftView(1)}><ChevronRight size={16} /></button>
+                <button type="button" aria-label="Nächster" onClick={() => shiftView(1)}><ChevronRight size={16} /></button>
               </header>
               {level === "day" && (
                 <DayGrid
@@ -177,20 +177,20 @@ export function DateTimeField({
             </section>
             <aside className="date-time-popover-panel">
               <header>
-                <span>{mode === "date" ? "日期" : "时间"}</span>
+                <span>{mode === "date" ? "Zeitpunkt" : "Zeit"}</span>
                 <strong>{formatSelectedSummary(draftDate, mode === "datetime" ? draftTime : undefined)}</strong>
               </header>
               {mode === "datetime" && (
-                <div className="date-time-wheel-wrap" aria-label="滑动选择时间">
+                <div className="date-time-wheel-wrap" aria-label="Zeit für die Auswahl der Folie">
                   <WheelColumn
-                    ariaLabel="小时"
+                    ariaLabel="Stunden"
                     max={23}
                     value={hourValue}
                     onChange={(hour) => commitTime(hour, minuteValue)}
                   />
                   <span className="date-time-wheel-colon">:</span>
                   <WheelColumn
-                    ariaLabel="分钟"
+                    ariaLabel="Minuten"
                     values={minuteChoices}
                     value={minuteValue}
                     onChange={(minute) => commitTime(hourValue, minute)}
@@ -198,9 +198,9 @@ export function DateTimeField({
                 </div>
               )}
               <footer>
-                <button type="button" onClick={setToday}><RotateCcw size={13} />今天</button>
-                {clearable && <button type="button" onClick={clearValue}><X size={13} />清除</button>}
-                <button type="button" className="primary" onClick={() => setOpen(false)}><Check size={13} />完成</button>
+                <button type="button" onClick={setToday}><RotateCcw size={13} />Heute</button>
+                {clearable && <button type="button" onClick={clearValue}><X size={13} />Löschen</button>}
+                <button type="button" className="primary" onClick={() => setOpen(false)}><Check size={13} />Erledigt</button>
               </footer>
             </aside>
           </div>
@@ -365,8 +365,8 @@ function calendarDays(viewDate: Date): Date[] {
 }
 
 function calendarTitle(viewDate: Date, level: DateTimeCalendarLevel): string {
-  if (level === "day") return `${viewDate.getFullYear()}年${pad(viewDate.getMonth() + 1)}月`;
-  if (level === "month") return `${viewDate.getFullYear()}年`;
+  if (level === "day") return `${viewDate.getFullYear()}Jahr${pad(viewDate.getMonth() + 1)}Monat`;
+  if (level === "month") return `${viewDate.getFullYear()}Jahr`;
   const start = yearRangeStart(viewDate.getFullYear());
   return `${start}-${start + 11}`;
 }

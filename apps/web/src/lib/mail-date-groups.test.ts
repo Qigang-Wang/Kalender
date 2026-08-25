@@ -19,7 +19,7 @@ const items = [
 const groups = groupMailByDate(items, now);
 
 assert.deepEqual(groups.map((group) => group.id), ["today", "yesterday", "this-week", "last-week", "last-month", "older"]);
-assert.deepEqual(groups.map((group) => group.label), ["今天", "昨天", "本周", "上周", "上月", "更早"]);
+assert.deepEqual(groups.map((group) => group.label), ["Heute", "Gestern", "Diese Woche", "Letzte Woche", "Letzter Monat", "Früher"]);
 assert.deepEqual(groups.map((group) => group.items.map((item) => item.id)), [
   ["today"],
   ["yesterday"],

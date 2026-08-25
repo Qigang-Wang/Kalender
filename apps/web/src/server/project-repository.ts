@@ -196,9 +196,9 @@ interface TaskPlanRow {
 export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput): Promise<SaveProjectTaskPlanResult> {
   const database = await getDatabase();
   const project = await getStoredProject(input.projectId);
-  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
+  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "Projekt existiert nicht", 404);
   if (project.status === "archived") {
-    throw new ProjectRepositoryError("PROJECT_ARCHIVED", "已归档项目不能修改甘特计划", 409);
+    throw new ProjectRepositoryError("PROJECT_ARCHIVED", "das archivierte Projekt kann den Gant-Plan nicht ändern", 409);
   }
   const task = await database.query<TaskPlanRow>(
     `SELECT id, phase_id, gantt_sort_order, planned_start, planned_end, duration_workdays, auto_schedule
@@ -208,19 +208,19 @@ export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput)
     [input.taskId, input.projectId],
   );
   const currentTask = task.rows[0];
-  if (!currentTask) throw new ProjectRepositoryError("TASK_NOT_FOUND", "项目任务不存在", 404);
+  if (!currentTask) throw new ProjectRepositoryError("TASK_NOT_FOUND", "Projektaufgabe existiert nicht", 404);
 
   if (input.phaseId) {
     const phase = await database.query<{ id: string }>(
       "SELECT id FROM project_phases WHERE id = $1 AND project_id = $2 LIMIT 1",
       [input.phaseId, input.projectId],
     );
-    if (!phase.rows[0]) throw new ProjectRepositoryError("PHASE_NOT_FOUND", "项目阶段不存在", 404);
+    if (!phase.rows[0]) throw new ProjectRepositoryError("PHASE_NOT_FOUND", "Projektphase existiert nicht", 404);
   }
 
   const dependencyIds = Array.from(new Set(input.dependencyIds));
   if (dependencyIds.includes(input.taskId)) {
-    throw new ProjectRepositoryError("TASK_DEPENDENCY_SELF", "任务不能依赖自身", 400);
+    throw new ProjectRepositoryError("TASK_DEPENDENCY_SELF", "Aufgabe kann nicht von sich selbst abhängen", 400);
   }
   if (dependencyIds.length) {
     const validDependencies = await database.query<{ id: string }>(
@@ -228,7 +228,7 @@ export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput)
       [input.projectId, dependencyIds],
     );
     if (validDependencies.rows.length !== dependencyIds.length) {
-      throw new ProjectRepositoryError("TASK_DEPENDENCY_INVALID", "依赖任务必须属于同一个项目", 400);
+      throw new ProjectRepositoryError("TASK_DEPENDENCY_INVALID", "Reliance muss zum gleichen Projekt gehören", 400);
     }
   }
 
@@ -242,7 +242,7 @@ export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput)
   }
   for (const predecessorId of dependencyIds) {
     if (hasDependencyPath(adjacency, input.taskId, predecessorId)) {
-      throw new ProjectRepositoryError("TASK_DEPENDENCY_CYCLE", "任务依赖不能形成循环", 409);
+      throw new ProjectRepositoryError("TASK_DEPENDENCY_CYCLE", "Aufgabenabhängigkeit kann keine Schleifen erzeugen", 409);
     }
   }
 
@@ -378,7 +378,7 @@ export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput)
 
   const overview = await getStoredProjectOverview(input.projectId);
   const saved = overview?.ganttTasks.find((entry) => entry.id === input.taskId);
-  if (!overview || !saved) throw new ProjectRepositoryError("TASK_PLAN_SAVE_FAILED", "无法保存任务计划", 500);
+  if (!overview || !saved) throw new ProjectRepositoryError("TASK_PLAN_SAVE_FAILED", "konnte den Aufgabenplan nicht speichern", 500);
   return { task: saved, overview };
 }
 
@@ -387,16 +387,16 @@ export async function reorderStoredProjectGanttItem(
 ): Promise<StoredProjectOverview> {
   const database = await getDatabase();
   const project = await getStoredProject(input.projectId);
-  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
+  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "Projekt existiert nicht", 404);
   if (project.status === "archived") {
-    throw new ProjectRepositoryError("PROJECT_ARCHIVED", "已归档项目不能调整甘特顺序", 409);
+    throw new ProjectRepositoryError("PROJECT_ARCHIVED", "das archivierte Projekt kann die Gant-Ordnung nicht anpassen", 409);
   }
   if (input.phaseId) {
     const phase = await database.query<{ id: string }>(
       "SELECT id FROM project_phases WHERE id = $1 AND project_id = $2 LIMIT 1",
       [input.phaseId, input.projectId],
     );
-    if (!phase.rows[0]) throw new ProjectRepositoryError("PHASE_NOT_FOUND", "项目阶段不存在", 404);
+    if (!phase.rows[0]) throw new ProjectRepositoryError("PHASE_NOT_FOUND", "Projektphase existiert nicht", 404);
   }
 
   await database.transaction(async (transaction) => {
@@ -405,9 +405,9 @@ export async function reorderStoredProjectGanttItem(
         "SELECT id, phase_id FROM tasks WHERE id = $1 AND project_id = $2 FOR UPDATE",
         [input.itemId, input.projectId],
       );
-      if (!current.rows[0]) throw new ProjectRepositoryError("TASK_NOT_FOUND", "项目任务不存在", 404);
+      if (!current.rows[0]) throw new ProjectRepositoryError("TASK_NOT_FOUND", "Projektaufgabe existiert nicht", 404);
       if ((current.rows[0].phase_id ?? null) !== input.phaseId) {
-        throw new ProjectRepositoryError("TASK_REORDER_PHASE_INVALID", "任务只能在当前阶段内调整顺序", 400);
+        throw new ProjectRepositoryError("TASK_REORDER_PHASE_INVALID", "Aufgaben können nur innerhalb der aktuellen Phase bestellt werden", 400);
       }
       const siblings = await transaction.query<{ id: string }>(
         `SELECT id
@@ -438,7 +438,7 @@ export async function reorderStoredProjectGanttItem(
       "SELECT id FROM project_milestones WHERE id = $1 AND project_id = $2 FOR UPDATE",
       [input.itemId, input.projectId],
     );
-    if (!current.rows[0]) throw new ProjectRepositoryError("MILESTONE_NOT_FOUND", "里程碑不存在", 404);
+    if (!current.rows[0]) throw new ProjectRepositoryError("MILESTONE_NOT_FOUND", "Meilensteine gibt es nicht", 404);
     const siblings = await transaction.query<{ id: string }>(
       `SELECT id
          FROM project_milestones
@@ -465,14 +465,14 @@ export async function reorderStoredProjectGanttItem(
   });
 
   const overview = await getStoredProjectOverview(input.projectId);
-  if (!overview) throw new ProjectRepositoryError("GANTT_REORDER_FAILED", "无法保存甘特顺序", 500);
+  if (!overview) throw new ProjectRepositoryError("GANTT_REORDER_FAILED", "Gant-Ordnung kann nicht gespeichert werden", 500);
   return overview;
 }
 
 function insertProjectGanttItem(siblingIds: string[], itemId: string, beforeId?: string): string[] {
   if (!beforeId) return [...siblingIds, itemId];
   const index = siblingIds.indexOf(beforeId);
-  if (index < 0) throw new ProjectRepositoryError("GANTT_REORDER_TARGET_INVALID", "拖放目标不在当前阶段", 400);
+  if (index < 0) throw new ProjectRepositoryError("GANTT_REORDER_TARGET_INVALID", "Drag-and-Drop-Ziel nicht im aktuellen Stadium", 400);
   return [...siblingIds.slice(0, index), itemId, ...siblingIds.slice(index)];
 }
 
@@ -527,9 +527,9 @@ export async function listStoredProjectPhases(projectId: string): Promise<readon
 export async function saveStoredProjectPhase(input: SaveProjectPhaseInput): Promise<StoredProjectPhase> {
   const database = await getDatabase();
   const project = await getStoredProject(input.projectId);
-  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
+  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "Projekt existiert nicht", 404);
   if (project.status === "archived") {
-    throw new ProjectRepositoryError("PROJECT_ARCHIVED", "已归档项目不能修改阶段", 409);
+    throw new ProjectRepositoryError("PROJECT_ARCHIVED", "das archivierte Projekt kann nicht verändert werden", 409);
   }
   const id = input.id ?? randomUUID();
   if (input.id) {
@@ -537,7 +537,7 @@ export async function saveStoredProjectPhase(input: SaveProjectPhaseInput): Prom
       "SELECT id FROM project_phases WHERE id = $1 AND project_id = $2 LIMIT 1",
       [input.id, input.projectId],
     );
-    if (!existing.rows[0]) throw new ProjectRepositoryError("PHASE_NOT_FOUND", "项目阶段不存在", 404);
+    if (!existing.rows[0]) throw new ProjectRepositoryError("PHASE_NOT_FOUND", "Projektphase existiert nicht", 404);
   }
   await database.query(
     `INSERT INTO project_phases (id, project_id, name, color, sort_order, updated_at)
@@ -551,16 +551,16 @@ export async function saveStoredProjectPhase(input: SaveProjectPhaseInput): Prom
     [id, input.projectId, input.name, input.color, input.sortOrder ?? 0],
   );
   const saved = (await listStoredProjectPhases(input.projectId)).find((phase) => phase.id === id);
-  if (!saved) throw new ProjectRepositoryError("PHASE_SAVE_FAILED", "无法保存项目阶段", 500);
+  if (!saved) throw new ProjectRepositoryError("PHASE_SAVE_FAILED", "kann die Projektphase nicht speichern", 500);
   return saved;
 }
 
 export async function deleteStoredProjectPhase(projectId: string, phaseId: string): Promise<boolean> {
   const database = await getDatabase();
   const project = await getStoredProject(projectId);
-  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
+  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "Projekt existiert nicht", 404);
   if (project.status === "archived") {
-    throw new ProjectRepositoryError("PROJECT_ARCHIVED", "已归档项目不能修改阶段", 409);
+    throw new ProjectRepositoryError("PROJECT_ARCHIVED", "das archivierte Projekt kann nicht verändert werden", 409);
   }
   const result = await database.query<{ id: string }>(
     "DELETE FROM project_phases WHERE id = $1 AND project_id = $2 RETURNING id",
@@ -597,16 +597,16 @@ export async function listStoredProjectMilestones(projectId: string): Promise<re
 export async function saveStoredProjectMilestone(input: SaveProjectMilestoneInput): Promise<StoredProjectMilestone> {
   const database = await getDatabase();
   const project = await getStoredProject(input.projectId);
-  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
+  if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "Projekt existiert nicht", 404);
   if (project.status === "archived") {
-    throw new ProjectRepositoryError("PROJECT_ARCHIVED", "已归档项目不能修改里程碑", 409);
+    throw new ProjectRepositoryError("PROJECT_ARCHIVED", "archivierte Projekte können Meilensteine nicht ändern", 409);
   }
   if (input.phaseId) {
     const phase = await database.query<{ id: string }>(
       "SELECT id FROM project_phases WHERE id = $1 AND project_id = $2 LIMIT 1",
       [input.phaseId, input.projectId],
     );
-    if (!phase.rows[0]) throw new ProjectRepositoryError("PHASE_NOT_FOUND", "项目阶段不存在", 404);
+    if (!phase.rows[0]) throw new ProjectRepositoryError("PHASE_NOT_FOUND", "Projektphase existiert nicht", 404);
   }
   const id = input.id ?? randomUUID();
   let existingMilestone: { readonly id: string; readonly phase_id: string | null; readonly sort_order: number } | undefined;
@@ -616,7 +616,7 @@ export async function saveStoredProjectMilestone(input: SaveProjectMilestoneInpu
       [input.id, input.projectId],
     );
     existingMilestone = existing.rows[0];
-    if (!existingMilestone) throw new ProjectRepositoryError("MILESTONE_NOT_FOUND", "里程碑不存在", 404);
+    if (!existingMilestone) throw new ProjectRepositoryError("MILESTONE_NOT_FOUND", "Meilensteine gibt es nicht", 404);
   }
   const targetPhaseId = input.phaseId === undefined ? existingMilestone?.phase_id ?? null : input.phaseId;
   let sortOrder = input.sortOrder;
@@ -649,7 +649,7 @@ export async function saveStoredProjectMilestone(input: SaveProjectMilestoneInpu
     [id, input.projectId, input.phaseId ?? null, input.title, input.dueOn ?? null, input.status, sortOrder, input.phaseId !== undefined],
   );
   const saved = (await listStoredProjectMilestones(input.projectId)).find((milestone) => milestone.id === id);
-  if (!saved) throw new ProjectRepositoryError("MILESTONE_SAVE_FAILED", "无法保存里程碑", 500);
+  if (!saved) throw new ProjectRepositoryError("MILESTONE_SAVE_FAILED", "keine Meilensteine konnten gespeichert werden", 500);
   return saved;
 }
 

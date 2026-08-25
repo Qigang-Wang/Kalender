@@ -9,5 +9,5 @@ export function noteErrorResponse(error: unknown) {
     return NextResponse.json({ ok: false, message: error.message }, { status: error.status });
   }
   console.error("Note operation failed", error);
-  return NextResponse.json({ ok: false, message: "笔记操作失败" }, { status: 500 });
+  return NextResponse.json({ ok: false, message: "Anmerkungsaufzeichnung fehlgeschlagen" }, { status: 500 });
 }

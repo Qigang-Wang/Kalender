@@ -223,9 +223,9 @@ export async function fetchExchangeMailMimeContent(
     </m:GetItem>`, signal);
   const encoded = elementText(xml, "MimeContent").replace(/\s+/g, "");
   if (!encoded) return undefined;
-  if (!/^[a-z0-9+/]+={0,2}$/i.test(encoded)) throw new Error("Exchange 返回了无效的 MIME 内容");
+  if (!/^[a-z0-9+/]+={0,2}$/i.test(encoded)) throw new Error("Exchange gab ungültigen Mime-Inhalt zurück");
   const content = Buffer.from(encoded, "base64");
-  if (content.byteLength > 25 * 1024 * 1024) throw new Error("邮件 MIME 内容超过 25 MB 安全上限");
+  if (content.byteLength > 25 * 1024 * 1024) throw new Error("Mailmime Inhalt übersteigt 25 MB Sicherheitskappen");
   return new Uint8Array(content);
 }
 
@@ -260,7 +260,7 @@ export async function syncExchangeMailFolder(
     return itemId ? [{ itemId, isRead: elementText(change, "IsRead").toLocaleLowerCase() === "true" }] : [];
   });
   const nextState = elementText(response, "SyncState");
-  if (!nextState) throw new Error("Exchange 增量同步没有返回同步游标");
+  if (!nextState) throw new Error("ExtraSync hat den Synchronisationscursor nicht zurückgegeben");
   return {
     syncState: nextState,
     includesLastItem: elementText(response, "IncludesLastItemInRange").toLocaleLowerCase() !== "false",
@@ -299,7 +299,7 @@ export async function updateExchangeMessageFlags(
     </m:GetItem>`, signal);
   const currentTag = openingTag(elementContent(identityXml, "Message") ?? identityXml, "ItemId");
   const changeKey = currentTag ? attributeValue(currentTag, "ChangeKey") : undefined;
-  if (!changeKey) throw new Error("Exchange 没有返回邮件的最新 ChangeKey");
+  if (!changeKey) throw new Error("Exchange hat die letzte E-Mail ChangeKey nicht zurückgegeben");
   const now = new Date();
   const due = new Date(now.getTime() + 7 * 86_400_000);
   const flag = input.isStarred
@@ -345,7 +345,7 @@ export async function createExchangeMailFolder(
     </m:CreateFolder>`, signal);
   const folderTag = openingTag(elementContent(xml, "Folders") ?? xml, "FolderId");
   const folderId = folderTag ? attributeValue(folderTag, "Id") : undefined;
-  if (!folderId) throw new Error("Exchange 创建了文件夹，但没有返回文件夹标识");
+  if (!folderId) throw new Error("Exchange erstellte einen Ordner, gab aber die Ordner-Identifikation nicht zurück");
   return folderId;
 }
 
@@ -360,7 +360,7 @@ export async function renameExchangeMailFolder(
       <m:FolderIds><t:FolderId Id="${escapeXml(folderId)}"/></m:FolderIds></m:GetFolder>`, signal);
   const currentTag = openingTag(elementContent(identityXml, "Folders") ?? identityXml, "FolderId");
   const changeKey = currentTag ? attributeValue(currentTag, "ChangeKey") : undefined;
-  if (!changeKey) throw new Error("Exchange 没有返回文件夹的最新 ChangeKey");
+  if (!changeKey) throw new Error("Exchange hat nicht das Neueste aus dem Ordner ChangeKey zurückgegeben");
   await exchangeSoapRequest(credential, "UpdateFolder", `
     <m:UpdateFolder><m:FolderChanges><t:FolderChange>
       <t:FolderId Id="${escapeXml(folderId)}" ChangeKey="${escapeXml(changeKey)}"/>
@@ -421,7 +421,7 @@ export async function sendExchangeMessage(
       </m:GetItem>`, signal);
     const referenceTag = openingTag(elementContent(identityXml, "Message") ?? identityXml, "ItemId");
     const referenceChangeKey = referenceTag ? attributeValue(referenceTag, "ChangeKey") : undefined;
-    if (!referenceChangeKey) throw new Error("Exchange 没有返回回复邮件的最新 ChangeKey");
+    if (!referenceChangeKey) throw new Error("Exchange hat die letzte E-Mail von ChangeKey nicht zurückgeschickt");
     replyInternetMessageId = elementText(identityXml, "InternetMessageId") || undefined;
     if (input.attachments.length === 0) {
       try {
@@ -457,7 +457,7 @@ export async function sendExchangeMessage(
   const itemTag = openingTag(message, "ItemId");
   const itemId = itemTag ? attributeValue(itemTag, "Id") : undefined;
   let changeKey = itemTag ? attributeValue(itemTag, "ChangeKey") : undefined;
-  if (!itemId) throw new Error("Exchange 创建草稿后没有返回邮件标识");
+  if (!itemId) throw new Error("keine Mail-Identifikation zurückgegeben, nachdem Exchange den Entwurf erstellt hat");
   if (input.attachments.length) {
     const attachmentXml = await exchangeSoapRequest(credential, "CreateAttachment", `
       <m:CreateAttachment>
@@ -492,9 +492,9 @@ export async function getExchangeAttachment(
       <m:AttachmentIds><t:AttachmentId Id="${escapeXml(attachmentId)}"/></m:AttachmentIds>
     </m:GetAttachment>`, signal);
   const attachment = elementContent(xml, "FileAttachment");
-  if (!attachment) throw new Error("Exchange 没有返回附件");
+  if (!attachment) throw new Error("Exchange hat keine Anhänge zurückgegeben");
   const content = elementText(attachment, "Content");
-  if (!content) throw new Error("Exchange 附件内容为空");
+  if (!content) throw new Error("Extrachange-Anhänge sind leer");
   return {
     filename: elementText(attachment, "Name") || "attachment",
     contentType: elementText(attachment, "ContentType") || "application/octet-stream",
@@ -536,7 +536,7 @@ export function parseExchangeMessages(xml: string): readonly ExchangeMailMessage
       changeKey: itemTag ? attributeValue(itemTag, "ChangeKey") : undefined,
       conversationId,
       internetMessageId: elementText(message, "InternetMessageId") || undefined,
-      subject: elementText(message, "Subject") || "(无主题)",
+      subject: elementText(message, "Subject") || "(Kein Betreff)",
       from: sender,
       to: parseMailboxes(elementContent(message, "ToRecipients")),
       cc: parseMailboxes(elementContent(message, "CcRecipients")),

@@ -42,7 +42,7 @@ export function MoreToolbarButton() {
   return (
     <Popover open={open} onOpenChange={setOpen} modal={false}>
       <PopoverTrigger asChild>
-        <ToolbarButton pressed={open} tooltip="更多工具" aria-label="更多工具">
+        <ToolbarButton pressed={open} tooltip="mehr Werkzeuge" aria-label="mehr Werkzeuge">
           <MoreHorizontalIcon />
         </ToolbarButton>
       </PopoverTrigger>
@@ -52,56 +52,56 @@ export function MoreToolbarButton() {
         align="end"
         onOpenAutoFocus={(event) => event.preventDefault()}
       >
-        <MoreSection title="格式与排版">
-          <MoreTool label="字号"><FontSizeToolbarButton /></MoreTool>
-          <MoreTool label="行内代码">
-            <MarkToolbarButton nodeType={KEYS.code} tooltip="行内代码">
+        <MoreSection title="Format und Layout">
+          <MoreTool label="Bytes"><FontSizeToolbarButton /></MoreTool>
+          <MoreTool label="Zeilencode">
+            <MarkToolbarButton nodeType={KEYS.code} tooltip="Zeilencode">
               <Code2Icon />
             </MarkToolbarButton>
           </MoreTool>
-          <MoreTool label="对齐"><AlignToolbarButton /></MoreTool>
-          <MoreTool label="行高"><LineHeightToolbarButton /></MoreTool>
-          <MoreTool label="减少缩进"><OutdentToolbarButton /></MoreTool>
-          <MoreTool label="增加缩进"><IndentToolbarButton /></MoreTool>
-          <MoreTool label="折叠块"><ToggleToolbarButton /></MoreTool>
+          <MoreTool label="Ausrichtung"><AlignToolbarButton /></MoreTool>
+          <MoreTool label="Zeilenhöhe"><LineHeightToolbarButton /></MoreTool>
+          <MoreTool label="Einrückung verringern"><OutdentToolbarButton /></MoreTool>
+          <MoreTool label="Einrückung erhöhen"><IndentToolbarButton /></MoreTool>
+          <MoreTool label="Faltblöcke"><ToggleToolbarButton /></MoreTool>
           <MoreTool label="Emoji"><EmojiToolbarButton /></MoreTool>
-          <MoreTool label="键盘文本">
-            <MarkToolbarButton nodeType={KEYS.kbd} tooltip="键盘文本">
+          <MoreTool label="Tastaturtext">
+            <MarkToolbarButton nodeType={KEYS.kbd} tooltip="Tastaturtext">
               <KeyboardIcon />
             </MarkToolbarButton>
           </MoreTool>
-          <MoreTool label="上标">
-            <MarkToolbarButton nodeType={KEYS.sup} tooltip="上标">
+          <MoreTool label="Superskript">
+            <MarkToolbarButton nodeType={KEYS.sup} tooltip="Superskript">
               <SuperscriptIcon />
             </MarkToolbarButton>
           </MoreTool>
-          <MoreTool label="下标">
-            <MarkToolbarButton nodeType={KEYS.sub} tooltip="下标">
+          <MoreTool label="Subskript">
+            <MarkToolbarButton nodeType={KEYS.sub} tooltip="Subskript">
               <SubscriptIcon />
             </MarkToolbarButton>
           </MoreTool>
         </MoreSection>
 
-        <MoreSection title="文档">
-          <MoreTool label="导入"><ImportToolbarButton /></MoreTool>
-          <MoreTool label="导出"><ExportToolbarButton /></MoreTool>
+        <MoreSection title="Dokument">
+          <MoreTool label="Einfuhr"><ImportToolbarButton /></MoreTool>
+          <MoreTool label="Exportieren"><ExportToolbarButton /></MoreTool>
         </MoreSection>
 
-        <MoreSection title="AI、评论与协作">
-          <MoreTool label="AI（即将接入）">
+        <MoreSection title="KI, Kommentar und Zusammenarbeit">
+          <MoreTool label="KI (erwartet)">
             <AIToolbarButton>
               <WandSparklesIcon />
             </AIToolbarButton>
           </MoreTool>
-          <MoreTool label="评论"><CommentToolbarButton /></MoreTool>
-          <MoreTool label="协作模式"><ModeToolbarButton /></MoreTool>
+          <MoreTool label="Bemerkungen"><CommentToolbarButton /></MoreTool>
+          <MoreTool label="Kooperationsmodus"><ModeToolbarButton /></MoreTool>
         </MoreSection>
 
-        <MoreSection title="上传">
-          <MoreTool label="图片"><MediaToolbarButton nodeType={KEYS.img} /></MoreTool>
-          <MoreTool label="视频"><MediaToolbarButton nodeType={KEYS.video} /></MoreTool>
-          <MoreTool label="音频"><MediaToolbarButton nodeType={KEYS.audio} /></MoreTool>
-          <MoreTool label="文件"><MediaToolbarButton nodeType={KEYS.file} /></MoreTool>
+        <MoreSection title="Hochladen">
+          <MoreTool label="Bilder"><MediaToolbarButton nodeType={KEYS.img} /></MoreTool>
+          <MoreTool label="Video"><MediaToolbarButton nodeType={KEYS.video} /></MoreTool>
+          <MoreTool label="Audio"><MediaToolbarButton nodeType={KEYS.audio} /></MoreTool>
+          <MoreTool label="Dateien"><MediaToolbarButton nodeType={KEYS.file} /></MoreTool>
         </MoreSection>
       </PopoverContent>
     </Popover>

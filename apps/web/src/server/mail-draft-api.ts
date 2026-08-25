@@ -12,6 +12,6 @@ export function mailDraftErrorResponse(error: unknown): NextResponse {
   console.error("Mail draft request failed", error);
   const message = process.env.NODE_ENV === "development" && error instanceof Error
     ? error.message
-    : "无法处理邮件草稿";
+    : "E-Mail-Entwurf kann nicht bearbeitet werden";
   return NextResponse.json({ ok: false, code: "MAIL_DRAFT_ERROR", message }, { status: 500 });
 }
