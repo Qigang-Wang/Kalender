@@ -11,7 +11,7 @@ Dayline 将个人信息流组织成一条连续工作流：从邮件识别行动
 项目处于活跃开发阶段。邮件、日历、任务、笔记、Today、全局搜索、AI 对话、备份和实时更新基础已经成型；当前重点是跨模块 AI 上下文、可确认的工具操作，以及真实数据下的长期稳定性。
 
 > [!WARNING]
-> 当前版本面向本机或可信私网使用。部署时应设置强随机数据库密码和固定主密钥，并通过 HTTPS 反向代理和网络访问控制提供服务。未经安全审计，不要把端口 `3000` 直接暴露到公网。
+> 当前版本面向本机或可信私网使用。部署时应设置强随机数据库密码，并通过 HTTPS 反向代理和网络访问控制提供服务。未经安全审计，不要把端口 `3000` 直接暴露到公网。
 
 ## 已实现能力
 
@@ -65,10 +65,9 @@ npm run dev
 
 | 变量 | 用途 |
 |---|---|
-| `KALENDER_MASTER_KEY` | 32 字节 Base64 主密钥，用于加密保存的凭据；生产部署必须固定设置 |
+| `KALENDER_MASTER_KEY` | 兼容旧部署的可选主密钥；新部署无需设置 |
 | `KALENDER_DATA_DIR` | 覆盖本地文件目录，默认是项目根目录的 `.data` |
 | `KALENDER_BACKUP_DIR` | 覆盖备份文件目录 |
-| `KALENDER_BACKUP_PASSWORD` | 自动加密备份使用的密码 |
 | `DATABASE_URL` | 必填的 PostgreSQL 连接字符串 |
 | `KALENDER_POSTGRES_PASSWORD` | Docker Compose 中 PostgreSQL 服务的密码 |
 | `KALENDER_SYNC_INTERVAL_MS` | 邮箱后台同步的首次初始化间隔，默认 3 分钟 |
@@ -77,7 +76,7 @@ npm run dev
 | `KALENDER_MAIL_BODY_CACHE_MAX_MB` | 邮件正文缓存容量上限，默认 128 MB |
 | `KALENDER_ALLOWED_DEV_ORIGINS` | 允许访问开发服务器的局域网主机名或 IP |
 
-未设置 `KALENDER_MASTER_KEY` 时，本地开发会生成 `.data/master.key`。PostgreSQL 数据库和主密钥必须一起备份，否则已保存的凭据无法解密。
+未设置 `KALENDER_MASTER_KEY` 时，应用会自动生成 `.data/master.key`，用于避免连接密码以明文保存。Docker 部署无需手动配置此密钥，但必须持久化完整的 `.data` 目录。删除数据卷后，已有连接需要在设置中重新输入密码。
 
 后台邮件同步、日历同步和可见页面刷新可在“设置 > 同步”中独立开关并调整频率。保存后立即生效，不需要重启服务；环境变量只用于尚未保存工作区同步设置时的初始默认值。
 

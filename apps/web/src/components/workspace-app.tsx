@@ -3086,7 +3086,6 @@ interface OperationsPayload {
   readonly dataDirectory: { readonly path: string; readonly writable: boolean };
   readonly masterKey: { readonly configured: boolean };
   readonly environment: {
-    readonly backupPasswordConfigured: boolean;
     readonly healthcheckTokenConfigured: boolean;
     readonly aiAutoExecutionEnabled: boolean;
   };
@@ -3142,7 +3141,7 @@ function OperationsSettings() {
             <article><span><DatabaseBackup size={17} /></span><small>数据库</small><strong>{operations.database.connected ? "已连接" : "异常"}</strong><p>v{operations.database.currentVersion} / v{operations.database.latestVersion}{operations.database.pendingVersions.length ? ` · 待迁移 ${operations.database.pendingVersions.join(", ")}` : ""}</p></article>
             <article><span><Clock3 size={17} /></span><small>任务队列</small><strong>{operations.jobs.running} 运行 · {operations.jobs.queued} 排队</strong><p>{operations.jobs.failed} 个失败</p></article>
             <article><span><HardDrive size={17} /></span><small>数据目录</small><strong>{operations.dataDirectory.writable ? "可写" : "不可写"}</strong><p>{operations.dataDirectory.path}</p></article>
-            <article><span><ShieldCheck size={17} /></span><small>主密钥</small><strong>{operations.masterKey.configured ? "环境变量" : "未配置"}</strong><p>KALENDER_MASTER_KEY</p></article>
+            <article><span><ShieldCheck size={17} /></span><small>凭据加密</small><strong>{operations.masterKey.configured ? "环境变量" : "本地自动管理"}</strong><p>{operations.masterKey.configured ? "兼容旧部署" : "保存在持久化数据目录"}</p></article>
             <article><span><DatabaseBackup size={17} /></span><small>备份工具</small><strong>{operations.backup.strategy?.tools.pgDump && operations.backup.strategy.tools.pgRestore ? "pg_dump/restore 可用" : "工具缺失"}</strong><p>{operations.backup.strategy?.backupDirectory}</p></article>
             <article><span><Paperclip size={17} /></span><small>附件</small><strong>{operations.backup.attachmentFiles} 个</strong><p>{formatFileSize(operations.backup.attachmentBytes)}</p></article>
           </div>
@@ -3151,7 +3150,6 @@ function OperationsSettings() {
               <h3>功能配置</h3>
               <div className="operations-check-list">
                 <span className={operations.environment.aiAutoExecutionEnabled ? "ready" : "optional"}><Check size={13} />AI 自动执行：{operations.environment.aiAutoExecutionEnabled ? "开启" : "关闭"}</span>
-                <span className={operations.environment.backupPasswordConfigured ? "ready" : "optional"}>{operations.environment.backupPasswordConfigured ? <Check size={13} /> : <Circle size={13} />}自动备份密码：{operations.environment.backupPasswordConfigured ? "已配置" : "按需配置"}</span>
                 <span className={operations.environment.healthcheckTokenConfigured ? "ready" : "optional"}><ShieldCheck size={13} />健康检查：{operations.environment.healthcheckTokenConfigured ? "受令牌保护" : "公开轻量检查"}</span>
               </div>
             </section>
@@ -4136,7 +4134,7 @@ function BackupSettings() {
   const [status, setStatus] = useState<BackupStatusPayload>();
   const [loading, setLoading] = useState(true);
   const [backupPassword, setBackupPassword] = useState("");
-  const [encryptBackup, setEncryptBackup] = useState(true);
+  const [encryptBackup, setEncryptBackup] = useState(false);
   const [selectedBackupPolicy, setSelectedBackupPolicy] = useState<BackupMailPolicyPayload>("lightweight");
   const [automaticDraft, setAutomaticDraft] = useState<AutomaticBackupPayload>();
   const [busyBackupId, setBusyBackupId] = useState<string>();
@@ -4401,7 +4399,7 @@ function BackupSettings() {
           </header>
           <div className="backup-scope-summary" aria-label="备份范围">
             {compactCoverage.map((item) => {
-              const included = item.id === "master-key" ? encryptBackup : item.included;
+              const included = item.included;
               return (
                 <span key={item.id} className={included ? "included" : "excluded"}>
                   {included ? <Check size={12} /> : <Circle size={12} />}{item.label}
@@ -4417,8 +4415,8 @@ function BackupSettings() {
           {!selectedPolicyAvailable && selectedBackupOption?.disabledReason && <small className="backup-risk">{selectedBackupOption.disabledReason}</small>}
           {!toolsReady && <small className="backup-risk">服务器缺少备份工具，请先完成运行环境配置。</small>}
           {encryptBackup
-            ? <small>恢复时只需此备份密码，账户连接会自动改用目标服务器的主密钥。</small>
-            : <small className="backup-risk">未加密备份不携带可迁移连接凭据；跨服务器恢复后需要重新输入账户密码。</small>}
+            ? <small>连接凭据受备份密码保护，恢复后会使用目标服务器的本地密钥重新加密。</small>
+            : <small className="backup-risk">免密码备份包含邮箱、日历和 AI 连接凭据；任何获得文件的人都可能取得这些账号权限。</small>}
         </article>
       </div>
 
@@ -4432,14 +4430,12 @@ function BackupSettings() {
             <label><input type="checkbox" checked={automatic.enabled} onChange={(event) => setAutomaticDraft({ ...automatic, enabled: event.target.checked })} /><span>启用自动备份</span></label>
             <label><span>间隔小时</span><input type="number" min={1} max={720} value={automatic.intervalHours} onChange={(event) => setAutomaticDraft({ ...automatic, intervalHours: Number(event.target.value) })} /></label>
             <label><span>保留份数</span><input type="number" min={1} max={365} value={automatic.retentionCount} onChange={(event) => setAutomaticDraft({ ...automatic, retentionCount: Number(event.target.value) })} /></label>
-            <label><input type="checkbox" checked={automatic.encryptAutomatic} onChange={(event) => setAutomaticDraft({ ...automatic, encryptAutomatic: event.target.checked })} /><span>自动备份加密</span></label>
             <button className="secondary-button" disabled={busyBackupId === "automatic"} onClick={() => void saveAutomaticSettings()}>{busyBackupId === "automatic" ? <LoaderCircle className="spin" size={13} /> : <Check size={13} />}保存策略</button>
           </div>
           <footer>
             <small>下次执行：{automatic.enabled && automatic.nextRunAt ? formatAccountTime(automatic.nextRunAt) : "未计划"}</small>
             <small>最近完成：{automatic.lastCompletedAt ? formatAccountTime(automatic.lastCompletedAt) : "暂无"}</small>
-            {automatic.encryptAutomatic && !automatic.encryptionPasswordConfigured && <small className="backup-risk">自动加密需要在服务器设置 KALENDER_BACKUP_PASSWORD。</small>}
-            {!automatic.encryptAutomatic && <small>未启用加密时，自动备份不需要备份密码。</small>}
+            <small className="backup-risk">自动备份不需要密码，但包含外部账户连接凭据，请严格限制备份目录访问权限。</small>
           </footer>
         </div>
       )}

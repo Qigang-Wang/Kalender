@@ -3,8 +3,6 @@ name: dayline
 # 部署前只需修改这里。此文件包含明文密码，填写后不要提交到公开仓库。
 x-dayline-settings:
   database-password: &database-password "CHANGE_ME_DATABASE_PASSWORD"
-  master-key: &master-key "CHANGE_ME_BASE64_MASTER_KEY"
-  backup-password: &backup-password "CHANGE_ME_BACKUP_PASSWORD"
   backup-directory: &backup-directory "/vol1/docker/dayline/backups"
   timezone: &timezone "Europe/Berlin"
 
@@ -26,8 +24,6 @@ services:
       PGPASSWORD: *database-password
       KALENDER_DATA_DIR: /app/.data
       KALENDER_BACKUP_DIR: /app/.backups
-      KALENDER_MASTER_KEY: *master-key
-      KALENDER_BACKUP_PASSWORD: *backup-password
       KALENDER_BACKUP_MAX_BYTES: "536870912"
       KALENDER_SYNC_INTERVAL_MS: "180000"
       KALENDER_CALENDAR_SYNC_INTERVAL_MS: "180000"

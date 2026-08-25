@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { access, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline as pipelineCallback, Readable } from "node:stream";
@@ -241,7 +241,7 @@ export async function getAutomaticBackupSettings(databaseInput?: DatabaseExecuto
       intervalHours: 24,
       retentionCount: 3,
       encryptAutomatic: false,
-      encryptionPasswordConfigured: Boolean(process.env.KALENDER_BACKUP_PASSWORD),
+      encryptionPasswordConfigured: false,
     };
   }
   return mapAutomaticBackupSettings(row);
@@ -254,9 +254,6 @@ export async function saveAutomaticBackupSettings(actor: AppUser, input: {
   readonly encryptAutomatic: boolean;
 }): Promise<AutomaticBackupSettings> {
   if (actor.role !== "admin") throw new BackupError("需要管理员权限", 403);
-  if (input.enabled && input.encryptAutomatic && !process.env.KALENDER_BACKUP_PASSWORD) {
-    throw new BackupError("自动加密备份需要先配置 KALENDER_BACKUP_PASSWORD", 400);
-  }
   const intervalHours = clampInteger(input.intervalHours, 1, 720);
   const retentionCount = clampInteger(input.retentionCount, 1, 365);
   const database = await getDatabase();
@@ -278,7 +275,7 @@ export async function saveAutomaticBackupSettings(actor: AppUser, input: {
        updated_at = now()
      RETURNING enabled, interval_hours, retention_count, encrypt_automatic,
                next_run_at, last_enqueued_at, last_completed_at, updated_at`,
-    [input.enabled, intervalHours, retentionCount, input.encryptAutomatic, actor.id],
+    [input.enabled, intervalHours, retentionCount, false, actor.id],
   );
   return mapAutomaticBackupSettings(result.rows[0]!);
 }
@@ -452,7 +449,7 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
   const encrypted = job.payload.encrypted === true;
   const automatic = job.payload.automatic === true;
   const mailPolicy = normalizeBackupMailPolicy(typeof job.payload.mailPolicy === "string" ? job.payload.mailPolicy : undefined);
-  const password = consumeJobSecret(job.id) ?? (automatic ? process.env.KALENDER_BACKUP_PASSWORD : undefined);
+  const password = consumeJobSecret(job.id);
   if (encrypted && !password) throw new BackupError("加密备份缺少密码");
   const tools = await readBackupToolStatus();
   if (!tools.pgDump) throw new BackupError("服务器缺少 pg_dump，请安装 PostgreSQL client", 501);
@@ -484,18 +481,15 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
     }
     await updateJobProgress(job.id, 55);
 
-    let portableCredentialCount = 0;
-    if (encrypted) {
-      await appendJobLog(job.id, "正在生成可迁移连接凭据");
-      const portableCredentials = await exportPortableCredentialBundle(database);
-      portableCredentialCount = portableCredentials.entries.length;
-      await writeFile(portableCredentialsPath, JSON.stringify(portableCredentials), { mode: 0o600 });
-    }
+    await appendJobLog(job.id, "正在生成可迁移连接凭据");
+    const portableCredentials = await exportPortableCredentialBundle(database);
+    const portableCredentialCount = portableCredentials.entries.length;
+    await writeFile(portableCredentialsPath, JSON.stringify(portableCredentials), { mode: 0o600 });
 
     const [databaseBytes, attachmentSize] = await Promise.all([stat(databaseDump), stat(attachments)]);
     const manifest = {
       format: "qgwbackup",
-      schemaVersion: 2,
+      schemaVersion: 3,
       createdAt: startedAt,
       app: "Dayline",
       automatic,
@@ -508,9 +502,9 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
         included: mailPolicy === "full-archive",
       },
       encrypted,
-      portableCredentials: encrypted,
+      portableCredentials: true,
       portableCredentialCount,
-      requiresOriginalMasterKey: !encrypted,
+      requiresOriginalMasterKey: false,
       counts,
     };
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
@@ -518,16 +512,16 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
       `${await sha256File(databaseDump)}  database.dump`,
       `${await sha256File(attachments)}  mail-draft-attachments.tgz`,
       `${await sha256File(manifestPath)}  manifest.json`,
-      ...(encrypted ? [`${await sha256File(portableCredentialsPath)}  ${PORTABLE_CREDENTIALS_FILENAME}`] : []),
+      `${await sha256File(portableCredentialsPath)}  ${PORTABLE_CREDENTIALS_FILENAME}`,
     ].join("\n");
     await writeFile(sumsPath, `${hashes}\n`, { mode: 0o600 });
     await updateJobProgress(job.id, 72);
 
     const baseName = `dayline-${new Date().toISOString().replace(/[:.]/g, "-")}.backup`;
     const plainPackage = encrypted ? path.join(workDir, baseName) : path.join(backupDirectory(), baseName);
-    const packageFiles = ["database.dump", "mail-draft-attachments.tgz", "manifest.json", "SHA256SUMS"];
-    if (encrypted) packageFiles.push(PORTABLE_CREDENTIALS_FILENAME);
+    const packageFiles = ["database.dump", "mail-draft-attachments.tgz", "manifest.json", "SHA256SUMS", PORTABLE_CREDENTIALS_FILENAME];
     await runCommand("tar", ["-C", workDir, "-czf", plainPackage, ...packageFiles]);
+    await chmod(plainPackage, 0o600);
     const finalPath = encrypted ? path.join(backupDirectory(), `${baseName}.enc`) : plainPackage;
     const finalName = encrypted ? `${baseName}.enc` : baseName;
     if (encrypted) {
@@ -573,23 +567,11 @@ export async function scheduleDueAutomaticBackup(): Promise<AppJob | undefined> 
         AND (next_run_at IS NULL OR next_run_at <= now())
       LIMIT 1`,
   );
-  const due = dueResult.rows[0];
-  if (!due) return undefined;
-  if (due.encrypt_automatic && !process.env.KALENDER_BACKUP_PASSWORD) {
-    const deferred = await database.query(
-      `UPDATE backup_settings
-          SET next_run_at = now() + (interval_hours || ' hours')::interval,
-              updated_at = now()
-        WHERE id = 'workspace'
-          AND enabled = true
-          AND (next_run_at IS NULL OR next_run_at <= now())`,
-    );
-    if (deferred.affectedRows) await appendSyntheticMaintenanceJob("自动加密备份需要配置 KALENDER_BACKUP_PASSWORD；未加密自动备份不需要密码");
-    return undefined;
-  }
+  if (!dueResult.rows[0]) return undefined;
   const result = await database.query<AutomaticBackupSettingsRow>(
     `UPDATE backup_settings
         SET last_enqueued_at = now(),
+            encrypt_automatic = false,
             next_run_at = now() + (interval_hours || ' hours')::interval,
             updated_at = now()
       WHERE id = 'workspace'
@@ -600,20 +582,14 @@ export async function scheduleDueAutomaticBackup(): Promise<AppJob | undefined> 
   );
   const row = result.rows[0];
   if (!row) return undefined;
-  const encrypted = Boolean(row.encrypt_automatic);
-  if (encrypted && !process.env.KALENDER_BACKUP_PASSWORD) {
-    await appendSyntheticMaintenanceJob("自动加密备份需要配置 KALENDER_BACKUP_PASSWORD；未加密自动备份不需要密码");
-    return undefined;
-  }
   const job = await enqueueJob({
     kind: "backup.create",
-    title: encrypted ? "自动创建加密工作区备份" : "自动创建工作区备份",
-    payload: { encrypted, automatic: true },
+    title: "自动创建工作区备份",
+    payload: { encrypted: false, automatic: true },
     idempotencyKey: `backup.auto:${new Date().toISOString().slice(0, 13)}`,
     maxAttempts: 2,
-    deferStart: encrypted,
+    deferStart: false,
   });
-  if (encrypted && process.env.KALENDER_BACKUP_PASSWORD) setJobSecret(job.id, process.env.KALENDER_BACKUP_PASSWORD);
   return job;
 }
 
@@ -657,15 +633,14 @@ export async function runBackupRestoreJob(job: AppJob): Promise<Readonly<Record<
     const database = await getDatabase();
     const portableCredentialsFile = path.join(workDir, PORTABLE_CREDENTIALS_FILENAME);
     if (await pathExists(portableCredentialsFile)) {
-      if (!artifact.encrypted) throw new BackupError("可迁移凭据只允许存在于加密备份中", 400);
-      await appendJobLog(job.id, "正在使用当前服务器主密钥重新加密连接凭据");
+      await appendJobLog(job.id, "正在使用当前服务器本地密钥重新加密连接凭据");
       const portableCredentials = parsePortableCredentialBundle(
         JSON.parse(await readFile(portableCredentialsFile, "utf8")) as unknown,
       );
       const restoredCredentialCount = await restorePortableCredentialBundle(database, portableCredentials);
       await appendJobLog(job.id, `已迁移 ${restoredCredentialCount} 项连接凭据`);
     } else {
-      await appendJobLog(job.id, "该备份不含可迁移凭据；账户连接可能仍需要原主密钥或重新输入密码");
+      await appendJobLog(job.id, "该旧版备份不含可迁移凭据；账户连接可能需要重新输入密码");
     }
     await database.query("UPDATE backup_artifacts SET restored_at = now() WHERE id = $1", [artifact.id]).catch(() => undefined);
     await appendJobLog(job.id, "恢复完成");
@@ -878,7 +853,7 @@ function buildBackupStrategy(root: string, tools: BackupToolStatus, mailCache: B
     {
       id: "master-key",
       label: "可迁移连接凭据",
-      description: "加密备份会使用备份密码保护邮箱、日历和 AI 凭据；恢复时不需要原服务器主密钥。",
+      description: "包含邮箱、日历和 AI 凭据；目标服务器恢复时会使用自己的本地密钥重新加密。",
       included: true,
     },
   ];
@@ -904,8 +879,8 @@ function buildBackupStrategy(root: string, tools: BackupToolStatus, mailCache: B
     {
       id: "master-key",
       label: "可迁移连接凭据",
-      description: "仅加密备份可以安全迁移连接凭据。",
-      included: false,
+      description: "包含账户连接凭据；免密码备份文件本身必须按密码级别保管。",
+      included: true,
     },
   ];
   const fullArchiveCoverage: readonly BackupCoverageItem[] = [
@@ -1019,8 +994,8 @@ function buildBackupStrategy(root: string, tools: BackupToolStatus, mailCache: B
     ],
     warnings: [
       "不要把完整 DATABASE_URL 或数据库密码写进备份包。",
-      "加密备份可使用备份密码迁移邮箱、日历和 AI 凭据，不需要原服务器的 KALENDER_MASTER_KEY。",
-      "未加密备份不包含可迁移凭据；跨服务器恢复后需要原主密钥或重新配置连接。",
+      "备份包含可迁移的邮箱、日历和 AI 凭据；未加密备份文件必须像密码一样保管。",
+      "跨服务器恢复后，连接凭据会自动使用目标服务器的本地密钥重新加密。",
       "默认邮件策略不会主动抓取远端邮箱的所有历史附件，恢复后需要重新同步邮箱。",
       "恢复前应停止应用写入和邮件同步，避免恢复过程中产生新数据。",
     ],
@@ -1094,8 +1069,8 @@ function mapAutomaticBackupSettings(row: AutomaticBackupSettingsRow): AutomaticB
     enabled: Boolean(row.enabled),
     intervalHours: Number(row.interval_hours),
     retentionCount: Number(row.retention_count),
-    encryptAutomatic: Boolean(row.encrypt_automatic),
-    encryptionPasswordConfigured: Boolean(process.env.KALENDER_BACKUP_PASSWORD),
+    encryptAutomatic: false,
+    encryptionPasswordConfigured: false,
     nextRunAt: row.next_run_at ?? undefined,
     lastEnqueuedAt: row.last_enqueued_at ?? undefined,
     lastCompletedAt: row.last_completed_at ?? undefined,

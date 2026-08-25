@@ -6,22 +6,9 @@ for local machines, NAS devices, or trusted private networks.
 Do not expose this version directly to the public internet until authentication, CSRF, CSP,
 and other production hardening are in place.
 
-## 1. Create A Master Key
+## 1. Create A Database Password
 
-`KALENDER_MASTER_KEY` must be stable across container rebuilds because it encrypts saved
-mail, calendar, and AI credentials.
-
-```bash
-openssl rand -base64 32
-```
-
-Put the generated value in a local `.env` file next to `docker-compose.yml`:
-
-```env
-KALENDER_MASTER_KEY=replace-with-the-generated-value
-```
-
-Also set a stable PostgreSQL password:
+Set a stable PostgreSQL password:
 
 Use a hex value so the password can be safely embedded in `DATABASE_URL` without URL encoding:
 
@@ -61,8 +48,10 @@ Compose uses three persistent volumes:
 For local development and tests, Compose exposes PostgreSQL on `127.0.0.1:5432`.
 
 Backups created from the app use PostgreSQL native `pg_dump` plus a tarball of draft
-attachments. Keep `KALENDER_MASTER_KEY` outside the backup file; encrypted credentials cannot
-be recovered without the same key.
+attachments. The application automatically keeps its local credential-encryption key in
+`/app/.data`, so the `kalender-data` volume must remain persistent. Encrypted backups package
+portable credentials protected by the backup password.
 
-Automatic encrypted backups require `KALENDER_BACKUP_PASSWORD` in the server environment.
-This password is read only when the background job runs and is not stored in the database.
+Automatic backups do not require a password and include portable mail, calendar, and AI
+credentials. Treat every unencrypted backup file as a secret and restrict access to the backup
+directory. Manual password encryption remains available from the settings page.

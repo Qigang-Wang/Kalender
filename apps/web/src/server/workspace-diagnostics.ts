@@ -36,7 +36,6 @@ export interface WorkspaceOperationsDiagnostic {
     readonly configured: boolean;
   };
   readonly environment: {
-    readonly backupPasswordConfigured: boolean;
     readonly healthcheckTokenConfigured: boolean;
     readonly aiAutoExecutionEnabled: boolean;
   };
@@ -192,7 +191,6 @@ export async function getWorkspaceOperationsDiagnostic(actor: AppUser): Promise<
       configured: Boolean(process.env.KALENDER_MASTER_KEY),
     },
     environment: {
-      backupPasswordConfigured: Boolean(process.env.KALENDER_BACKUP_PASSWORD),
       healthcheckTokenConfigured: Boolean(process.env.KALENDER_HEALTHCHECK_TOKEN),
       aiAutoExecutionEnabled: process.env.KALENDER_AI_AUTO_EXECUTION === "true",
     },

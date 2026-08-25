@@ -10,39 +10,31 @@
 
 ## 最简单的部署方法
 
-### 1. 生成三个密码
+### 1. 生成数据库密码
 
 需要：
 
 | YAML 字段 | 是否必填 | 用途 |
 |---|---|---|
 | `database-password` | 必填 | PostgreSQL 数据库密码 |
-| `master-key` | 必填 | 加密邮箱、日历和 AI 凭据 |
-| `backup-password` | 必填 | 手动和自动加密备份 |
 | `backup-directory` | 必填 | 飞牛上保存 `.backup` 文件的绝对路径 |
 
 可以在任意装有 OpenSSL 的电脑上生成：
 
 ```bash
 openssl rand -hex 24
-openssl rand -base64 32
-openssl rand -hex 24
 ```
 
-三行结果依次对应上面的三个变量。
-
-`master-key` 必须长期保存。更换或丢失后，应用无法解密已经保存的账户
-凭据。建议将它保存在密码管理器中。
+该结果作为数据库密码。连接凭据的本地加密密钥由应用自动管理，
+保存在持久化的 `kalender-data` 数据卷中。
 
 ### 2. 修改 YAML 顶部
 
-打开 `dayline-compose.fnos.yml`，只替换文件顶部的三个 `CHANGE_ME` 值：
+打开 `dayline-compose.fnos.yml`，只替换文件顶部的一个 `CHANGE_ME` 值：
 
 ```yaml
 x-dayline-settings:
   database-password: &database-password "第一行生成的数据库密码"
-  master-key: &master-key "第二行生成的Base64主密钥"
-  backup-password: &backup-password "第三行生成的备份密码"
   backup-directory: &backup-directory "/vol1/docker/dayline/backups"
   timezone: &timezone "Europe/Berlin"
 ```
@@ -64,7 +56,7 @@ chown -R 1001:1001 /vol1/docker/dayline/backups
 
 1. 打开飞牛 Docker 管理界面。
 2. 新建 Compose 项目，项目名填写 `dayline`。
-3. 将已经填写三个密码的 `dayline-compose.fnos.yml` 完整粘贴进去。
+3. 将已经填写数据库密码的 `dayline-compose.fnos.yml` 完整粘贴进去。
 4. 点击“构建并启动”。
 5. 等待 `postgres` 变为健康，`dayline` 变为运行中。
 6. 打开 `http://飞牛局域网IP:8812`。
@@ -217,13 +209,14 @@ docker volume ls | grep kalender
 重大更新前：
 
 1. 打开“设置 > 备份”。
-2. 创建加密备份。
+2. 创建免密码备份。
 3. 等待后台任务完成。
 4. 下载备份文件到另一台设备。
-5. 单独保存 `KALENDER_MASTER_KEY` 和备份密码。
+5. 确保 `kalender-data` 数据卷不会在普通更新时被删除。
 
 飞牛上的备份目录不能作为唯一备份，因为它通常仍与数据库位于同一台设备上。建议
-再同步到另一块磁盘、另一台 NAS 或其他可信存储。
+再同步到另一块磁盘、另一台 NAS 或其他可信存储。免密码备份包含邮箱、日历和 AI
+连接凭据，任何能读取备份文件的人都可能取得这些账号权限，因此必须严格限制目录权限。
 
 ## 固定版本
 
