@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { AuthError, getCurrentAppUser } from "@/server/auth";
-import { BackupError, createBackupJob, getWorkspaceBackupStatus, saveAutomaticBackupSettings } from "@/server/backup-service";
+import { BackupError, createBackupJob, createImmediateAutomaticBackupJob, getWorkspaceBackupStatus, saveAutomaticBackupSettings } from "@/server/backup-service";
 
 export const runtime = "nodejs";
 
@@ -9,7 +9,7 @@ export async function GET() {
   try {
     return NextResponse.json({ ok: true, status: await getWorkspaceBackupStatus() });
   } catch (error) {
-    return backupErrorResponse(error);
+    return backupErrorResponse(error, "read-status");
   }
 }
 
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ ok: true, job }, { status: 202 });
   } catch (error) {
-    return backupErrorResponse(error);
+    return backupErrorResponse(error, "create");
   }
 }
 
@@ -49,13 +49,22 @@ export async function PUT(request: Request) {
       retentionCount: Number(body?.retentionCount ?? 3),
       encryptAutomatic: body?.encryptAutomatic === true,
     });
-    return NextResponse.json({ ok: true, settings });
+    const job = settings.enabled ? await createImmediateAutomaticBackupJob(actor) : undefined;
+    return NextResponse.json({ ok: true, settings, job });
   } catch (error) {
-    return backupErrorResponse(error);
+    return backupErrorResponse(error, "save-automatic-settings");
   }
 }
 
-function backupErrorResponse(error: unknown) {
-  const normalized = error instanceof BackupError || error instanceof AuthError ? error : new BackupError("备份操作失败", 500);
+function backupErrorResponse(error: unknown, operation: "read-status" | "create" | "save-automatic-settings") {
+  if (!(error instanceof BackupError) && !(error instanceof AuthError)) {
+    console.error(`[Backup API] ${operation} failed`, error);
+  }
+  const fallbackMessage = operation === "read-status"
+    ? "无法读取备份状态"
+    : operation === "create"
+      ? "无法创建备份任务"
+      : "无法保存自动备份设置";
+  const normalized = error instanceof BackupError || error instanceof AuthError ? error : new BackupError(fallbackMessage, 500);
   return NextResponse.json({ ok: false, message: normalized.message }, { status: normalized.status });
 }

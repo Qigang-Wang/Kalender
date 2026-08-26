@@ -274,7 +274,7 @@ export async function saveAutomaticBackupSettings(actor: AppUser, input: {
   const result = await database.query<AutomaticBackupSettingsRow>(
     `INSERT INTO backup_settings (
        id, enabled, interval_hours, retention_count, encrypt_automatic, next_run_at, updated_by_user_id, updated_at
-     ) VALUES ('workspace', $1, $2, $3, $4, now() + ($2 || ' hours')::interval, $5, now())
+     ) VALUES ('workspace', $1, $2, $3, $4, now() + make_interval(hours => $2::integer), $5, now())
      ON CONFLICT (id) DO UPDATE SET
        enabled = EXCLUDED.enabled,
        interval_hours = EXCLUDED.interval_hours,
@@ -292,6 +292,26 @@ export async function saveAutomaticBackupSettings(actor: AppUser, input: {
     [input.enabled, intervalHours, retentionCount, false, actor.id],
   );
   return mapAutomaticBackupSettings(result.rows[0]!);
+}
+
+export async function createImmediateAutomaticBackupJob(actor: AppUser): Promise<AppJob> {
+  if (actor.role !== "admin") throw new BackupError("需要管理员权限", 403);
+  const database = await getDatabase();
+  const enabled = await database.query<{ readonly enabled: boolean }>(
+    `UPDATE backup_settings
+        SET last_enqueued_at = now(), updated_at = now()
+      WHERE id = 'workspace' AND enabled = true
+      RETURNING enabled`,
+  );
+  if (!enabled.rows[0]) throw new BackupError("请先启用自动备份");
+  return enqueueJob({
+    kind: "backup.create",
+    actor,
+    title: "立即验证自动备份",
+    payload: { encrypted: false, automatic: true, mailPolicy: "lightweight" },
+    maxAttempts: 2,
+    deferStart: false,
+  });
 }
 
 export async function exportWorkspaceBackup(): Promise<WorkspaceBackupResult> {

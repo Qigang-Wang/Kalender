@@ -4180,6 +4180,34 @@ function BackupSettings() {
     () => loadStatus({ preserveAutomaticDraft: true, silent: true }),
     [loadStatus],
   );
+  const monitorBackupJob = useCallback(async (jobId: string) => {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      try {
+        const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { cache: "no-store" });
+        const payload = await response.json() as { readonly ok?: boolean; readonly job?: AppJobPayload };
+        if (!response.ok || !payload.ok || !payload.job) continue;
+        if (payload.job.status === "succeeded") {
+          setActiveBackupJobId(undefined);
+          setFeedback({ kind: "success", message: "备份创建完成，历史记录已更新" });
+          await refreshBackupStatus();
+          return;
+        }
+        if (payload.job.status === "failed" || payload.job.status === "cancelled") {
+          setActiveBackupJobId(undefined);
+          setFeedback({
+            kind: "error",
+            message: payload.job.errorMessage
+              ?? (payload.job.status === "failed" ? "备份创建失败，请在任务中心查看日志" : "备份任务已取消"),
+          });
+          await refreshBackupStatus();
+          return;
+        }
+      } catch {
+        // Realtime updates remain the primary path; polling covers fast jobs and dropped events.
+      }
+    }
+  }, [refreshBackupStatus]);
   useRealtimeRefresh(["backup"], refreshBackupStatus, 100);
   useVisiblePageRefresh(refreshBackupStatus, 60_000);
   useRealtimeEvent(["job"], (event) => {
@@ -4200,6 +4228,7 @@ function BackupSettings() {
       setFeedback({ kind: "error", message: "加密备份密码至少需要 8 个字符" });
       return;
     }
+    const existingArtifactIds = new Set((status?.artifacts ?? []).map((artifact) => artifact.id));
     setBusyBackupId("create");
     try {
       const response = await fetch("/api/backups", {
@@ -4215,7 +4244,23 @@ function BackupSettings() {
       if (!response.ok || !payload.ok || !payload.job) throw new Error(payload.message || "无法创建备份任务");
       setActiveBackupJobId(payload.job.id);
       setFeedback({ kind: "info", message: "正在创建备份，完成后会自动更新历史" });
+      void monitorBackupJob(payload.job.id);
     } catch (error) {
+      // A reverse proxy can drop the response after the server has already queued
+      // and completed the job. Refresh once before reporting a false failure.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      try {
+        const response = await fetch("/api/backups", { cache: "no-store" });
+        const payload = await response.json() as { readonly ok?: boolean; readonly status?: BackupStatusPayload };
+        const createdArtifact = (payload.status?.artifacts ?? []).find((artifact) => !existingArtifactIds.has(artifact.id));
+        if (response.ok && payload.ok && payload.status && createdArtifact) {
+          setStatus(payload.status);
+          setFeedback({ kind: "success", message: "备份创建完成，历史记录已更新" });
+          return;
+        }
+      } catch {
+        // Preserve the original request error below when status recovery also fails.
+      }
       setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法创建备份任务" });
     } finally {
       setBusyBackupId(undefined);
@@ -4306,11 +4351,22 @@ function BackupSettings() {
           encryptAutomatic: draft.encryptAutomatic,
         }),
       });
-      const payload = await response.json() as { readonly ok?: boolean; readonly settings?: AutomaticBackupPayload; readonly message?: string };
+      const payload = await response.json() as {
+        readonly ok?: boolean;
+        readonly settings?: AutomaticBackupPayload;
+        readonly job?: Pick<AppJobPayload, "id">;
+        readonly message?: string;
+      };
       if (!response.ok || !payload.ok || !payload.settings) throw new Error(payload.message || "无法保存自动备份设置");
       setAutomaticDraft(payload.settings);
       setStatus((current) => current ? { ...current, automatic: payload.settings! } : current);
-      setFeedback({ kind: "success", message: "自动备份设置已保存" });
+      if (payload.job) {
+        setActiveBackupJobId(payload.job.id);
+        setFeedback({ kind: "info", message: "策略已保存，正在立即验证自动备份" });
+        void monitorBackupJob(payload.job.id);
+      } else {
+        setFeedback({ kind: "success", message: "自动备份设置已保存" });
+      }
     } catch (error) {
       setFeedback({ kind: "error", message: error instanceof Error ? error.message : "无法保存自动备份设置" });
     } finally {

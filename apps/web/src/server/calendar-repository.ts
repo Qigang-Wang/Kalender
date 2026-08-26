@@ -625,7 +625,7 @@ async function ensureLocalCalendarForUser(userId: string): Promise<void> {
        id, user_id, provider_id, provider_calendar_id, name, color,
        read_only, is_primary, time_zone
      ) VALUES ($1, $2, 'local-calendar', 'personal', '个人日历', '#86bdf5', false, true, 'Europe/Berlin')
-     ON CONFLICT (id) DO NOTHING`,
+     ON CONFLICT (user_id, provider_id, provider_calendar_id) WHERE user_id IS NOT NULL DO NOTHING`,
     [`local:${userId}:personal`, userId],
   );
 }
