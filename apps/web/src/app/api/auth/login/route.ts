@@ -5,7 +5,7 @@ import { AuthError, authenticateAppUser, setAuthCookie } from "@/server/auth";
 export const runtime = "nodejs";
 
 interface LoginBody {
-  readonly email?: unknown;
+  readonly username?: unknown;
   readonly password?: unknown;
   readonly remember?: unknown;
 }
@@ -13,7 +13,7 @@ interface LoginBody {
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null) as LoginBody | null;
-    const user = await authenticateAppUser(stringValue(body?.email), stringValue(body?.password), {
+    const user = await authenticateAppUser(stringValue(body?.username), stringValue(body?.password), {
       ipAddress: clientIp(request),
       userAgent: request.headers.get("user-agent") ?? undefined,
     });

@@ -465,8 +465,8 @@ async function logout() {
   window.location.assign("/login");
 }
 
-function userInitialFor(displayName: string, email: string): string {
-  const source = displayName.trim() || email.trim();
+function userInitialFor(displayName: string, username: string): string {
+  const source = displayName.trim() || username.trim();
   return source.slice(0, 1).toUpperCase() || "U";
 }
 
@@ -475,6 +475,7 @@ interface WorkspaceAppProps {
   readonly currentUser: {
     readonly id: string;
     readonly displayName: string;
+    readonly username: string;
     readonly email: string;
     readonly role: AppRole;
   };
@@ -563,7 +564,7 @@ function WorkspaceAppContent({
   const visibleSettingItems = visibleSettingsNavigation(currentUser.role, desktopAvailable);
   const sidebarUnreadCount = sidebarMailAccounts?.reduce((total, account) => total + account.unreadCount, 0)
     ?? sidebarMailUnreadCount;
-  const userInitial = userInitialFor(currentUser.displayName, currentUser.email);
+  const userInitial = userInitialFor(currentUser.displayName, currentUser.username);
   const assistantAvailable = section === "inbox" || section === "calendar" || section === "tasks";
 
   useEffect(() => {
@@ -2633,6 +2634,7 @@ function PageContent({
   readonly currentUser: {
     readonly id: string;
     readonly displayName: string;
+    readonly username: string;
     readonly email: string;
     readonly role: AppRole;
   };
@@ -2667,6 +2669,7 @@ function PageContent({
 type WorkspaceUser = {
   readonly id: string;
   readonly displayName: string;
+  readonly username: string;
   readonly email: string;
   readonly role: AppRole;
 };
@@ -3567,7 +3570,7 @@ function ProfileSettings({ currentUser }: { readonly currentUser: WorkspaceUser 
       </div>
       <div className="account-form profile-form">
         <label><span>昵称</span><input value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoComplete="name" /></label>
-        <label><span>登录邮箱</span><input value={currentUser.email} disabled /></label>
+        <label><span>登录用户名</span><input value={currentUser.username} disabled /></label>
         <label><span>当前密码</span><input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" placeholder="修改密码时必填" /></label>
         <label><span>新密码</span><input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" placeholder="至少 8 个字符" /></label>
         <label><span>确认新密码</span><input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" /></label>
@@ -3590,9 +3593,9 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string>();
   const [feedback, setFeedback] = useState<{ readonly kind: "success" | "error"; readonly message: string }>();
-  const [draft, setDraft] = useState({ displayName: "", email: "", password: "", role: "user" as AppRole, mustChangePassword: true });
+  const [draft, setDraft] = useState({ displayName: "", username: "", email: "", password: "", role: "user" as AppRole, mustChangePassword: true });
   const [inviteDraft, setInviteDraft] = useState({ displayName: "", email: "", role: "user" as AppRole });
-  const [editing, setEditing] = useState<Record<string, { displayName: string; email: string; role: AppRole; password: string; mustChangePassword: boolean }>>({});
+  const [editing, setEditing] = useState<Record<string, { displayName: string; username: string; email: string; role: AppRole; password: string; mustChangePassword: boolean }>>({});
   const inviteSenderInitialized = useRef(false);
 
   const loadUsers = useCallback(async () => {
@@ -3637,7 +3640,7 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
       });
       const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
       if (!response.ok) throw new Error(payload?.message || "无法创建用户");
-      setDraft({ displayName: "", email: "", password: "", role: "user", mustChangePassword: true });
+      setDraft({ displayName: "", username: "", email: "", password: "", role: "user", mustChangePassword: true });
       await loadUsers();
       setFeedback({ kind: "success", message: "用户已创建" });
     } catch (error) {
@@ -3647,7 +3650,7 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
     }
   }
 
-  async function patchUser(user: ManagedUser, changes: Partial<{ displayName: string; email: string; role: AppRole; password: string; disabled: boolean; mustChangePassword: boolean }>) {
+  async function patchUser(user: ManagedUser, changes: Partial<{ displayName: string; username: string; email: string; role: AppRole; password: string; disabled: boolean; mustChangePassword: boolean }>) {
     setBusyId(user.id);
     setFeedback(undefined);
     try {
@@ -3660,7 +3663,7 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
       if (!response.ok) throw new Error(payload?.message || "无法更新用户");
       await loadUsers();
       setFeedback({ kind: "success", message: "用户已更新" });
-      if ("displayName" in changes || "email" in changes || "role" in changes || "password" in changes) {
+      if ("displayName" in changes || "username" in changes || "email" in changes || "role" in changes || "password" in changes) {
         setEditing((current) => {
           const next = { ...current };
           delete next[user.id];
@@ -3766,13 +3769,14 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
 
       <div className="account-form user-create-form">
         <label><span>昵称</span><input value={draft.displayName} onChange={(event) => setDraft({ ...draft, displayName: event.target.value })} /></label>
-        <label><span>邮箱</span><input type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
+        <label><span>用户名</span><input value={draft.username} onChange={(event) => setDraft({ ...draft, username: event.target.value })} autoComplete="username" /></label>
+        <label><span>联系邮箱（可选）</span><input type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
         <label><span>初始密码</span><input type="password" value={draft.password} onChange={(event) => setDraft({ ...draft, password: event.target.value })} autoComplete="new-password" /></label>
         <label><span>角色</span><AppSelect ariaLabel="用户角色" value={draft.role} onValueChange={(role) => setDraft({ ...draft, role: role as AppRole })} options={roleOptions()} /></label>
         <label className="secure-toggle"><input type="checkbox" checked={draft.mustChangePassword} onChange={(event) => setDraft({ ...draft, mustChangePassword: event.target.checked })} /><span>首次登录必须改密码</span></label>
       </div>
       <footer className="settings-actions">
-        <button className="primary-button" disabled={busyId === "create" || draft.displayName.trim().length < 2 || !draft.email.includes("@") || draft.password.length < 8} onClick={() => void createUser()}>
+        <button className="primary-button" disabled={busyId === "create" || draft.displayName.trim().length < 2 || draft.username.trim().length < 3 || (Boolean(draft.email) && !draft.email.includes("@")) || draft.password.length < 8} onClick={() => void createUser()}>
           {busyId === "create" ? <LoaderCircle className="spin" size={15} /> : <Plus size={15} />}{busyId === "create" ? "正在创建…" : "创建用户"}
         </button>
       </footer>
@@ -3830,7 +3834,7 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
               <div className="saved-account-color" />
               <div className="saved-account-main">
                 <div className="saved-account-title">
-                  <div><strong>{user.displayName}</strong><span>{user.email}</span></div>
+                  <div><strong>{user.displayName}</strong><span>@{user.username}</span></div>
                   <span className={`sync-status ${disabled ? "sync-status-paused" : "sync-status-ready"}`}>{disabled ? "已禁用" : roleLabel(user.role)}</span>
                 </div>
                 <div className="saved-account-meta">
@@ -3844,7 +3848,8 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
                 {edit && (
                   <div className="account-form user-edit-form">
                     <label><span>昵称</span><input value={edit.displayName} onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, displayName: event.target.value } })} /></label>
-                    <label><span>邮箱</span><input type="email" value={edit.email} onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, email: event.target.value } })} /></label>
+                    <label><span>用户名</span><input value={edit.username} onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, username: event.target.value } })} /></label>
+                    <label><span>联系邮箱</span><input type="email" value={edit.email} onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, email: event.target.value } })} /></label>
                     <label><span>重置密码</span><input type="password" value={edit.password} placeholder="留空则不修改" onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, password: event.target.value } })} /></label>
                     <label><span>角色</span><AppSelect ariaLabel={`${user.displayName}的角色`} value={edit.role} onValueChange={(role) => setEditing({ ...editing, [user.id]: { ...edit, role: role as AppRole } })} options={roleOptions()} /></label>
                     <label className="secure-toggle"><input type="checkbox" checked={edit.mustChangePassword} onChange={(event) => setEditing({ ...editing, [user.id]: { ...edit, mustChangePassword: event.target.checked } })} /><span>要求改密</span></label>
@@ -3852,10 +3857,10 @@ function UserManagementSettings({ currentUser }: { readonly currentUser: Workspa
                 )}
                 <div className="saved-account-actions">
                   {edit ? <>
-                    <button className="primary-button" disabled={busy || edit.displayName.trim().length < 2 || !edit.email.includes("@") || (edit.password.length > 0 && edit.password.length < 8)} onClick={() => void patchUser(user, { displayName: edit.displayName, email: edit.email, role: edit.role, password: edit.password || undefined, mustChangePassword: edit.mustChangePassword })}>{busy ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}保存</button>
+                    <button className="primary-button" disabled={busy || edit.displayName.trim().length < 2 || edit.username.trim().length < 3 || (Boolean(edit.email) && !edit.email.includes("@")) || (edit.password.length > 0 && edit.password.length < 8)} onClick={() => void patchUser(user, { displayName: edit.displayName, username: edit.username, email: edit.email, role: edit.role, password: edit.password || undefined, mustChangePassword: edit.mustChangePassword })}>{busy ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}保存</button>
                     <button className="ghost-button" disabled={busy} onClick={() => setEditing((current) => { const next = { ...current }; delete next[user.id]; return next; })}>取消</button>
                   </> : <>
-                    <button className="ghost-button" disabled={busy} onClick={() => setEditing({ ...editing, [user.id]: { displayName: user.displayName, email: user.email, role: user.role, password: "", mustChangePassword: user.mustChangePassword } })}><Pencil size={14} />编辑</button>
+                    <button className="ghost-button" disabled={busy || !user.username} onClick={() => setEditing({ ...editing, [user.id]: { displayName: user.displayName, username: user.username, email: user.email, role: user.role, password: "", mustChangePassword: user.mustChangePassword } })}><Pencil size={14} />编辑</button>
                     <button className={`ghost-button ${disabled ? "" : "danger-button"}`} disabled={busy || user.id === currentUser.id} onClick={() => void patchUser(user, { disabled: !disabled })}>
                       {busy ? <LoaderCircle className="spin" size={14} /> : disabled ? <Play size={14} /> : <Pause size={14} />}{disabled ? "启用" : "禁用"}
                     </button>
@@ -4239,7 +4244,7 @@ function BackupSettings() {
   const restoreArtifact = async (artifact: BackupArtifactPayload) => {
     if (!await appConfirm({
       title: `恢复备份“${artifact.filename}”？`,
-      description: "系统会先创建恢复前安全备份，然后替换当前数据库和附件。",
+      description: "系统会先创建恢复前安全备份，再导入数据和连接凭据；当前登录用户名和密码保持不变，导入数据归当前账号。",
       confirmLabel: "恢复备份",
       tone: "danger",
     })) return;
@@ -4395,7 +4400,7 @@ function BackupSettings() {
         <article className="backup-create-card">
           <header>
             <DatabaseBackup size={18} />
-            <div><h3>创建{selectedBackupOption ? backupPolicyLabel(selectedBackupOption.policy) : "备份"}</h3><p>保存工作区数据和草稿附件，邮件正文恢复后按需重新获取。</p></div>
+            <div><h3>创建{selectedBackupOption ? backupPolicyLabel(selectedBackupOption.policy) : "备份"}</h3><p>保存工作区数据、草稿附件以及邮箱、日历和 AI 连接凭据；不包含 Dayline 登录用户名和密码。</p></div>
           </header>
           <div className="backup-scope-summary" aria-label="备份范围">
             {compactCoverage.map((item) => {
@@ -4415,8 +4420,8 @@ function BackupSettings() {
           {!selectedPolicyAvailable && selectedBackupOption?.disabledReason && <small className="backup-risk">{selectedBackupOption.disabledReason}</small>}
           {!toolsReady && <small className="backup-risk">服务器缺少备份工具，请先完成运行环境配置。</small>}
           {encryptBackup
-            ? <small>连接凭据受备份密码保护，恢复后会使用目标服务器的本地密钥重新加密。</small>
-            : <small className="backup-risk">免密码备份包含邮箱、日历和 AI 连接凭据；任何获得文件的人都可能取得这些账号权限。</small>}
+            ? <small>外部连接凭据受备份密码保护；导入后归当前账号，并使用当前服务器的本地密钥重新加密。</small>
+            : <small className="backup-risk">免密码备份包含邮箱、日历和 AI 连接凭据，但不含 Dayline 登录凭据；任何获得文件的人都可能取得外部账号权限。</small>}
         </article>
       </div>
 

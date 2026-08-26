@@ -6,6 +6,7 @@ export const runtime = "nodejs";
 
 interface CreateUserBody {
   readonly displayName?: unknown;
+  readonly username?: unknown;
   readonly email?: unknown;
   readonly password?: unknown;
   readonly role?: unknown;
@@ -27,7 +28,8 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null) as CreateUserBody | null;
     const user = await createManagedAppUser(actor, {
       displayName: stringValue(body?.displayName),
-      email: stringValue(body?.email),
+      username: stringValue(body?.username),
+      email: optionalString(body?.email),
       password: stringValue(body?.password),
       role: roleValue(body?.role),
       mustChangePassword: body?.mustChangePassword !== false,
@@ -46,6 +48,10 @@ async function requireActor() {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 function roleValue(value: unknown): AppUserRole {

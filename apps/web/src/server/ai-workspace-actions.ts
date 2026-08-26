@@ -207,13 +207,16 @@ async function loadActor(userId: string): Promise<AppUser> {
   const result = await database.query<{
     id: string;
     display_name: string;
+    username: string;
     email: string;
     role: AppUserRole;
     session_version: number;
     must_change_password: boolean;
   }>(
-    `SELECT id, display_name, email, role, session_version, must_change_password
-       FROM app_users WHERE id = $1 AND disabled_at IS NULL LIMIT 1`,
+    `SELECT u.id, u.display_name, c.username, u.email, u.role, c.session_version, c.must_change_password
+       FROM app_users u
+       JOIN app_login_credentials c ON c.user_id = u.id
+      WHERE u.id = $1 AND u.disabled_at IS NULL LIMIT 1`,
     [userId],
   );
   const row = result.rows[0];
@@ -221,6 +224,7 @@ async function loadActor(userId: string): Promise<AppUser> {
   return {
     id: row.id,
     displayName: row.display_name,
+    username: row.username,
     email: row.email,
     role: row.role,
     sessionVersion: Number(row.session_version),

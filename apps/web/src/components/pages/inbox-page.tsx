@@ -36,6 +36,7 @@ const MAIL_MESSAGE_DRAG_TYPE = "application/x-kalender-mail-message";
 const MAIL_MESSAGE_MOVED_EVENT = "kalender:mail-message-moved";
 const MAIL_SYNCED_EVENT = "kalender:mail-synced";
 const MAIL_LIST_WIDTH_STORAGE_KEY = "kalender:mail-list-width";
+const REMOTE_IMAGE_DOMAINS_PREFERENCE_KEY = "mail.remoteImageSenderDomains";
 const MIN_MAIL_LIST_WIDTH = 240;
 const MAX_MAIL_LIST_WIDTH = 760;
 const MIN_MAIL_DETAIL_WIDTH = 320;
@@ -516,6 +517,7 @@ export function InboxPage({
   const [bodyRetry, setBodyRetry] = useState(0);
   const [bodyRefreshBusyId, setBodyRefreshBusyId] = useState<string>();
   const [remoteImagesAllowed, setRemoteImagesAllowed] = useState<ReadonlySet<string>>(() => new Set());
+  const [remoteImageDomainsAllowed, setRemoteImageDomainsAllowed] = useState<ReadonlySet<string>>(() => new Set());
   const [mailAccounts, setMailAccounts] = useState<readonly SavedMailAccount[]>([]);
   const [mailSignatures, setMailSignatures] = useState<readonly ClientMailSignature[]>([]);
   const [mailDrafts, setMailDrafts] = useState<readonly ClientMailDraft[]>([]);
@@ -569,6 +571,28 @@ export function InboxPage({
     } finally {
       setMailListWidthLoaded(true);
     }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(`/api/user-preferences?key=${encodeURIComponent(REMOTE_IMAGE_DOMAINS_PREFERENCE_KEY)}`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as {
+          readonly ok?: boolean;
+          readonly message?: string;
+          readonly preferences?: Readonly<Record<string, unknown>>;
+        };
+        if (!response.ok || !payload.ok) throw new Error(payload.message || "无法读取图片加载偏好");
+        const value = payload.preferences?.[REMOTE_IMAGE_DOMAINS_PREFERENCE_KEY];
+        const ids = value && typeof value === "object" && Array.isArray((value as { readonly ids?: unknown }).ids)
+          ? (value as { readonly ids: readonly unknown[] }).ids
+          : [];
+        if (!cancelled) setRemoteImageDomainsAllowed(new Set(ids.filter((entry): entry is string => typeof entry === "string").map((entry) => entry.toLocaleLowerCase())));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setMailNotice(error instanceof Error ? error.message : "无法读取图片加载偏好");
+      });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -1195,6 +1219,28 @@ export function InboxPage({
       setMailNotice(`${error instanceof Error ? error.message : "无法获取邮件正文"}；继续显示原本地缓存`);
     } finally {
       setBodyRefreshBusyId(undefined);
+    }
+  };
+
+  const alwaysAllowRemoteImagesForDomain = async (message: MailThreadDisplayMessage) => {
+    const domain = emailAddressDomain(message.senderAddress);
+    setRemoteImagesAllowed((current) => new Set([...current, message.id]));
+    if (!domain || remoteImageDomainsAllowed.has(domain)) return;
+    const previous = remoteImageDomainsAllowed;
+    const next = new Set([...previous, domain]);
+    setRemoteImageDomainsAllowed(next);
+    try {
+      const response = await fetch("/api/user-preferences", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: REMOTE_IMAGE_DOMAINS_PREFERENCE_KEY, value: { ids: [...next].sort() } }),
+      });
+      const payload = await response.json().catch(() => ({})) as { readonly ok?: boolean; readonly message?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "无法保存图片加载偏好");
+      setMailNotice(`以后将自动显示来自 ${domain} 的图片`);
+    } catch (error) {
+      setRemoteImageDomainsAllowed(previous);
+      setMailNotice(`${error instanceof Error ? error.message : "无法保存图片加载偏好"}；当前邮件的图片仍已显示`);
     }
   };
 
@@ -2072,8 +2118,10 @@ export function InboxPage({
             {displayedThreadMessages.map((threadMessage, index) => {
               const expanded = expandedThreadMessages.has(threadMessage.id);
               const body = bodies[threadMessage.id];
+              const senderDomain = emailAddressDomain(threadMessage.senderAddress);
+              const remoteImagesEnabled = remoteImagesAllowed.has(threadMessage.id) || Boolean(senderDomain && remoteImageDomainsAllowed.has(senderDomain));
               const html = body?.status === "ready" && body.html
-                ? remoteImagesAllowed.has(threadMessage.id) ? enableRemoteEmailImages(body.html) : body.html
+                ? remoteImagesEnabled ? enableRemoteEmailImages(body.html) : body.html
                 : undefined;
               const digitallySigned = threadMessage.attachments.some(isSmimeSignatureAttachment);
               const visibleAttachments = threadMessage.attachments.filter((attachment) => !attachment.inline && !isSmimeSignatureAttachment(attachment));
@@ -2093,13 +2141,16 @@ export function InboxPage({
                 }}>
                   <span className="thread-avatar" style={{ background: mailSenderAvatarColor(threadMessage.senderAddress, threadMessage.senderName) }}>{threadMessage.senderName.slice(0, 1).toLocaleUpperCase()}</span>
                   <span className="thread-message-summary"><strong>{threadMessage.senderName}</strong><small>{threadMessage.folderRole === "sent" ? "已发送" : `发送给 ${threadMessage.to.map((item) => item.name || item.address).join(", ") || "我"}`}</small>{!expanded && <em>{threadMessage.snippet || "正文将在展开时读取"}</em>}</span>
-                  <span className="thread-message-meta">{digitallySigned && <span className="smime-signature-badge" role="img" aria-label="数字签名邮件" title="数字签名邮件"><Award size={13} aria-hidden="true" /></span>}{threadMessage.isStarred && <Star size={12} fill="currentColor" />}{body?.status === "ready" && <button className="thread-refresh-button" aria-label="重新从服务器获取邮件正文" title="重新从服务器获取" disabled={Boolean(bodyRefreshBusyId)} onClick={(event) => { event.stopPropagation(); void refreshMessageBody(threadMessage.id); }}>{bodyRefreshBusyId === threadMessage.id ? <LoaderCircle className="spin" size={12} /> : <RefreshCw size={12} />}</button>}{body?.status === "ready" && <span className="thread-cache-state"><ShieldCheck size={12} />{body.cached ? "本地缓存" : "已安全读取并缓存"}</span>}<time>{formatMailTime(threadMessage.receivedAt)}</time><ChevronDown size={15} /></span>
+                  <span className="thread-message-meta">{digitallySigned && <span className="smime-signature-badge" role="img" aria-label="数字签名邮件" title="数字签名邮件"><Award size={13} aria-hidden="true" /></span>}{threadMessage.isStarred && <Star size={12} fill="currentColor" />}{body?.status === "ready" && body.hasBlockedRemoteImages && !remoteImagesEnabled && <RemoteImagePermissionButton
+                    domain={senderDomain}
+                    onAllowOnce={() => setRemoteImagesAllowed((current) => new Set([...current, threadMessage.id]))}
+                    onAlwaysAllow={() => void alwaysAllowRemoteImagesForDomain(threadMessage)}
+                  />}{body?.status === "ready" && <button className="thread-refresh-button" aria-label="重新从服务器获取邮件正文" title="重新从服务器获取" disabled={Boolean(bodyRefreshBusyId)} onClick={(event) => { event.stopPropagation(); void refreshMessageBody(threadMessage.id); }}>{bodyRefreshBusyId === threadMessage.id ? <LoaderCircle className="spin" size={12} /> : <RefreshCw size={12} />}</button>}{body?.status === "ready" && <span className="thread-cache-state"><ShieldCheck size={12} />{body.cached ? "本地缓存" : "已安全读取并缓存"}</span>}<time>{formatMailTime(threadMessage.receivedAt)}</time><ChevronDown size={15} /></span>
                 </div>
                 {expanded && <div className="thread-message-content">
                   {(!body || body.status === "loading") && <div className="body-status" data-testid="mail-body-loading"><LoaderCircle className="spin" size={17} />正在安全读取正文…</div>}
                   {body?.status === "error" && <div className="body-error" data-testid="mail-body-error"><p>{body.message}</p><button className="secondary-button" onClick={() => setBodyRetry((value) => value + 1)}>重试</button></div>}
                   {body?.status === "ready" && <div data-testid={index === 0 ? "mail-body-content" : undefined}>
-                    {body.hasBlockedRemoteImages && !remoteImagesAllowed.has(threadMessage.id) && <div className="body-security-bar"><button className="ghost-button show-mail-images" onClick={() => setRemoteImagesAllowed((current) => new Set([...current, threadMessage.id]))}><ImageIcon size={14} />显示图片</button></div>}
                     {html ? <div className="mail-body-html" dangerouslySetInnerHTML={{ __html: html }} /> : <div className="mail-body-text">{body.text || "（邮件正文为空）"}</div>}
                   </div>}
                   {visibleAttachments.length > 0 && <section className="incoming-attachments" aria-label="邮件附件"><header><Paperclip size={14} /><strong>附件</strong><span>{visibleAttachments.length}</span></header><div>{threadMessage.attachments.map((attachment, attachmentIndex) => attachment.inline || isSmimeSignatureAttachment(attachment) ? null : <a href={`/api/messages/${encodeURIComponent(threadMessage.id)}/attachments/${attachmentIndex}`} key={`${attachment.filename}:${attachmentIndex}`}><FileText size={16} /><span><strong>{attachment.filename}</strong><small>{attachment.contentType} · {formatFileSize(attachment.sizeBytes)}</small></span><em>下载</em></a>)}</div></section>}
@@ -2287,6 +2338,59 @@ function enableRemoteEmailImages(html: string): string {
     image.removeAttribute("data-remote-src");
   });
   return document.body.innerHTML;
+}
+
+function RemoteImagePermissionButton({
+  domain,
+  onAllowOnce,
+  onAlwaysAllow,
+}: {
+  readonly domain?: string;
+  readonly onAllowOnce: () => void;
+  readonly onAlwaysAllow: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("pointerdown", closeOnOutsideClick);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnOutsideClick);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return <div className="remote-image-permission" ref={rootRef}>
+    <button
+      className="ghost-button show-mail-images"
+      aria-haspopup="menu"
+      aria-expanded={open}
+      onClick={(event) => {
+        event.stopPropagation();
+        setOpen((current) => !current);
+      }}
+    ><ImageIcon size={14} />显示图片<ChevronDown size={13} /></button>
+    {open && <div className="remote-image-permission-menu" role="menu" aria-label="图片加载选项" onClick={(event) => event.stopPropagation()}>
+      <button role="menuitem" onClick={onAllowOnce}><ImageIcon size={15} /><strong>仅显示此邮件</strong></button>
+      {domain && <button role="menuitem" onClick={onAlwaysAllow}><ShieldCheck size={15} /><strong>始终允许此域名</strong></button>}
+    </div>}
+  </div>;
+}
+
+function emailAddressDomain(address: string): string | undefined {
+  const normalized = address.trim().toLocaleLowerCase();
+  const separator = normalized.lastIndexOf("@");
+  if (separator <= 0 || separator === normalized.length - 1) return undefined;
+  const domain = normalized.slice(separator + 1);
+  return /^[a-z0-9.-]+$/i.test(domain) ? domain : undefined;
 }
 
 function formatMailTime(value: string): string {

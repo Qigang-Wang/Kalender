@@ -1708,6 +1708,51 @@ const GERMAN_DEFAULT_CALENDAR_NAME_SQL = String.raw`
      AND name = '个人日历';
 `;
 
+const PORTABLE_USERNAME_AUTH_SCHEMA_SQL = String.raw`
+  CREATE TABLE IF NOT EXISTS app_login_credentials (
+    user_id text PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
+    username text NOT NULL,
+    password_hash text NOT NULL,
+    session_version integer NOT NULL DEFAULT 1,
+    must_change_password boolean NOT NULL DEFAULT false,
+    last_login_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  WITH username_bases AS (
+    SELECT id,
+           password_hash,
+           session_version,
+           must_change_password,
+           last_login_at,
+           COALESCE(NULLIF(regexp_replace(lower(split_part(email, '@', 1)), '[^a-z0-9._-]+', '-', 'g'), ''), 'user') AS base
+      FROM app_users
+  ), ranked AS (
+    SELECT *, row_number() OVER (PARTITION BY base ORDER BY id) AS position
+      FROM username_bases
+  )
+  INSERT INTO app_login_credentials (
+    user_id, username, password_hash, session_version, must_change_password, last_login_at
+  )
+  SELECT id,
+         CASE WHEN position = 1 THEN base ELSE base || '-' || position::text END,
+         password_hash,
+         session_version,
+         must_change_password,
+         last_login_at
+    FROM ranked
+  ON CONFLICT (user_id) DO NOTHING;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS app_login_credentials_username_unique_idx
+    ON app_login_credentials (lower(username));
+
+  ALTER TABLE app_users DROP COLUMN IF EXISTS password_hash;
+  ALTER TABLE app_users DROP COLUMN IF EXISTS session_version;
+  ALTER TABLE app_users DROP COLUMN IF EXISTS must_change_password;
+  ALTER TABLE app_users DROP COLUMN IF EXISTS last_login_at;
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1743,6 +1788,7 @@ export const DATABASE_MIGRATIONS = [
   { version: 32, name: "persistent-editor-assets", sql: EDITOR_ASSETS_SCHEMA_SQL },
   { version: 33, name: "calendar-event-reminders", sql: CALENDAR_EVENT_REMINDERS_SCHEMA_SQL },
   { version: 34, name: "german-default-calendar-name", sql: GERMAN_DEFAULT_CALENDAR_NAME_SQL },
+  { version: 35, name: "portable-username-auth", sql: PORTABLE_USERNAME_AUTH_SCHEMA_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

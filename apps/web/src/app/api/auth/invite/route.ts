@@ -7,6 +7,7 @@ export const runtime = "nodejs";
 interface InviteBody {
   readonly token?: unknown;
   readonly displayName?: unknown;
+  readonly username?: unknown;
   readonly password?: unknown;
   readonly confirmPassword?: unknown;
 }
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
     if (password !== stringValue(body?.confirmPassword)) throw new AuthError("两次输入的密码不一致", 400);
     const user = await acceptAppInvitation(stringValue(body?.token), {
       displayName: stringValue(body?.displayName),
+      username: stringValue(body?.username),
       password,
     });
     const response = NextResponse.json({ ok: true, user }, { status: 201 });

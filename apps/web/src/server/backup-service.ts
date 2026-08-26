@@ -6,7 +6,7 @@ import path from "node:path";
 import { pipeline as pipelineCallback, Readable } from "node:stream";
 import { promisify } from "node:util";
 
-import { closeDatabaseForRestore, dataRoot, getDatabase, type DatabaseExecutor } from "./database";
+import { closeDatabaseForRestore, dataRoot, getDatabase, type DatabaseExecutor, type KalenderDatabase } from "./database";
 import type { AppUser } from "./auth";
 import { appendJobLog, consumeJobSecret, enqueueJob, setJobSecret, updateJobProgress, type AppJob } from "./job-service";
 import { stopMailSyncScheduler } from "./mail-sync-scheduler";
@@ -18,6 +18,7 @@ const scrypt = promisify(scryptCallback);
 const BACKUP_ESTIMATE_CACHE_TTL_MS = 5 * 60 * 1000;
 const BACKUP_PACKAGE_OVERHEAD_BYTES = 64 * 1024;
 const PORTABLE_CREDENTIALS_FILENAME = "portable-credentials.json";
+const EXCLUDED_AUTH_TABLES = ["app_login_credentials", "app_login_attempts", "app_invitations"] as const;
 
 const PORTABLE_CREDENTIAL_STORES = [
   { id: "mail", table: "encrypted_credentials", keyColumn: "account_id" },
@@ -37,6 +38,19 @@ export interface PortableCredentialEntry {
 export interface PortableCredentialBundle {
   readonly version: 1;
   readonly entries: readonly PortableCredentialEntry[];
+}
+
+interface RestoreLoginIdentity {
+  readonly id: string;
+  readonly displayName: string;
+  readonly email: string;
+  readonly role: "admin" | "user" | "viewer";
+  readonly disabledAt: string | null;
+  readonly username: string;
+  readonly passwordHash: string;
+  readonly sessionVersion: number;
+  readonly mustChangePassword: boolean;
+  readonly lastLoginAt: string | null;
 }
 
 let lightweightEstimateCache: {
@@ -489,9 +503,11 @@ export async function runBackupCreateJob(job: AppJob): Promise<Readonly<Record<s
     const [databaseBytes, attachmentSize] = await Promise.all([stat(databaseDump), stat(attachments)]);
     const manifest = {
       format: "qgwbackup",
-      schemaVersion: 3,
+      schemaVersion: 4,
       createdAt: startedAt,
       app: "Dayline",
+      sourceUserId: job.userId ?? null,
+      applicationLoginCredentials: false,
       automatic,
       databaseBytes: databaseBytes.size,
       attachmentBytes: attachmentSize.size,
@@ -603,6 +619,9 @@ export async function runBackupRestoreJob(job: AppJob): Promise<Readonly<Record<
   if (!tools.pgRestore) throw new BackupError("服务器缺少 pg_restore，请安装 PostgreSQL client", 501);
   if (!tools.tar) throw new BackupError("服务器缺少 tar", 501);
 
+  const currentDatabase = await getDatabase();
+  const currentIdentity = await readRestoreLoginIdentity(currentDatabase, job.userId);
+
   await appendJobLog(job.id, "正在创建恢复前安全备份");
   const safety = await runBackupCreateJob({
     ...job,
@@ -621,6 +640,7 @@ export async function runBackupRestoreJob(job: AppJob): Promise<Readonly<Record<
     if (artifact.encrypted) await decryptFile(packagePath, plainPackage, password!);
     await runCommand("tar", ["-C", workDir, "-xzf", plainPackage]);
     await verifyExtractedBackup(workDir);
+    const manifest = JSON.parse(await readFile(path.join(workDir, "manifest.json"), "utf8")) as Record<string, unknown>;
     await updateJobProgress(job.id, 45);
 
     await appendJobLog(job.id, "正在关闭数据库连接并恢复 PostgreSQL");
@@ -631,6 +651,9 @@ export async function runBackupRestoreJob(job: AppJob): Promise<Readonly<Record<
     await appendJobLog(job.id, "正在恢复草稿附件");
     await runCommand("tar", ["-C", dataRoot(), "-xzf", path.join(workDir, "mail-draft-attachments.tgz")]);
     const database = await getDatabase();
+    await appendJobLog(job.id, "正在保留当前登录账号并接管导入数据");
+    const sourceUserId = typeof manifest.sourceUserId === "string" ? manifest.sourceUserId : undefined;
+    await adoptRestoredWorkspace(database, currentIdentity, sourceUserId);
     const portableCredentialsFile = path.join(workDir, PORTABLE_CREDENTIALS_FILENAME);
     if (await pathExists(portableCredentialsFile)) {
       await appendJobLog(job.id, "正在使用当前服务器本地密钥重新加密连接凭据");
@@ -648,6 +671,114 @@ export async function runBackupRestoreJob(job: AppJob): Promise<Readonly<Record<
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }
+}
+
+async function readRestoreLoginIdentity(database: DatabaseExecutor, userId: string | undefined): Promise<RestoreLoginIdentity> {
+  if (!userId) throw new BackupError("恢复任务缺少当前登录账号", 401);
+  const result = await database.query<{
+    readonly id: string;
+    readonly display_name: string;
+    readonly email: string;
+    readonly role: "admin" | "user" | "viewer";
+    readonly disabled_at: string | null;
+    readonly username: string;
+    readonly password_hash: string;
+    readonly session_version: number;
+    readonly must_change_password: boolean;
+    readonly last_login_at: string | null;
+  }>(
+    `SELECT u.id, u.display_name, u.email, u.role, u.disabled_at,
+            c.username, c.password_hash, c.session_version, c.must_change_password, c.last_login_at
+       FROM app_users u
+       JOIN app_login_credentials c ON c.user_id = u.id
+      WHERE u.id = $1
+      LIMIT 1`,
+    [userId],
+  );
+  const row = result.rows[0];
+  if (!row) throw new BackupError("无法读取当前登录账号，恢复已取消", 401);
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    email: row.email,
+    role: row.role,
+    disabledAt: row.disabled_at,
+    username: row.username,
+    passwordHash: row.password_hash,
+    sessionVersion: Number(row.session_version),
+    mustChangePassword: Boolean(row.must_change_password),
+    lastLoginAt: row.last_login_at,
+  };
+}
+
+async function adoptRestoredWorkspace(
+  database: KalenderDatabase,
+  identity: RestoreLoginIdentity,
+  requestedSourceUserId: string | undefined,
+): Promise<void> {
+  const sourceResult = requestedSourceUserId
+    ? await database.query<{ readonly id: string }>("SELECT id FROM app_users WHERE id = $1 LIMIT 1", [requestedSourceUserId])
+    : await database.query<{ readonly id: string }>(
+      "SELECT id FROM app_users ORDER BY (role = 'admin') DESC, created_at, id LIMIT 1",
+    );
+  const sourceUserId = sourceResult.rows[0]?.id;
+  if (!sourceUserId) throw new BackupError("备份中没有可接管的工作区用户", 400);
+
+  await database.transaction(async (transaction) => {
+    const targetExists = await transaction.query<{ readonly exists: boolean }>(
+      "SELECT EXISTS (SELECT 1 FROM app_users WHERE id = $1) AS exists",
+      [identity.id],
+    );
+    if (!targetExists.rows[0]?.exists) {
+      await transaction.query(
+        `INSERT INTO app_users (id, display_name, email, role, disabled_at)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [identity.id, identity.displayName, `restore-${identity.id}@users.dayline.invalid`, identity.role, identity.disabledAt],
+      );
+    }
+
+    if (sourceUserId !== identity.id) {
+      const references = await transaction.query<{ readonly table_name: string; readonly column_name: string }>(
+        `SELECT DISTINCT tc.table_name, kcu.column_name
+           FROM information_schema.table_constraints tc
+           JOIN information_schema.key_column_usage kcu
+             ON kcu.constraint_name = tc.constraint_name AND kcu.constraint_schema = tc.constraint_schema
+           JOIN information_schema.constraint_column_usage ccu
+             ON ccu.constraint_name = tc.constraint_name AND ccu.constraint_schema = tc.constraint_schema
+          WHERE tc.constraint_type = 'FOREIGN KEY'
+            AND tc.table_schema = 'public'
+            AND ccu.table_schema = 'public'
+            AND ccu.table_name = 'app_users'`,
+      );
+      for (const reference of references.rows) {
+        if (reference.table_name === "app_login_credentials") continue;
+        await transaction.query(
+          `UPDATE ${quoteIdentifier(reference.table_name)}
+              SET ${quoteIdentifier(reference.column_name)} = $1
+            WHERE ${quoteIdentifier(reference.column_name)} = $2`,
+          [identity.id, sourceUserId],
+        );
+      }
+      await transaction.query("DELETE FROM app_users WHERE id = $1", [sourceUserId]);
+    }
+
+    await transaction.query(
+      `UPDATE app_users SET display_name = $2, email = $3, role = $4, disabled_at = $5, updated_at = now()
+        WHERE id = $1`,
+      [identity.id, identity.displayName, identity.email, identity.role, identity.disabledAt],
+    );
+    await transaction.query("DELETE FROM app_login_credentials");
+    await transaction.query(
+      `INSERT INTO app_login_credentials (
+         user_id, username, password_hash, session_version, must_change_password, last_login_at
+       ) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [identity.id, identity.username, identity.passwordHash, identity.sessionVersion, identity.mustChangePassword, identity.lastLoginAt],
+    );
+  });
+}
+
+function quoteIdentifier(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
 }
 
 export async function exportPortableCredentialBundle(database: DatabaseExecutor): Promise<PortableCredentialBundle> {
@@ -829,7 +960,7 @@ function buildBackupStrategy(root: string, tools: BackupToolStatus, mailCache: B
     {
       id: "database",
       label: "PostgreSQL 数据库",
-      description: "包含用户、邮箱/日历连接、邮件索引、项目、笔记、任务、AI 配置、审计记录和同步状态。",
+      description: "包含用户资料、邮箱/日历连接、邮件索引、项目、笔记、任务、AI 配置、审计记录和同步状态；不包含 Dayline 登录凭据。",
       included: true,
     },
     {
@@ -1140,6 +1271,7 @@ export function buildDatabaseDumpArgs(
 ): readonly string[] {
   const args = ["--format=custom", "--no-owner", "--no-acl"];
   if (mailPolicy === "lightweight") args.push("--exclude-table-data=mail_message_bodies");
+  for (const table of EXCLUDED_AUTH_TABLES) args.push(`--exclude-table-data=${table}`);
   args.push(`--file=${outputPath}`, connectionString);
   return args;
 }

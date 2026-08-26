@@ -23,6 +23,7 @@ export type AppUserRole = (typeof appUserRoles)[number];
 export interface AppUser {
   readonly id: string;
   readonly displayName: string;
+  readonly username: string;
   readonly email: string;
   readonly role: AppUserRole;
   readonly sessionVersion: number;
@@ -78,6 +79,7 @@ interface AppUserRow {
   readonly id: string;
   readonly display_name: string;
   readonly email: string;
+  readonly username: string;
   readonly role: AppUserRole;
   readonly session_version: number;
   readonly must_change_password: boolean;
@@ -112,7 +114,7 @@ interface AuditEventRow {
 
 interface SessionPayload {
   readonly userId: string;
-  readonly email: string;
+  readonly username: string;
   readonly role: AppUserRole;
   readonly sessionVersion: number;
   readonly exp: number;
@@ -147,11 +149,12 @@ export async function hasAnyAppUser(database?: DatabaseExecutor): Promise<boolea
 
 export async function createInitialAdmin(input: {
   readonly displayName: string;
-  readonly email: string;
+  readonly username: string;
   readonly password: string;
 }): Promise<AppUser> {
   const displayName = normalizeDisplayName(input.displayName);
-  const email = normalizeEmail(input.email);
+  const username = normalizeUsername(input.username);
+  const email = profileEmailForUsername(username);
   validatePassword(input.password);
   const passwordHash = await hashPassword(input.password);
   const database = await getDatabase();
@@ -163,15 +166,21 @@ export async function createInitialAdmin(input: {
     const user = {
       id: randomUUID(),
       displayName,
+      username,
       email,
       role: "admin" as const,
       sessionVersion: 1,
       mustChangePassword: false,
     };
     await transaction.query(
-      `INSERT INTO app_users (id, display_name, email, password_hash, role)
-       VALUES ($1, $2, $3, $4, 'admin')`,
-      [user.id, user.displayName, user.email, passwordHash],
+      `INSERT INTO app_users (id, display_name, email, role)
+       VALUES ($1, $2, $3, 'admin')`,
+      [user.id, user.displayName, user.email],
+    );
+    await transaction.query(
+      `INSERT INTO app_login_credentials (user_id, username, password_hash)
+       VALUES ($1, $2, $3)`,
+      [user.id, user.username, passwordHash],
     );
     await assignLegacyWorkspaceData(transaction, user.id);
     return user;
@@ -179,36 +188,37 @@ export async function createInitialAdmin(input: {
 }
 
 export async function authenticateAppUser(
-  emailInput: string,
+  usernameInput: string,
   password: string,
   context: AuthRequestContext = {},
 ): Promise<AppUser> {
-  const email = normalizeEmail(emailInput);
+  const username = normalizeUsername(usernameInput);
   if (!password) throw new AuthError("请输入密码", 400);
   const database = await getDatabase();
-  await enforceLoginThrottle(database, email, context.ipAddress);
+  await enforceLoginThrottle(database, username, context.ipAddress);
   const result = await database.query<PasswordUserRow>(
-    `SELECT id, display_name, email, password_hash, role, session_version, disabled_at
-            , must_change_password
-       FROM app_users
-      WHERE lower(email) = lower($1)
+    `SELECT u.id, u.display_name, u.email, c.username, c.password_hash, u.role,
+            c.session_version, u.disabled_at, c.must_change_password
+       FROM app_users u
+       JOIN app_login_credentials c ON c.user_id = u.id
+      WHERE lower(c.username) = lower($1)
       LIMIT 1`,
-    [email],
+    [username],
   );
   const row = result.rows[0];
   if (!row || row.disabled_at) {
-    await recordLoginAttempt(database, email, false, context);
-    throw new AuthError("邮箱或密码不正确", 401);
+    await recordLoginAttempt(database, username, false, context);
+    throw new AuthError("用户名或密码不正确", 401);
   }
   if (!(await verifyPassword(password, row.password_hash))) {
-    await recordLoginAttempt(database, email, false, context);
-    throw new AuthError("邮箱或密码不正确", 401);
+    await recordLoginAttempt(database, username, false, context);
+    throw new AuthError("用户名或密码不正确", 401);
   }
   await database.query(
-    `UPDATE app_users SET last_login_at = now(), updated_at = now() WHERE id = $1`,
+    `UPDATE app_login_credentials SET last_login_at = now(), updated_at = now() WHERE user_id = $1`,
     [row.id],
   );
-  await recordLoginAttempt(database, email, true, context);
+  await recordLoginAttempt(database, username, true, context);
   await recordAuditEvent({
     actorUserId: row.id,
     targetUserId: row.id,
@@ -223,10 +233,12 @@ export async function listManagedAppUsers(actor: AppUser): Promise<readonly Mana
   requireAdmin(actor);
   const database = await getDatabase();
   const result = await database.query<ManagedAppUserRow>(
-    `SELECT id, display_name, email, role, session_version, disabled_at, last_login_at, created_at, updated_at
-            , must_change_password
-       FROM app_users
-      ORDER BY disabled_at NULLS FIRST, created_at, email`,
+    `SELECT u.id, u.display_name, u.email, COALESCE(c.username, '') AS username, u.role,
+            COALESCE(c.session_version, 0) AS session_version, u.disabled_at, c.last_login_at,
+            u.created_at, u.updated_at, COALESCE(c.must_change_password, false) AS must_change_password
+       FROM app_users u
+       LEFT JOIN app_login_credentials c ON c.user_id = u.id
+      ORDER BY u.disabled_at NULLS FIRST, u.created_at, c.username`,
   );
   return result.rows.map(rowToManagedUser);
 }
@@ -342,20 +354,33 @@ export async function getAppInvitationByToken(token: string): Promise<AppInvitat
 
 export async function acceptAppInvitation(token: string, input: {
   readonly displayName: string;
+  readonly username: string;
   readonly password: string;
 }): Promise<AppUser> {
   const invitation = await getAppInvitationByToken(token);
   if (!invitation) throw new AuthError("邀请链接无效或已过期", 404);
   const displayName = normalizeDisplayName(input.displayName || invitation.displayName || invitation.email.split("@")[0] || "新用户");
+  const username = normalizeUsername(input.username);
   validatePassword(input.password);
   const passwordHash = await hashPassword(input.password);
   const database = await getDatabase();
   return database.transaction(async (transaction) => {
+    const userId = randomUUID();
+    await transaction.query(
+      `INSERT INTO app_users (id, display_name, email, role)
+       VALUES ($1, $2, $3, $4)`,
+      [userId, displayName, invitation.email, invitation.role],
+    );
+    await transaction.query(
+      `INSERT INTO app_login_credentials (user_id, username, password_hash, must_change_password)
+       VALUES ($1, $2, $3, false)`,
+      [userId, username, passwordHash],
+    );
     const userResult = await transaction.query<AppUserRow>(
-      `INSERT INTO app_users (id, display_name, email, password_hash, role, must_change_password)
-       VALUES ($1, $2, $3, $4, $5, false)
-       RETURNING id, display_name, email, role, session_version, must_change_password`,
-      [randomUUID(), displayName, invitation.email, passwordHash, invitation.role],
+      `SELECT u.id, u.display_name, u.email, c.username, u.role, c.session_version, c.must_change_password
+         FROM app_users u JOIN app_login_credentials c ON c.user_id = u.id
+        WHERE u.id = $1`,
+      [userId],
     );
     const user = rowToUser(userResult.rows[0]!);
     await transaction.query(
@@ -373,7 +398,7 @@ export async function acceptAppInvitation(token: string, input: {
     return user;
   }).catch((error) => {
     if (error instanceof Error && /unique|duplicate/i.test(error.message)) {
-      throw new AuthError("这个邮箱已经有账号，请直接登录", 409);
+      throw new AuthError("这个用户名或邮箱已经有账号，请直接登录", 409);
     }
     throw error;
   });
@@ -381,24 +406,38 @@ export async function acceptAppInvitation(token: string, input: {
 
 export async function createManagedAppUser(actor: AppUser, input: {
   readonly displayName: string;
-  readonly email: string;
+  readonly username: string;
+  readonly email?: string;
   readonly password: string;
   readonly role?: AppUserRole;
   readonly mustChangePassword?: boolean;
 }): Promise<ManagedAppUser> {
   requireAdmin(actor);
   const displayName = normalizeDisplayName(input.displayName);
-  const email = normalizeEmail(input.email);
+  const username = normalizeUsername(input.username);
+  const email = input.email?.trim() ? normalizeEmail(input.email) : profileEmailForUsername(username);
   validatePassword(input.password);
   const role = normalizeRole(input.role);
   const passwordHash = await hashPassword(input.password);
   const database = await getDatabase();
   try {
+    const userId = randomUUID();
+    await database.transaction(async (transaction) => {
+      await transaction.query(
+        `INSERT INTO app_users (id, display_name, email, role) VALUES ($1, $2, $3, $4)`,
+        [userId, displayName, email, role],
+      );
+      await transaction.query(
+        `INSERT INTO app_login_credentials (user_id, username, password_hash, must_change_password)
+         VALUES ($1, $2, $3, $4)`,
+        [userId, username, passwordHash, input.mustChangePassword ?? true],
+      );
+    });
     const result = await database.query<ManagedAppUserRow>(
-      `INSERT INTO app_users (id, display_name, email, password_hash, role, must_change_password)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, display_name, email, role, session_version, must_change_password, disabled_at, last_login_at, created_at, updated_at`,
-      [randomUUID(), displayName, email, passwordHash, role, input.mustChangePassword ?? true],
+      `SELECT u.id, u.display_name, u.email, c.username, u.role, c.session_version, c.must_change_password,
+              u.disabled_at, c.last_login_at, u.created_at, u.updated_at
+         FROM app_users u JOIN app_login_credentials c ON c.user_id = u.id WHERE u.id = $1`,
+      [userId],
     );
     const user = rowToManagedUser(result.rows[0]!);
     await recordAuditEvent({
@@ -410,7 +449,7 @@ export async function createManagedAppUser(actor: AppUser, input: {
     return user;
   } catch (error) {
     if (error instanceof Error && /unique|duplicate/i.test(error.message)) {
-      throw new AuthError("这个邮箱已经有账号", 409);
+      throw new AuthError("这个用户名或邮箱已经有账号", 409);
     }
     throw error;
   }
@@ -418,6 +457,7 @@ export async function createManagedAppUser(actor: AppUser, input: {
 
 export async function updateManagedAppUser(actor: AppUser, userId: string, input: {
   readonly displayName?: string;
+  readonly username?: string;
   readonly email?: string;
   readonly password?: string;
   readonly role?: AppUserRole;
@@ -428,8 +468,11 @@ export async function updateManagedAppUser(actor: AppUser, userId: string, input
   if (!userId.trim()) throw new AuthError("用户不存在", 404);
   const database = await getDatabase();
   const existing = await database.query<ManagedAppUserRow>(
-      `SELECT id, display_name, email, role, session_version, must_change_password, disabled_at, last_login_at, created_at, updated_at
-       FROM app_users WHERE id = $1 LIMIT 1`,
+      `SELECT u.id, u.display_name, u.email, COALESCE(c.username, '') AS username, u.role,
+              COALESCE(c.session_version, 0) AS session_version, COALESCE(c.must_change_password, false) AS must_change_password,
+              u.disabled_at, c.last_login_at, u.created_at, u.updated_at
+         FROM app_users u LEFT JOIN app_login_credentials c ON c.user_id = u.id
+        WHERE u.id = $1 LIMIT 1`,
     [userId],
   );
   const current = existing.rows[0];
@@ -445,32 +488,41 @@ export async function updateManagedAppUser(actor: AppUser, userId: string, input
   if (input.password) validatePassword(input.password);
   const passwordHash = input.password ? await hashPassword(input.password) : undefined;
   const displayName = input.displayName === undefined ? current.display_name : normalizeDisplayName(input.displayName);
-  const email = input.email === undefined ? current.email : normalizeEmail(input.email);
+  const username = input.username === undefined ? current.username : normalizeUsername(input.username);
+  const email = input.email === undefined
+    ? current.email
+    : input.email.trim()
+      ? normalizeEmail(input.email)
+      : profileEmailForUsername(username);
   try {
-    const result = await database.query<ManagedAppUserRow>(
-      `UPDATE app_users SET
-         display_name = $2,
-         email = $3,
-         password_hash = COALESCE($4, password_hash),
-         role = $5,
+    await database.transaction(async (transaction) => {
+      await transaction.query(
+        `UPDATE app_users SET
+         display_name = $2, email = $3, role = $4,
          disabled_at = CASE
-           WHEN $6::boolean THEN COALESCE(disabled_at, now())
+           WHEN $5::boolean THEN COALESCE(disabled_at, now())
            ELSE NULL
          END,
-         session_version = CASE WHEN $4 IS NULL THEN session_version ELSE session_version + 1 END,
-         must_change_password = $7,
          updated_at = now()
-       WHERE id = $1
-       RETURNING id, display_name, email, role, session_version, must_change_password, disabled_at, last_login_at, created_at, updated_at`,
-      [
-        userId,
-        displayName,
-        email,
-        passwordHash ?? null,
-        nextRole,
-        nextDisabled,
-        input.mustChangePassword ?? (passwordHash ? true : current.must_change_password),
-      ],
+       WHERE id = $1`,
+        [userId, displayName, email, nextRole, nextDisabled],
+      );
+      await transaction.query(
+        `UPDATE app_login_credentials SET
+           username = $2,
+           password_hash = COALESCE($3, password_hash),
+           session_version = CASE WHEN $3 IS NULL THEN session_version ELSE session_version + 1 END,
+           must_change_password = $4,
+           updated_at = now()
+         WHERE user_id = $1`,
+        [userId, username, passwordHash ?? null, input.mustChangePassword ?? (passwordHash ? true : current.must_change_password)],
+      );
+    });
+    const result = await database.query<ManagedAppUserRow>(
+      `SELECT u.id, u.display_name, u.email, c.username, u.role, c.session_version, c.must_change_password,
+              u.disabled_at, c.last_login_at, u.created_at, u.updated_at
+         FROM app_users u JOIN app_login_credentials c ON c.user_id = u.id WHERE u.id = $1`,
+      [userId],
     );
     const user = rowToManagedUser(result.rows[0]!);
     await recordAuditEvent({
@@ -479,6 +531,7 @@ export async function updateManagedAppUser(actor: AppUser, userId: string, input
       action: "user.update",
       metadata: {
         displayNameChanged: displayName !== current.display_name,
+        usernameChanged: username !== current.username,
         emailChanged: email !== current.email,
         roleChanged: nextRole !== current.role,
         disabledChanged: nextDisabled !== Boolean(current.disabled_at),
@@ -489,7 +542,7 @@ export async function updateManagedAppUser(actor: AppUser, userId: string, input
     return user;
   } catch (error) {
     if (error instanceof Error && /unique|duplicate/i.test(error.message)) {
-      throw new AuthError("这个邮箱已经有账号", 409);
+      throw new AuthError("这个用户名或邮箱已经有账号", 409);
     }
     throw error;
   }
@@ -505,9 +558,11 @@ export async function deleteManagedAppUser(actor: AppUser, userId: string): Prom
     // User management changes are serialized so two concurrent requests cannot remove every active admin.
     await transaction.exec("LOCK TABLE app_users IN SHARE ROW EXCLUSIVE MODE");
     const existing = await transaction.query<ManagedAppUserRow>(
-      `SELECT id, display_name, email, role, session_version, must_change_password, disabled_at, last_login_at, created_at, updated_at
-         FROM app_users
-        WHERE id = $1
+      `SELECT u.id, u.display_name, u.email, COALESCE(c.username, '') AS username, u.role,
+              COALESCE(c.session_version, 0) AS session_version, COALESCE(c.must_change_password, false) AS must_change_password,
+              u.disabled_at, c.last_login_at, u.created_at, u.updated_at
+         FROM app_users u LEFT JOIN app_login_credentials c ON c.user_id = u.id
+        WHERE u.id = $1
         LIMIT 1`,
       [userId],
     );
@@ -548,8 +603,10 @@ export async function updateOwnProfile(actor: AppUser, input: {
 }): Promise<AppUser> {
   const database = await getDatabase();
   const result = await database.query<PasswordUserRow>(
-    `SELECT id, display_name, email, password_hash, role, session_version, must_change_password, disabled_at
-       FROM app_users WHERE id = $1 LIMIT 1`,
+    `SELECT u.id, u.display_name, u.email, c.username, c.password_hash, u.role,
+            c.session_version, c.must_change_password, u.disabled_at
+       FROM app_users u JOIN app_login_credentials c ON c.user_id = u.id
+      WHERE u.id = $1 LIMIT 1`,
     [actor.id],
   );
   const current = result.rows[0];
@@ -563,16 +620,22 @@ export async function updateOwnProfile(actor: AppUser, input: {
     validatePassword(input.newPassword);
     passwordHash = await hashPassword(input.newPassword);
   }
+  await database.transaction(async (transaction) => {
+    await transaction.query("UPDATE app_users SET display_name = $2, updated_at = now() WHERE id = $1", [actor.id, displayName]);
+    await transaction.query(
+      `UPDATE app_login_credentials SET
+         password_hash = COALESCE($2, password_hash),
+         session_version = CASE WHEN $2 IS NULL THEN session_version ELSE session_version + 1 END,
+         must_change_password = CASE WHEN $2 IS NULL THEN must_change_password ELSE false END,
+         updated_at = now()
+       WHERE user_id = $1`,
+      [actor.id, passwordHash ?? null],
+    );
+  });
   const updated = await database.query<AppUserRow>(
-    `UPDATE app_users SET
-       display_name = $2,
-       password_hash = COALESCE($3, password_hash),
-       session_version = CASE WHEN $3 IS NULL THEN session_version ELSE session_version + 1 END,
-       must_change_password = CASE WHEN $3 IS NULL THEN must_change_password ELSE false END,
-       updated_at = now()
-     WHERE id = $1
-     RETURNING id, display_name, email, role, session_version, must_change_password`,
-    [actor.id, displayName, passwordHash ?? null],
+    `SELECT u.id, u.display_name, u.email, c.username, u.role, c.session_version, c.must_change_password
+       FROM app_users u JOIN app_login_credentials c ON c.user_id = u.id WHERE u.id = $1`,
+    [actor.id],
   );
   const user = rowToUser(updated.rows[0]!);
   await recordAuditEvent({
@@ -590,9 +653,10 @@ export async function getCurrentAppUser(): Promise<AppUser | undefined> {
   if (!payload) return undefined;
   const database = await getDatabase();
   const result = await database.query<AppUserRow & { readonly disabled_at: string | null }>(
-    `SELECT id, display_name, email, role, session_version, must_change_password, disabled_at
-       FROM app_users
-      WHERE id = $1
+    `SELECT u.id, u.display_name, u.email, c.username, u.role, c.session_version, c.must_change_password, u.disabled_at
+       FROM app_users u
+       JOIN app_login_credentials c ON c.user_id = u.id
+      WHERE u.id = $1
       LIMIT 1`,
     [payload.userId],
   );
@@ -665,7 +729,7 @@ export function verifySessionToken(token: string | undefined): SessionPayload | 
 function createSessionToken(user: AppUser, ttlSeconds: number): string {
   const payload: SessionPayload = {
     userId: user.id,
-    email: user.email,
+    username: user.username,
     role: user.role,
     sessionVersion: user.sessionVersion,
     mustChangePassword: user.mustChangePassword,
@@ -709,6 +773,20 @@ function normalizeEmail(value: string): string {
   return email;
 }
 
+function normalizeUsername(value: string): string {
+  const username = value.trim().toLocaleLowerCase();
+  if (username.length < 3) throw new AuthError("用户名至少需要 3 个字符", 400);
+  if (username.length > 64) throw new AuthError("用户名不能超过 64 个字符", 400);
+  if (!/^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u.test(username)) {
+    throw new AuthError("用户名只能包含字母、数字、点、下划线和连字符", 400);
+  }
+  return username;
+}
+
+function profileEmailForUsername(username: string): string {
+  return `${encodeURIComponent(username).replaceAll("%", "-")}@users.dayline.invalid`.toLocaleLowerCase();
+}
+
 function normalizeDisplayName(value: string): string {
   const displayName = value.trim();
   if (displayName.length < 2) throw new AuthError("昵称至少需要 2 个字符", 400);
@@ -746,7 +824,8 @@ function rowToUser(row: AppUserRow): AppUser {
   return {
     id: row.id,
     displayName: row.display_name,
-    email: row.email,
+    username: row.username,
+    email: row.email.endsWith("@users.dayline.invalid") ? "" : row.email,
     role: row.role,
     sessionVersion: Number(row.session_version),
     mustChangePassword: Boolean(row.must_change_password),
@@ -806,7 +885,7 @@ function isSessionPayload(value: unknown): value is SessionPayload {
   if (!value || typeof value !== "object") return false;
   const payload = value as Partial<SessionPayload>;
   return typeof payload.userId === "string"
-    && typeof payload.email === "string"
+    && typeof payload.username === "string"
     && appUserRoles.includes(payload.role as AppUserRole)
     && typeof payload.sessionVersion === "number"
     && typeof payload.mustChangePassword === "boolean"
@@ -819,14 +898,14 @@ function constantEqual(left: string, right: string): boolean {
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-async function enforceLoginThrottle(database: DatabaseExecutor, email: string, ipAddress?: string): Promise<void> {
+async function enforceLoginThrottle(database: DatabaseExecutor, username: string, ipAddress?: string): Promise<void> {
   const result = await database.query<{ count: number | string }>(
     `SELECT count(*) AS count
        FROM app_login_attempts
       WHERE succeeded = false
         AND attempted_at > now() - ($1::text::interval)
         AND (lower(email) = lower($2) OR ($3::text IS NOT NULL AND ip_address = $3))`,
-    [`${LOGIN_THROTTLE_WINDOW_MINUTES} minutes`, email, ipAddress ?? null],
+    [`${LOGIN_THROTTLE_WINDOW_MINUTES} minutes`, username, ipAddress ?? null],
   );
   if (Number(result.rows[0]?.count ?? 0) >= LOGIN_THROTTLE_MAX_FAILURES) {
     throw new AuthError(`登录尝试过多，请 ${LOGIN_THROTTLE_WINDOW_MINUTES} 分钟后再试`, 429);
@@ -835,14 +914,14 @@ async function enforceLoginThrottle(database: DatabaseExecutor, email: string, i
 
 async function recordLoginAttempt(
   database: DatabaseExecutor,
-  email: string,
+  username: string,
   succeeded: boolean,
   context: AuthRequestContext,
 ): Promise<void> {
   await database.query(
     `INSERT INTO app_login_attempts (id, email, ip_address, user_agent, succeeded)
      VALUES ($1, $2, $3, $4, $5)`,
-    [randomUUID(), email, context.ipAddress ?? null, context.userAgent ?? null, succeeded],
+    [randomUUID(), username, context.ipAddress ?? null, context.userAgent ?? null, succeeded],
   );
 }
 

@@ -3,10 +3,10 @@
 import Link from "next/link";
 import {
   AlertCircle, Archive, ArrowRight, Award, CalendarClock, CalendarDays, Check,
-  CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Circle, Clock3,
+  CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   FileText, Folder, FolderPlus, GripVertical, Link2, ListChecks,
   LoaderCircle, Mail, MoreHorizontal, NotebookPen, Pencil, Pin, Plus,
-  RefreshCw, Star, Trash2, X,
+  Star, Trash2, X,
   Users,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
@@ -24,7 +24,6 @@ import {
 } from "../context-commands";
 import { DateTimeField } from "../ui/date-time-field";
 import { TransientToast } from "../workspace-shared";
-import { RelatedContentPanel } from "./related-content";
 
 const TASKS_CHANGED_EVENT = "kalender:tasks-changed";
 const PROJECTS_CHANGED_EVENT = "kalender:projects-changed";
@@ -562,32 +561,6 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     }
   };
 
-  const toggleMilestone = async (milestone: ClientProjectMilestone) => {
-    if (!overview || busy || overview.project.status === "archived") return;
-    setBusy(true);
-    try {
-      const response = await fetch(`/api/projects/${encodeURIComponent(overview.project.id)}/milestones/${encodeURIComponent(milestone.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: milestone.title,
-          dueOn: milestone.dueOn,
-          status: milestone.status === "done" ? "active" : "done",
-          sortOrder: milestone.sortOrder,
-          phaseId: milestone.phaseId ?? null,
-        }),
-      });
-      const payload = await response.json() as { readonly ok?: boolean; readonly message?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "无法更新里程碑");
-      await loadOverview(overview.project.id);
-      setFeedback(milestone.status === "done" ? "里程碑已重新打开" : "里程碑已完成");
-    } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法更新里程碑");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const deleteMilestone = async (draft: ProjectMilestoneDraft) => {
     if (!overview || !draft.id || busy || !await appConfirm({
       title: `删除里程碑“${draft.title}”？`,
@@ -891,20 +864,6 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
 
   const openTasks = overview?.tasks.filter((task) => task.status !== "done") ?? [];
   const upcomingBlocks = overview?.scheduledBlocks.filter((block) => new Date(block.end).getTime() >= Date.now()).slice(0, 6) ?? [];
-  const milestoneGroups = overview ? [
-    ...overview.phases.map((phase) => ({
-      id: phase.id,
-      label: phase.name,
-      color: phase.color,
-      milestones: overview.milestones.filter((milestone) => milestone.phaseId === phase.id),
-    })),
-    {
-      id: "project",
-      label: "项目级",
-      color: overview.project.color,
-      milestones: overview.milestones.filter((milestone) => !milestone.phaseId),
-    },
-  ].filter((group) => group.milestones.length > 0) : [];
 
   return (
     <div className="projects-page">
@@ -940,47 +899,24 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
             onDeletePhase={(phase) => void deletePhase(phase)}
           />
 
-          <section className="project-stats" aria-label="项目统计">
-            <article className="panel"><CheckCircle2 size={17} /><div><strong>{overview.stats.openTaskCount}</strong><span>待完成任务</span></div></article>
-            <article className="panel"><Circle size={17} /><div><strong>{overview.stats.completedTaskCount}</strong><span>已完成任务</span></div></article>
-            <article className="panel"><NotebookPen size={17} /><div><strong>{overview.stats.noteCount}</strong><span>项目笔记</span></div></article>
-            <article className="panel"><Clock3 size={17} /><div><strong>{formatProjectMinutes(overview.stats.scheduledMinutes)}</strong><span>已安排时间</span></div></article>
-          </section>
-
-          <section className="panel project-milestone-timeline">
-            <header><div><Award size={17} /><span><strong>里程碑</strong><small>关键节点按阶段归类，并与任务甘特计划共同表达项目节奏</small></span></div><button disabled={overview.project.status === "archived"} onClick={() => setMilestoneDraft({ title: "", dueOn: "", status: "planned", phaseId: "" })}><Plus size={14} />添加里程碑</button></header>
-            {milestoneGroups.length ? <div className="project-milestone-groups">{milestoneGroups.map((group) => <section className="project-milestone-group" key={group.id}><header><i style={{ background: group.color }} /><strong>{group.label}</strong><span>{group.milestones.length}</span></header><ol>{group.milestones.map((milestone) => <li className={milestone.status === "done" ? "done" : milestone.status === "active" ? "active" : ""} key={milestone.id}><button className="milestone-check" aria-label={milestone.status === "done" ? `重新打开里程碑：${milestone.title}` : `完成里程碑：${milestone.title}`} disabled={busy || overview.project.status === "archived"} onClick={() => void toggleMilestone(milestone)}>{milestone.status === "done" ? <Check size={13} /> : <Circle size={12} />}</button><i /><button className="milestone-body" onClick={() => setMilestoneDraft({ id: milestone.id, title: milestone.title, dueOn: milestone.dueOn ?? "", status: milestone.status, phaseId: milestone.phaseId ?? "" })}><strong>{milestone.title}</strong><small>{milestone.dueOn ? formatProjectMilestoneDate(milestone.dueOn) : "未设置日期"} · {milestone.status === "done" ? "已完成" : milestone.status === "active" ? "进行中" : "计划中"}</small></button></li>)}</ol></section>)}</div> : <div className="project-milestone-empty"><span>从第一个关键交付节点开始，例如“完成原型”或“提交论文初稿”。</span></div>}
-          </section>
-
           <div className="project-content-grid">
             <section className="panel project-actions-panel">
-              <header><div><ListChecks size={16} /><span><strong>下一步行动</strong><small>{openTasks.length} 项待推进</small></span></div><Link href="/tasks">查看全部</Link></header>
+              <header><div><ListChecks size={16} /><span><strong>下一步行动</strong></span></div><Link href="/tasks">查看全部</Link></header>
               {overview.project.status === "active" && <form onSubmit={(event) => { event.preventDefault(); void createQuickTask(); }}><Plus size={15} /><input value={quickTaskTitle} maxLength={240} onChange={(event) => setQuickTaskTitle(event.target.value)} placeholder="快速添加下一步行动…" /><button disabled={busy || !quickTaskTitle.trim()}>添加</button></form>}
               <div className="project-action-list">{openTasks.slice(0, 7).map((task) => <Link href={`/tasks?task=${encodeURIComponent(task.id)}`} key={task.id}><span className={`project-task-status ${task.isUrgent ? "urgent" : ""}`}><Check size={12} /></span><span><strong>{task.title}</strong><small>{task.dueAt ? formatTaskDue(task.dueAt) : task.estimatedMinutes ? formatTaskEstimate(task.estimatedMinutes) : task.status === "waiting" ? "等待中" : "未设置截止时间"}</small></span>{task.important && <Star size={13} fill="currentColor" />}</Link>)}{!openTasks.length && <div className="project-panel-empty"><CheckCircle2 size={20} /><span>当前没有待推进任务</span></div>}</div>
             </section>
 
             <section className="panel project-notes-panel">
-              <header><div><NotebookPen size={16} /><span><strong>项目笔记</strong><small>决策、资料与过程记录</small></span></div><button disabled={busy || overview.project.status === "archived"} onClick={() => void createProjectNote()}><Plus size={14} />新建</button></header>
+              <header><div><NotebookPen size={16} /><span><strong>项目笔记</strong></span></div><button disabled={busy || overview.project.status === "archived"} onClick={() => void createProjectNote()}><Plus size={14} />新建</button></header>
               <div>{overview.notes.slice(0, 6).map((note) => <Link href={`/notes?note=${encodeURIComponent(note.id)}`} key={note.id}><FileText size={15} /><span><strong>{note.title}</strong><small>{formatNoteUpdated(note.updatedAt)}</small></span>{note.pinned && <Pin size={12} fill="currentColor" />}</Link>)}{!overview.notes.length && <div className="project-panel-empty"><NotebookPen size={20} /><span>还没有项目笔记</span></div>}</div>
             </section>
 
             <section className="panel project-schedule-panel">
-              <header><div><CalendarClock size={16} /><span><strong>时间安排</strong><small>未来的专注时间块</small></span></div><Link href="/calendar">打开日历</Link></header>
+              <header><div><CalendarClock size={16} /><span><strong>时间安排</strong></span></div><Link href="/calendar">打开日历</Link></header>
               <div>{upcomingBlocks.map((block) => <Link href={block.href} key={block.eventId}><time dateTime={block.start}>{formatProjectBlockDate(block.start)}</time><span><strong>{block.taskTitle}</strong><small>{formatTaskBlockRange(block.start, block.end)} · {block.calendarName}</small></span></Link>)}{!upcomingBlocks.length && <div className="project-panel-empty"><CalendarClock size={20} /><span>尚未安排专注时间</span></div>}</div>
             </section>
 
-            <section className={`panel project-review-panel ${overview.review.isStalled ? "stalled" : ""}`}>
-              <header><div><RefreshCw size={16} /><span><strong>本周复盘</strong><small>{overview.review.isStalled ? "项目超过 7 天没有推进" : `最近活动 ${formatNoteUpdated(overview.review.lastActivityAt)}`}</small></span></div><Link href="/tasks">整理行动</Link></header>
-              <div>
-                <article><strong>{overview.review.completedLast7DaysCount}</strong><span>近 7 天完成</span></article>
-                <article className={overview.review.overdueTaskCount ? "attention" : ""}><strong>{overview.review.overdueTaskCount}</strong><span>已经逾期</span></article>
-                <article><strong>{overview.review.dueNext7DaysCount}</strong><span>未来 7 天到期</span></article>
-                <article><strong>{overview.review.unscheduledOpenTaskCount}</strong><span>尚未安排时间</span></article>
-              </div>
-              <p>{overview.review.isStalled ? "建议选择一个最小下一步，或重新评估项目是否需要继续。" : overview.review.overdueTaskCount ? "先处理逾期事项，再为未来一周保留专注时间。" : "项目节奏正常。复盘时确认下一里程碑和最重要的一项行动。"}</p>
-            </section>
           </div>
-          <section className="panel project-related-panel"><RelatedContentPanel kind="project" entityId={overview.project.id} emptyText="项目还没有关联内容。" /></section>
         </> : <section className="panel project-empty-state"><FolderPlus size={26} /><h2>建立第一个项目</h2><p>项目会把任务、笔记和专注时间组织在同一个目标下。</p><button className="primary-button" onClick={() => { setProjectDialogError(undefined); setProjectDraft({ name: "", description: "", areaName: "", color: "#86bdf5", status: "active" }); }}><Plus size={14} />新建项目</button></section>}
       </main>
 
@@ -1778,8 +1714,9 @@ function ProjectGanttChart({
   return (
     <section className="panel project-gantt">
       <header>
-        <div className="project-gantt-title"><CalendarClock size={17} /><span><strong><span className="project-gantt-desktop-label">项目甘特图</span><span className="project-gantt-mobile-label">项目计划</span></strong><small>{plannedTasks.length} / {tasks.length} 项任务已安排 · {phases.length} 个阶段</small></span></div>
+        <div className="project-gantt-title"><CalendarClock size={17} /><span><strong><span className="project-gantt-desktop-label">项目甘特图</span><span className="project-gantt-mobile-label">项目计划</span></strong></span></div>
         <div className="project-gantt-toolbar" aria-label="甘特图视图控制">
+          <button className="project-gantt-add-milestone" type="button" disabled={readOnly || busy} onClick={() => onCreateMilestone()}><Award size={13} />添加里程碑</button>
           <button type="button" onClick={scrollToToday}>今天</button>
           <button type="button" onClick={fitTimeline}>适应项目</button>
           <span className="project-gantt-zoom">
@@ -1842,7 +1779,7 @@ function ProjectGanttChart({
             {ungroupedTasks.map(renderTaskRow)}
             {ungroupedMilestones.map(renderMilestoneRow)}
             {!tasks.length && !phases.length && !milestones.length && <div className="project-gantt-row project-gantt-empty-row">
-              <button className="project-gantt-task" disabled={readOnly} onClick={() => onCreateTask()} onContextMenu={(event) => openCanvasMenu(event, undefined, false)}><span><strong>还没有项目任务</strong><small>点击或右键开始安排</small></span><Plus size={14} /></button>
+              <button className="project-gantt-task" disabled={readOnly} onClick={() => onCreateTask()} onContextMenu={(event) => openCanvasMenu(event, undefined, false)}><span><strong>还没有项目任务</strong></span><Plus size={14} /></button>
               <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event)} {...createTrackHandlers("empty")}>{weekendBands()}{todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}{renderCreateSelection("empty")}</div>
             </div>}
           </>}
@@ -1884,13 +1821,6 @@ function toDateInput(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function formatProjectMinutes(minutes: number): string {
-  if (!minutes) return "0 分";
-  if (minutes < 60) return `${minutes} 分`;
-  const hours = minutes / 60;
-  return Number.isInteger(hours) ? `${hours} 小时` : `${hours.toFixed(1)} 小时`;
 }
 
 function formatProjectBlockDate(value: string): string {

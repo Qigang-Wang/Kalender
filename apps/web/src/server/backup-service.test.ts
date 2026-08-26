@@ -23,12 +23,25 @@ assert(
   lightweight.includes("--exclude-table-data=mail_message_bodies"),
   "lightweight backups exclude disposable mail body rows",
 );
+assert(
+  lightweight.includes("--exclude-table-data=app_login_credentials"),
+  "backups never include Dayline usernames or password hashes",
+);
+assert(
+  lightweight.includes("--exclude-table-data=app_login_attempts")
+    && lightweight.includes("--exclude-table-data=app_invitations"),
+  "backups exclude login history and invitation secrets",
+);
 assert(lightweight.includes("--file=/tmp/light.dump"), "lightweight backups write to the requested output");
 
 const fullArchive = buildDatabaseDumpArgs("full-archive", "/tmp/full.dump", "postgresql://example");
 assert(
   !fullArchive.includes("--exclude-table-data=mail_message_bodies"),
   "full and safety backups retain cached mail bodies",
+);
+assert(
+  fullArchive.includes("--exclude-table-data=app_login_credentials"),
+  "all backup policies exclude Dayline login credentials",
 );
 
 assert(

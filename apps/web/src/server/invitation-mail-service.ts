@@ -54,10 +54,11 @@ export async function sendAppInvitationMail(input: {
 export function buildInvitationMailContent(invitation: CreatedAppInvitation, inviter: AppUser): string {
   const recipient = invitation.displayName?.trim() || invitation.email;
   const role = invitation.role === "admin" ? "管理员" : invitation.role === "viewer" ? "只读用户" : "普通用户";
+  const inviterAccount = inviter.email || `@${inviter.username}`;
   const template: DaylineInvitationTemplateData = {
     recipient,
     inviterName: inviter.displayName,
-    inviterEmail: inviter.email,
+    inviterEmail: inviterAccount,
     roleLabel: role,
     expiresAtLabel: formatInviteExpiry(invitation.expiresAt),
     inviteUrl: invitation.inviteUrl,
@@ -66,7 +67,7 @@ export function buildInvitationMailContent(invitation: CreatedAppInvitation, inv
     invitationBlock("你受邀加入 Dayline", template),
     invitationBlock(`你好，${recipient}：`),
     invitationBlock(`${inviter.displayName} 邀请你加入 Dayline 工作台，一起管理邮件、日历、任务、项目和笔记。`),
-    invitationBlock(`邀请人：${inviter.displayName} <${inviter.email}>`),
+    invitationBlock(`邀请人：${inviter.displayName} <${inviterAccount}>`),
     invitationBlock(`账号角色：${role}`),
     invitationBlock(`有效期至：${template.expiresAtLabel}`),
     {

@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 interface SetupBody {
   readonly displayName?: unknown;
-  readonly email?: unknown;
+  readonly username?: unknown;
   readonly password?: unknown;
   readonly confirmPassword?: unknown;
 }
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     }
     const user = await createInitialAdmin({
       displayName: stringValue(body?.displayName),
-      email: stringValue(body?.email),
+      username: stringValue(body?.username),
       password,
     });
     const response = NextResponse.json({ ok: true, user }, { status: 201 });

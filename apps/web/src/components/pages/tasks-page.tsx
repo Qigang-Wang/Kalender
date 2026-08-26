@@ -678,10 +678,10 @@ function TaskMatrix({ tasks, busyTaskId, onComplete, onEdit, onMenu, onMove }: {
   const [draggedTaskId, setDraggedTaskId] = useState<string>();
   const [dropTarget, setDropTarget] = useState<string>();
   const quadrants = [
-    { key: "important-urgent", title: "立即处理", hint: "重要且紧急", important: true, urgent: true },
-    { key: "important-calm", title: "安排时间", hint: "重要但不紧急", important: true, urgent: false },
-    { key: "urgent-light", title: "批量或委托", hint: "紧急但不重要", important: false, urgent: true },
-    { key: "calm-light", title: "减少投入", hint: "不重要且不紧急", important: false, urgent: false },
+    { key: "important-urgent", title: "立即处理", important: true, urgent: true },
+    { key: "important-calm", title: "安排时间", important: true, urgent: false },
+    { key: "urgent-light", title: "批量或委托", important: false, urgent: true },
+    { key: "calm-light", title: "减少投入", important: false, urgent: false },
   ] as const;
 
   const finishDrag = () => {
@@ -723,7 +723,7 @@ function TaskMatrix({ tasks, busyTaskId, onComplete, onEdit, onMenu, onMove }: {
               finishDrag();
             }}
           >
-            <header><div><h3>{quadrant.title}</h3><p>{quadrant.hint}</p></div><span aria-label={`${entries.length} 个任务`}>{entries.length}</span></header>
+            <header><h3>{quadrant.title}</h3><span aria-label={`${entries.length} 个任务`}>{entries.length}</span></header>
             <div className="task-quadrant-list">
               {entries.map((task) => <TaskCard task={task} compact draggable key={task.id} busy={busyTaskId === task.id} dragging={draggedTaskId === task.id} onDragStart={(event) => {
                 event.dataTransfer.effectAllowed = "move";

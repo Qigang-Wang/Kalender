@@ -364,16 +364,10 @@ export function TodayPage() {
 
   return (
     <>
-      <div className="today-summary-strip">
-        <time>{formatTodayDate(snapshot.from)}</time>
-        <span><CalendarDays size={14} />{snapshot.totals.events} 项日程</span>
-        <span><ListChecks size={14} />{snapshot.totals.tasks} 项需推进</span>
-        <span><Mail size={14} />{snapshot.totals.unreadMail} 封未读</span>
-      </div>
       {feedback && <TransientToast message={feedback} onClose={() => setFeedback(undefined)} />}
       <div className="today-layout">
         <section className="panel schedule-panel">
-          <h2><Clock3 size={19} />今日安排 <small>{snapshot.events.length}</small></h2>
+          <h2><Clock3 size={19} /><time>{formatTodayDate(snapshot.from)}</time><span>今日安排</span><small>{snapshot.events.length}</small></h2>
           {snapshot.events.length ? <TodayTimeline events={snapshot.events} dayStartValue={snapshot.from} busyEventId={busyEventId} onResizeEvent={(event, end) => void resizeEvent(event, end)} onOpenMenu={(event, x, y, returnFocus) => openContextMenu("event", event.id, x, y, returnFocus)} />
             : <TodayEmpty icon={<CalendarDays size={20} />} text="今天没有日程安排" />}
         </section>

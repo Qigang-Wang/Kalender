@@ -921,7 +921,6 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     }
   };
 
-  const unscheduledTasks = calendarTasks.filter((task) => task.status !== "done" && task.scheduledBlocks.length === 0).slice(0, 8);
   const previewEvent = eventPreview ? events.find((event) => event.id === eventPreview.eventId) : undefined;
   const previewCalendar = previewEvent ? calendars.find((calendar) => calendar.id === previewEvent.calendarId) : undefined;
   const draftCalendar = draft ? calendars.find((calendar) => calendar.id === draft.calendarId) : undefined;
@@ -958,8 +957,6 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
             <button className="primary-button" onClick={() => openCreateDraft()}><Plus size={15} />新建日程</button>
           </div>
         </div>
-        <div className="calendar-source-row"><div>{calendars.map((calendar) => <span key={calendar.id}><i style={{ background: calendar.color ?? "#86bdf5" }} />{calendar.name}{calendar.readOnly ? " · 只读" : ""}</span>)}</div><small>{timeZone}</small></div>
-        {viewMode === "week" && unscheduledTasks.length > 0 && <section className="calendar-task-shelf" aria-label="待安排任务"><header><div><ListChecks size={15} /><strong>待安排任务</strong></div><small>{taskDropBusy ? "正在安排…" : <><span className="desktop-hint">拖入日历，或点击选择时间</span><span className="mobile-hint">点击任务选择时间</span></>}</small></header><div>{unscheduledTasks.map((task) => <Link href={`/tasks?schedule=${encodeURIComponent(task.id)}`} draggable={!taskDropBusy} key={task.id} onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-kalender-task", task.id); }}><span>{task.title}</span>{task.estimatedMinutes && <em>{formatTaskEstimate(task.estimatedMinutes)}</em>}</Link>)}</div></section>}
         {feedback && <TransientToast message={feedback} onClose={() => setFeedback("")} />}
         {viewMode === "week" ? (
           <CalendarWeekView

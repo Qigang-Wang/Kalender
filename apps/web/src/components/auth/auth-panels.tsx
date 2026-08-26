@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, EyeOff, LoaderCircle, LockKeyhole, Mail, ShieldCheck, UserRound } from "lucide-react";
+import { Eye, EyeOff, LoaderCircle, LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 
@@ -81,6 +81,7 @@ export function InviteAcceptPanel({
 }) {
   const router = useRouter();
   const [displayName, setDisplayName] = useState(suggestedName);
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -95,7 +96,7 @@ export function InviteAcceptPanel({
       const response = await fetch("/api/auth/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, displayName, password, confirmPassword }),
+        body: JSON.stringify({ token, displayName, username, password, confirmPassword }),
       });
       const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
       if (!response.ok) throw new Error(payload?.message || "无法接受邀请");
@@ -122,10 +123,11 @@ export function InviteAcceptPanel({
         </header>
         <form className="auth-form" onSubmit={(event) => void submit(event)}>
           <label><span>昵称</span><div className="auth-input"><UserRound size={16} /><input autoComplete="name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} required /></div></label>
+          <label><span>用户名</span><div className="auth-input"><UserRound size={16} /><input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="用于登录" required /></div></label>
           <label><span>密码</span><div className="auth-input"><LockKeyhole size={16} /><input autoComplete="new-password" type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="至少 8 个字符" required /><button type="button" aria-label={showPassword ? "隐藏密码" : "显示密码"} onClick={() => setShowPassword((value) => !value)}>{showPassword ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></label>
           <label><span>确认密码</span><div className="auth-input"><LockKeyhole size={16} /><input autoComplete="new-password" type={showPassword ? "text" : "password"} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></div></label>
           {feedback && <div className="auth-feedback" role="alert">{feedback}</div>}
-          <button className="auth-submit" type="submit" disabled={busy || displayName.trim().length < 2 || password.length < 8}>{busy ? <LoaderCircle className="spin" size={16} /> : <ShieldCheck size={16} />}{busy ? "正在加入…" : "加入工作台"}</button>
+          <button className="auth-submit" type="submit" disabled={busy || displayName.trim().length < 2 || username.trim().length < 3 || password.length < 8}>{busy ? <LoaderCircle className="spin" size={16} /> : <ShieldCheck size={16} />}{busy ? "正在加入…" : "加入工作台"}</button>
         </form>
       </section>
     </main>
@@ -136,7 +138,7 @@ export function AuthPanel({ mode }: AuthPanelProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [remember, setRemember] = useState(true);
@@ -154,7 +156,7 @@ export function AuthPanel({ mode }: AuthPanelProps) {
       const response = await fetch(isSetup ? "/api/auth/setup" : "/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(isSetup ? { displayName, email, password, confirmPassword } : { email, password, remember }),
+        body: JSON.stringify(isSetup ? { displayName, username, password, confirmPassword } : { username, password, remember }),
       });
       const payload = await response.json().catch(() => null) as { readonly message?: string } | null;
       if (!response.ok) throw new Error(payload?.message || (isSetup ? "初始化失败" : "登录失败"));
@@ -202,16 +204,14 @@ export function AuthPanel({ mode }: AuthPanelProps) {
           )}
 
           <label>
-            <span>邮箱地址</span>
+            <span>用户名</span>
             <div className="auth-input">
-              <Mail size={16} />
+              <UserRound size={16} />
               <input
-                autoComplete="email"
-                inputMode="email"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@example.com"
+                autoComplete="username"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                placeholder="输入用户名"
                 required
               />
             </div>

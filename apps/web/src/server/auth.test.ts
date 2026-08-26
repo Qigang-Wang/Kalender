@@ -27,11 +27,11 @@ async function main() {
 
     const admin = await auth.createInitialAdmin({
       displayName: "Admin User",
-      email: "admin@example.test",
+      username: "admin",
       password: "admin-password",
     });
     assert(admin.role === "admin", "initial user is an admin");
-    const loggedInAdmin = await auth.authenticateAppUser("admin@example.test", "admin-password");
+    const loggedInAdmin = await auth.authenticateAppUser("admin", "admin-password");
     assert(loggedInAdmin.id === admin.id, "admin can authenticate");
     assert((await auth.listManagedAppUsers(admin)).find((item) => item.id === admin.id)?.lastLoginAt, "successful login records last login time");
 
@@ -40,7 +40,7 @@ async function main() {
 
     const user = await auth.createManagedAppUser(admin, {
       displayName: "Normal User",
-      email: "user@example.test",
+      username: "normal-user",
       password: "user-password",
       role: "user",
     });
@@ -51,20 +51,20 @@ async function main() {
     try {
       await auth.createManagedAppUser(admin, {
         displayName: "Duplicate",
-        email: "USER@example.test",
+        username: "NORMAL-USER",
         password: "other-password",
         role: "user",
       });
     } catch (error) {
       duplicateRejected = error instanceof auth.AuthError && error.status === 409;
     }
-    assert(duplicateRejected, "duplicate user emails are rejected case-insensitively");
+    assert(duplicateRejected, "duplicate usernames are rejected case-insensitively");
 
     const disabled = await auth.updateManagedAppUser(admin, user.id, { disabled: true });
     assert(Boolean(disabled.disabledAt), "admin can disable a user");
     let disabledCannotLogin = false;
     try {
-      await auth.authenticateAppUser("user@example.test", "user-password");
+      await auth.authenticateAppUser("normal-user", "user-password");
     } catch (error) {
       disabledCannotLogin = error instanceof auth.AuthError && error.status === 401;
     }
@@ -75,7 +75,7 @@ async function main() {
 
     const viewer = await auth.createManagedAppUser(admin, {
       displayName: "Viewer User",
-      email: "viewer@example.test",
+      username: "viewer-user",
       password: "viewer-password",
       role: "viewer",
     });
@@ -109,6 +109,7 @@ async function main() {
     assert(!invitationMailHtml.includes("qgwInvitation"), "invitation template metadata is never sent to recipients");
     const invited = await auth.acceptAppInvitation(invitation.token, {
       displayName: "Invited User",
+      username: "invited-user",
       password: "invited-password",
     });
     assert(invited.email === "invited@example.test" && !invited.mustChangePassword, "invited users can set their own password");
@@ -123,7 +124,7 @@ async function main() {
 
     const disposable = await auth.createManagedAppUser(admin, {
       displayName: "Disposable User",
-      email: "disposable@example.test",
+      username: "disposable-user",
       password: "disposable-password",
       role: "user",
     });
@@ -139,7 +140,7 @@ async function main() {
     assert(Number(deletedProjects.rows[0]?.count ?? 0) === 0, "deleting a user cascades to owned workspace data");
     let deletedCannotLogin = false;
     try {
-      await auth.authenticateAppUser("disposable@example.test", "disposable-password");
+      await auth.authenticateAppUser("disposable-user", "disposable-password");
     } catch (error) {
       deletedCannotLogin = error instanceof auth.AuthError && error.status === 401;
     }
@@ -160,12 +161,12 @@ async function main() {
     });
     assert(updatedProfile.displayName === "Renamed Admin", "user can update own display name");
     assert(updatedProfile.sessionVersion === admin.sessionVersion + 1, "own password change increments session version");
-    assert((await auth.authenticateAppUser("admin@example.test", "admin-password-2")).id === admin.id, "user can update own password");
+    assert((await auth.authenticateAppUser("admin", "admin-password-2")).id === admin.id, "user can update own password");
 
     let throttled = false;
     for (let index = 0; index < 6; index += 1) {
       try {
-        await auth.authenticateAppUser("missing@example.test", "wrong-password", { ipAddress: "203.0.113.9" });
+        await auth.authenticateAppUser("missing-user", "wrong-password", { ipAddress: "203.0.113.9" });
       } catch (error) {
         throttled ||= error instanceof auth.AuthError && error.status === 429;
       }

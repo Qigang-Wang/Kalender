@@ -10,6 +10,7 @@ interface UserRouteProps {
 
 interface UpdateUserBody {
   readonly displayName?: unknown;
+  readonly username?: unknown;
   readonly email?: unknown;
   readonly password?: unknown;
   readonly role?: unknown;
@@ -24,6 +25,7 @@ export async function PATCH(request: Request, { params }: UserRouteProps) {
     const body = await request.json().catch(() => null) as UpdateUserBody | null;
     const user = await updateManagedAppUser(actor, userId, {
       displayName: optionalString(body?.displayName),
+      username: optionalString(body?.username),
       email: optionalString(body?.email),
       password: optionalString(body?.password),
       role: optionalRole(body?.role),
