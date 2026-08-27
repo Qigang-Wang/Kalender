@@ -119,6 +119,8 @@ interface SessionPayload {
   readonly sessionVersion: number;
   readonly exp: number;
   readonly mustChangePassword: boolean;
+  readonly iat?: number;
+  readonly ttlSeconds?: number;
 }
 
 interface InvitationRow {
@@ -727,13 +729,16 @@ export function verifySessionToken(token: string | undefined): SessionPayload | 
 }
 
 function createSessionToken(user: AppUser, ttlSeconds: number): string {
+  const issuedAt = Math.floor(Date.now() / 1000);
   const payload: SessionPayload = {
     userId: user.id,
     username: user.username,
     role: user.role,
     sessionVersion: user.sessionVersion,
     mustChangePassword: user.mustChangePassword,
-    exp: Math.floor(Date.now() / 1000) + ttlSeconds,
+    iat: issuedAt,
+    ttlSeconds,
+    exp: issuedAt + ttlSeconds,
   };
   const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   return `${encodedPayload}.${signValue(encodedPayload)}`;
@@ -889,7 +894,9 @@ function isSessionPayload(value: unknown): value is SessionPayload {
     && appUserRoles.includes(payload.role as AppUserRole)
     && typeof payload.sessionVersion === "number"
     && typeof payload.mustChangePassword === "boolean"
-    && typeof payload.exp === "number";
+    && typeof payload.exp === "number"
+    && (payload.iat === undefined || typeof payload.iat === "number")
+    && (payload.ttlSeconds === undefined || typeof payload.ttlSeconds === "number");
 }
 
 function constantEqual(left: string, right: string): boolean {

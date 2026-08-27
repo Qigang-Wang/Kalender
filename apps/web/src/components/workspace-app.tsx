@@ -955,6 +955,9 @@ function WorkspaceAppContent({
   }, [sidebarProjectNotice]);
 
   const sidebarProjectTaskCounts = sidebarTasks ? createSidebarProjectTaskCounts(sidebarTasks) : undefined;
+  const visibleSidebarCalendars = sidebarCalendars?.filter(
+    (calendar) => calendar.providerData?.providerId !== "local-calendar",
+  );
   const sidebarProjectNoteCounts = sidebarProjects
     ? new Map(sidebarProjects.map((project) => [project.id, project.noteCount ?? 0]))
     : undefined;
@@ -1348,8 +1351,8 @@ function WorkspaceAppContent({
             onToggle={() => toggleSidebarSection("calendar-sources")}
             onContextMenu={(x, y, returnFocus) => setSidebarSectionMenu({ sectionId: "calendar-sources", title: "日历来源", x, y, returnFocus })}
           />
-          {!collapsedSidebarSections.has("calendar-sources") && (sidebarCalendars === undefined ? <small>正在读取日历…</small> : sidebarCalendars.length
-            ? <div className="sidebar-calendar-list">{sidebarCalendars.map((calendar) => <div
+          {!collapsedSidebarSections.has("calendar-sources") && (visibleSidebarCalendars === undefined ? <small>正在读取日历…</small> : visibleSidebarCalendars.length
+            ? <div className="sidebar-calendar-list">{visibleSidebarCalendars.map((calendar) => <div
               className="sidebar-calendar-source"
               key={calendar.id}
               role="button"
