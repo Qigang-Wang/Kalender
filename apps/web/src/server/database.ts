@@ -1753,6 +1753,21 @@ const PORTABLE_USERNAME_AUTH_SCHEMA_SQL = String.raw`
   ALTER TABLE app_users DROP COLUMN IF EXISTS last_login_at;
 `;
 
+const PROJECT_TASK_STATUS_SCHEMA_SQL = String.raw`
+  ALTER TABLE tasks
+    ADD COLUMN IF NOT EXISTS project_status text NOT NULL DEFAULT 'planned'
+      CHECK (project_status IN ('planned', 'in_progress', 'paused', 'done', 'cancelled'));
+
+  UPDATE tasks
+     SET project_status = CASE status
+       WHEN 'done' THEN 'done'
+       WHEN 'waiting' THEN 'paused'
+       WHEN 'someday' THEN 'paused'
+       ELSE 'planned'
+     END
+   WHERE project_id IS NOT NULL;
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1789,6 +1804,7 @@ export const DATABASE_MIGRATIONS = [
   { version: 33, name: "calendar-event-reminders", sql: CALENDAR_EVENT_REMINDERS_SCHEMA_SQL },
   { version: 34, name: "german-default-calendar-name", sql: GERMAN_DEFAULT_CALENDAR_NAME_SQL },
   { version: 35, name: "portable-username-auth", sql: PORTABLE_USERNAME_AUTH_SCHEMA_SQL },
+  { version: 36, name: "project-task-status", sql: PROJECT_TASK_STATUS_SCHEMA_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

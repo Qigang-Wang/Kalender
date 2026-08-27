@@ -5,6 +5,7 @@ import {
   type SaveProjectMilestoneInput,
   type SaveProjectTaskPlanInput,
 } from "./project-repository";
+import { projectTaskStatuses, type ProjectTaskStatus } from "./task-repository";
 
 export interface ProjectMilestoneRequestBody {
   readonly title?: unknown;
@@ -15,6 +16,8 @@ export interface ProjectMilestoneRequestBody {
 }
 
 export interface ProjectTaskPlanRequestBody {
+  readonly title?: unknown;
+  readonly projectStatus?: unknown;
   readonly plannedStart?: unknown;
   readonly plannedEnd?: unknown;
   readonly dependencyIds?: unknown;
@@ -67,6 +70,19 @@ export function parseProjectTaskPlanInput(
   taskId: string,
 ): SaveProjectTaskPlanInput {
   if (!body) throw new ProjectValidationError("缺少任务计划");
+  let title: string | undefined;
+  if (body.title !== undefined) {
+    if (typeof body.title !== "string") throw new ProjectValidationError("请填写任务标题");
+    title = body.title.trim();
+    if (!title || title.length > 240) throw new ProjectValidationError("任务标题需要 1–240 个字符");
+  }
+  let projectStatus: ProjectTaskStatus | undefined;
+  if (body.projectStatus !== undefined) {
+    if (!projectTaskStatuses.includes(body.projectStatus as ProjectTaskStatus)) {
+      throw new ProjectValidationError("项目任务状态无效");
+    }
+    projectStatus = body.projectStatus as ProjectTaskStatus;
+  }
   const plannedStart = parseOptionalDate(body.plannedStart, "计划开始日期");
   const plannedEnd = parseOptionalDate(body.plannedEnd, "计划结束日期");
   if ((plannedStart && !plannedEnd) || (!plannedStart && plannedEnd)) {
@@ -111,6 +127,8 @@ export function parseProjectTaskPlanInput(
   return {
     projectId,
     taskId,
+    title,
+    projectStatus,
     plannedStart,
     plannedEnd,
     dependencyIds,

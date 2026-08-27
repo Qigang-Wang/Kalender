@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { getDatabase } from "./database";
 import { getStoredProject, listStoredProjectNotes, type StoredNote, type StoredProject } from "./note-repository";
-import { listStoredProjectTasks, type StoredTask, type TaskTimeBlock } from "./task-repository";
+import { listStoredProjectTasks, type ProjectTaskStatus, type StoredTask, type TaskStatus, type TaskTimeBlock } from "./task-repository";
 
 export const projectMilestoneStatuses = ["planned", "active", "done"] as const;
 export type ProjectMilestoneStatus = (typeof projectMilestoneStatuses)[number];
@@ -59,6 +59,8 @@ export interface StoredProjectGanttTask extends StoredTask {
 export interface SaveProjectTaskPlanInput {
   readonly projectId: string;
   readonly taskId: string;
+  readonly title?: string;
+  readonly projectStatus?: ProjectTaskStatus;
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
   readonly dependencyIds: readonly string[];
@@ -134,12 +136,12 @@ export async function getStoredProjectOverview(projectId: string): Promise<Store
       taskTitle: task.title,
     })))
     .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime());
-  const completedTaskCount = projectTasks.filter((task) => task.status === "done").length;
-  const totalTaskCount = projectTasks.length;
+  const completedTaskCount = projectTasks.filter((task) => task.projectStatus === "done").length;
+  const totalTaskCount = projectTasks.filter((task) => task.projectStatus !== "cancelled").length;
   const now = Date.now();
   const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
   const sevenDaysAhead = now + 7 * 24 * 60 * 60 * 1000;
-  const openTasks = projectTasks.filter((task) => task.status !== "done");
+  const openTasks = projectTasks.filter((task) => task.projectStatus !== "done" && task.projectStatus !== "cancelled");
   const lastActivityAt = [project.updatedAt, ...projectTasks.map((task) => task.updatedAt), ...projectNotes.map((note) => note.updatedAt)]
     .reduce((latest, value) => new Date(value).getTime() > new Date(latest).getTime() ? value : latest, project.updatedAt);
 
@@ -185,6 +187,8 @@ interface TaskDependencyRow {
 
 interface TaskPlanRow {
   readonly id: string;
+  readonly status: TaskStatus;
+  readonly project_status: ProjectTaskStatus;
   readonly phase_id: string | null;
   readonly gantt_sort_order: number;
   readonly planned_start: string | Date | null;
@@ -201,7 +205,7 @@ export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput)
     throw new ProjectRepositoryError("PROJECT_ARCHIVED", "已归档项目不能修改甘特计划", 409);
   }
   const task = await database.query<TaskPlanRow>(
-    `SELECT id, phase_id, gantt_sort_order, planned_start, planned_end, duration_workdays, auto_schedule
+    `SELECT id, status, project_status, phase_id, gantt_sort_order, planned_start, planned_end, duration_workdays, auto_schedule
        FROM tasks
       WHERE id = $1 AND project_id = $2
       LIMIT 1`,
@@ -265,6 +269,10 @@ export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput)
     ?? (suppliedStart && suppliedEnd ? countProjectDays(suppliedStart, suppliedEnd) : currentTask.duration_workdays)
     ?? 1;
   const autoSchedule = input.autoSchedule ?? currentTask.auto_schedule;
+  const projectStatus = input.projectStatus ?? currentTask.project_status;
+  const status = projectStatus === "done" || projectStatus === "cancelled"
+    ? "done"
+    : currentTask.status === "done" ? "next" : currentTask.status;
   const plannedStart = suppliedStart;
   const plannedEnd = suppliedStart
     ? addProjectDays(suppliedStart, durationDays - 1)
@@ -278,15 +286,22 @@ export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput)
               phase_id = $3,
               duration_workdays = $4,
               auto_schedule = $5,
-              gantt_sort_order = $6,
+              project_status = $6,
+              status = $7,
+              completed_at = CASE WHEN $6 = 'done' THEN COALESCE(completed_at, now()) ELSE NULL END,
+              title = COALESCE($8, title),
+              gantt_sort_order = $9,
               updated_at = now()
-        WHERE id = $7 AND project_id = $8`,
+        WHERE id = $10 AND project_id = $11`,
       [
         plannedStart ?? null,
         plannedEnd ?? null,
         nextPhaseId,
         durationDays,
         autoSchedule,
+        projectStatus,
+        status,
+        input.title ?? null,
         nextGanttSortOrder,
         input.taskId,
         input.projectId,
@@ -306,7 +321,7 @@ export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput)
     }
 
     const planResult = await transaction.query<TaskPlanRow>(
-      `SELECT id, phase_id, gantt_sort_order, planned_start, planned_end, duration_workdays, auto_schedule
+      `SELECT id, status, project_status, phase_id, gantt_sort_order, planned_start, planned_end, duration_workdays, auto_schedule
          FROM tasks
         WHERE project_id = $1`,
       [input.projectId],

@@ -138,16 +138,20 @@ async function main() {
     const movedPlan = await saveStoredProjectTaskPlan({
       projectId: "project-test",
       taskId: "task-a",
+      title: "Prepare production prototype",
       plannedStart: "2026-07-27",
       plannedEnd: "2026-07-28",
       dependencyIds: [],
       phaseId: phase.id,
       durationWorkdays: 2,
       autoSchedule: false,
+      projectStatus: "done",
     });
     overview = movedPlan.overview;
     successor = movedPlan.overview.ganttTasks.find((task) => task.id === "task-b");
     assert(movedPlan.task.plannedStart === "2026-07-27", "save result returns the confirmed dragged task");
+    assert(movedPlan.task.title === "Prepare production prototype", "gantt plan can rename a task");
+    assert(movedPlan.task.projectStatus === "done" && movedPlan.task.status === "done" && Boolean(movedPlan.task.completedAt), "gantt plan can complete a task");
     assert(successor?.plannedStart === "2026-07-29", "moving a predecessor cascades to automatic successors");
     assert(successor.plannedEnd === "2026-07-31", "cascaded scheduling preserves consecutive-day duration");
 

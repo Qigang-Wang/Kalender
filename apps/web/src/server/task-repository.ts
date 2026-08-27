@@ -5,10 +5,12 @@ import { ensureProjectAccess } from "./project-collaboration";
 import { getUserScope } from "./user-scope";
 
 export const taskStatuses = ["inbox", "next", "waiting", "someday", "done"] as const;
+export const projectTaskStatuses = ["planned", "in_progress", "paused", "done", "cancelled"] as const;
 export const taskUrgencyModes = ["auto", "urgent", "not_urgent"] as const;
 export const taskSourceKinds = ["mail", "calendar", "note"] as const;
 
 export type TaskStatus = (typeof taskStatuses)[number];
+export type ProjectTaskStatus = (typeof projectTaskStatuses)[number];
 export type TaskUrgencyMode = (typeof taskUrgencyModes)[number];
 export type TaskSourceKind = (typeof taskSourceKinds)[number];
 
@@ -25,6 +27,7 @@ export interface StoredTask {
   readonly title: string;
   readonly notes?: string;
   readonly status: TaskStatus;
+  readonly projectStatus: ProjectTaskStatus;
   readonly important: boolean;
   readonly urgencyMode: TaskUrgencyMode;
   readonly isUrgent: boolean;
@@ -82,6 +85,7 @@ interface TaskRow {
   title: string;
   notes: string | null;
   status: TaskStatus;
+  project_status: ProjectTaskStatus;
   important: boolean;
   urgency_mode: TaskUrgencyMode;
   due_at: string | Date | null;
@@ -125,7 +129,7 @@ interface TimeBlockDetailsRow {
 }
 
 const taskSelect = `
-  SELECT t.id, t.title, t.notes, t.status, t.important, t.urgency_mode,
+  SELECT t.id, t.title, t.notes, t.status, t.project_status, t.important, t.urgency_mode,
          t.due_at, t.estimated_minutes, t.planned_start, t.planned_end,
          t.phase_id, t.gantt_sort_order, t.duration_workdays, t.auto_schedule, t.project_id,
          COALESCE(p.name, t.project_name) AS project_name,
@@ -244,13 +248,18 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
   await database.transaction(async (transaction) => {
     await transaction.query(
       `INSERT INTO tasks (
-         id, user_id, title, notes, status, important, urgency_mode, due_at,
+         id, user_id, title, notes, status, project_status, important, urgency_mode, due_at,
          estimated_minutes, project_id, project_name, area_name, assignee_user_id, completed_at, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
+       ) VALUES ($1,$2,$3,$4,$5,CASE WHEN $5 = 'done' THEN 'done' ELSE 'planned' END,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
        ON CONFLICT (id) DO UPDATE SET
          title = EXCLUDED.title,
          notes = EXCLUDED.notes,
          status = EXCLUDED.status,
+         project_status = CASE
+           WHEN EXCLUDED.status = 'done' THEN 'done'
+           WHEN tasks.project_status IN ('done', 'cancelled') THEN 'planned'
+           ELSE tasks.project_status
+         END,
          important = EXCLUDED.important,
          urgency_mode = EXCLUDED.urgency_mode,
          due_at = EXCLUDED.due_at,
@@ -403,6 +412,7 @@ async function attachSources(rows: readonly TaskRow[]): Promise<readonly StoredT
     title: row.title,
     notes: row.notes ?? undefined,
     status: row.status,
+    projectStatus: row.project_status,
     important: row.important,
     urgencyMode: row.urgency_mode,
     isUrgent: deriveTaskUrgency(row.urgency_mode, toIso(row.due_at)),

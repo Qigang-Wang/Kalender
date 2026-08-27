@@ -4,9 +4,9 @@ import Link from "next/link";
 import {
   AlertCircle, Archive, ArrowRight, Award, CalendarClock, CalendarDays, Check,
   CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
-  FileText, Folder, FolderPlus, GripVertical, Link2, ListChecks,
+  Circle, FileText, Folder, FolderPlus, GripVertical, Link2, ListChecks,
   LoaderCircle, Mail, MoreHorizontal, NotebookPen, Pencil, Pin, Plus,
-  Star, Trash2, X,
+  Pause, Star, Trash2, X,
   Users,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
@@ -31,6 +31,7 @@ const OPEN_PROJECT_DIALOG_EVENT = "kalender:open-project-dialog";
 const EDIT_PROJECT_DIALOG_EVENT = "kalender:edit-project-dialog";
 
 type TaskStatus = "inbox" | "next" | "waiting" | "someday" | "done";
+type ProjectTaskStatus = "planned" | "in_progress" | "paused" | "done" | "cancelled";
 type TaskUrgencyMode = "auto" | "urgent" | "not_urgent";
 
 interface ClientTaskSource {
@@ -56,6 +57,7 @@ interface ClientTask {
   readonly title: string;
   readonly notes?: string;
   readonly status: TaskStatus;
+  readonly projectStatus: ProjectTaskStatus;
   readonly important: boolean;
   readonly urgencyMode: TaskUrgencyMode;
   readonly isUrgent: boolean;
@@ -100,6 +102,16 @@ function formatTaskEstimate(minutes: number): string {
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
   return remainder ? `${hours} 小时 ${remainder} 分` : `${hours} 小时`;
+}
+
+function formatProjectTaskStatus(status: ProjectTaskStatus): string {
+  switch (status) {
+    case "planned": return "待开始";
+    case "in_progress": return "进行中";
+    case "paused": return "已暂停";
+    case "done": return "已完成";
+    case "cancelled": return "已取消";
+  }
 }
 
 function formatNoteUpdated(value: string): string {
@@ -242,7 +254,8 @@ interface ProjectMilestoneDraft {
 
 interface ProjectGanttPlanDraft {
   readonly taskId: string;
-  readonly taskTitle: string;
+  readonly title: string;
+  readonly projectStatus: ProjectTaskStatus;
   readonly plannedStart: string;
   readonly plannedEnd: string;
   readonly dependencyIds: readonly string[];
@@ -603,6 +616,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
       setOverview(payload.overview);
       setGanttDraft(undefined);
       setFeedback("任务计划已更新");
+      window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法保存甘特计划");
     } finally {
@@ -862,8 +876,11 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     }
   };
 
-  const openTasks = overview?.tasks.filter((task) => task.status !== "done") ?? [];
+  const openTasks = overview?.tasks.filter((task) => task.projectStatus !== "done" && task.projectStatus !== "cancelled") ?? [];
   const upcomingBlocks = overview?.scheduledBlocks.filter((block) => new Date(block.end).getTime() >= Date.now()).slice(0, 6) ?? [];
+  const ganttDraftBlocked = Boolean(ganttDraft && overview?.ganttTasks.some((task) => (
+    ganttDraft.dependencyIds.includes(task.id) && task.projectStatus !== "done"
+  )));
 
   return (
     <div className="projects-page">
@@ -903,7 +920,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
             <section className="panel project-actions-panel">
               <header><div><ListChecks size={16} /><span><strong>下一步行动</strong></span></div><Link href="/tasks">查看全部</Link></header>
               {overview.project.status === "active" && <form onSubmit={(event) => { event.preventDefault(); void createQuickTask(); }}><Plus size={15} /><input value={quickTaskTitle} maxLength={240} onChange={(event) => setQuickTaskTitle(event.target.value)} placeholder="快速添加下一步行动…" /><button disabled={busy || !quickTaskTitle.trim()}>添加</button></form>}
-              <div className="project-action-list">{openTasks.slice(0, 7).map((task) => <Link href={`/tasks?task=${encodeURIComponent(task.id)}`} key={task.id}><span className={`project-task-status ${task.isUrgent ? "urgent" : ""}`}><Check size={12} /></span><span><strong>{task.title}</strong><small>{task.dueAt ? formatTaskDue(task.dueAt) : task.estimatedMinutes ? formatTaskEstimate(task.estimatedMinutes) : task.status === "waiting" ? "等待中" : "未设置截止时间"}</small></span>{task.important && <Star size={13} fill="currentColor" />}</Link>)}{!openTasks.length && <div className="project-panel-empty"><CheckCircle2 size={20} /><span>当前没有待推进任务</span></div>}</div>
+              <div className="project-action-list">{openTasks.slice(0, 7).map((task) => <Link href={`/tasks?task=${encodeURIComponent(task.id)}`} key={task.id}><span className={`project-task-status ${task.isUrgent ? "urgent" : ""}`}><Check size={12} /></span><span><strong>{task.title}</strong><small>{task.dueAt ? formatTaskDue(task.dueAt) : task.estimatedMinutes ? formatTaskEstimate(task.estimatedMinutes) : formatProjectTaskStatus(task.projectStatus)}</small></span>{task.important && <Star size={13} fill="currentColor" />}</Link>)}{!openTasks.length && <div className="project-panel-empty"><CheckCircle2 size={20} /><span>当前没有待推进任务</span></div>}</div>
             </section>
 
             <section className="panel project-notes-panel">
@@ -964,24 +981,28 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
       </div>}
       {ganttDraft && overview && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setGanttDraft(undefined); }}>
         <section className="calendar-dialog project-gantt-dialog panel" role="dialog" aria-modal="true" aria-labelledby="project-gantt-dialog-title">
-          <header><div><h2 id="project-gantt-dialog-title">{ganttDraft.taskTitle}</h2></div><button aria-label="关闭" onClick={() => setGanttDraft(undefined)} disabled={busy}><X size={18} /></button></header>
+          <header><div><input id="project-gantt-dialog-title" className="project-gantt-title-input" aria-label="任务名称" autoFocus maxLength={240} value={ganttDraft.title} onChange={(event) => setGanttDraft({ ...ganttDraft, title: event.target.value })} /></div><button aria-label="关闭" onClick={() => setGanttDraft(undefined)} disabled={busy}><X size={18} /></button></header>
           <div className="project-gantt-form">
             <label><span>所属阶段</span><AppSelect ariaLabel="所属阶段" value={ganttDraft.phaseId} onValueChange={(phaseId) => setGanttDraft({ ...ganttDraft, phaseId })} options={[{ value: "", label: "未分组" }, ...overview.phases.map((phase) => ({ value: phase.id, label: phase.name }))]} /></label>
-            <DateTimeField label="计划开始" mode="date" disabled={ganttDraft.autoSchedule && ganttDraft.dependencyIds.length > 0} value={ganttDraft.plannedStart} onChange={(plannedStart) => {
-              setGanttDraft({ ...ganttDraft, plannedStart, plannedEnd: plannedStart ? addProjectDays(plannedStart, ganttDraft.durationWorkdays - 1) : "" });
-            }} />
-            <label><span>工期（天）</span><input type="number" min={1} max={2600} value={ganttDraft.durationWorkdays} onChange={(event) => {
-              const durationWorkdays = Math.max(1, Math.min(2600, Number(event.target.value) || 1));
-              setGanttDraft({ ...ganttDraft, durationWorkdays, plannedEnd: ganttDraft.plannedStart ? addProjectDays(ganttDraft.plannedStart, durationWorkdays - 1) : "" });
-            }} /></label>
-            <DateTimeField label="计划结束" mode="date" readOnly clearable={false} value={ganttDraft.plannedEnd} onChange={() => undefined} />
-            <label className="project-gantt-auto-schedule"><input type="checkbox" checked={ganttDraft.autoSchedule} onChange={(event) => setGanttDraft({ ...ganttDraft, autoSchedule: event.target.checked })} /><span><strong>根据依赖自动排期</strong><small>前置任务变化时，自动顺延到次日</small></span></label>
-            <fieldset><legend>前置任务</legend><div>{overview.ganttTasks.filter((task) => task.id !== ganttDraft.taskId).map((task) => <label key={task.id}><input type="checkbox" checked={ganttDraft.dependencyIds.includes(task.id)} onChange={(event) => {
+            <label><span>状态</span><AppSelect ariaLabel="项目任务状态" value={ganttDraft.projectStatus} onValueChange={(projectStatus) => setGanttDraft({ ...ganttDraft, projectStatus: projectStatus as ProjectTaskStatus })} options={[{ value: "planned", label: "待开始" }, { value: "in_progress", label: "进行中" }, { value: "paused", label: "已暂停" }, { value: "done", label: "已完成" }, { value: "cancelled", label: "已取消" }]} /></label>
+            <div className="project-gantt-schedule-fields">
+              <DateTimeField label="计划开始" mode="date" disabled={ganttDraft.autoSchedule && ganttDraft.dependencyIds.length > 0} value={ganttDraft.plannedStart} onChange={(plannedStart) => {
+                setGanttDraft({ ...ganttDraft, plannedStart, plannedEnd: plannedStart ? addProjectDays(plannedStart, ganttDraft.durationWorkdays - 1) : "" });
+              }} />
+              <label><span>工期（天）</span><input type="number" min={1} max={2600} value={ganttDraft.durationWorkdays} onChange={(event) => {
+                const durationWorkdays = Math.max(1, Math.min(2600, Number(event.target.value) || 1));
+                setGanttDraft({ ...ganttDraft, durationWorkdays, plannedEnd: ganttDraft.plannedStart ? addProjectDays(ganttDraft.plannedStart, durationWorkdays - 1) : "" });
+              }} /></label>
+              <DateTimeField label="计划结束" mode="date" min={ganttDraft.plannedStart} clearable={false} value={ganttDraft.plannedEnd} onChange={(plannedEnd) => {
+                setGanttDraft({ ...ganttDraft, plannedEnd, durationWorkdays: ganttDraft.plannedStart && plannedEnd ? countProjectDays(ganttDraft.plannedStart, plannedEnd) : ganttDraft.durationWorkdays });
+              }} />
+            </div>
+            <fieldset><legend><label className="project-gantt-auto-schedule"><input type="checkbox" checked={ganttDraft.autoSchedule} onChange={(event) => setGanttDraft({ ...ganttDraft, autoSchedule: event.target.checked })} /><span>自动排期</span></label><span>前置任务</span>{ganttDraftBlocked && <em className="project-gantt-blocked-status">受阻</em>}</legend><div>{overview.ganttTasks.filter((task) => task.id !== ganttDraft.taskId).map((task) => <label key={task.id}><input type="checkbox" checked={ganttDraft.dependencyIds.includes(task.id)} onChange={(event) => {
               const dependencyIds = event.target.checked ? [...ganttDraft.dependencyIds, task.id] : ganttDraft.dependencyIds.filter((id) => id !== task.id);
               setGanttDraft({ ...ganttDraft, dependencyIds, autoSchedule: event.target.checked ? true : ganttDraft.autoSchedule });
-            }} /><span>{task.title}</span></label>)}</div>{overview.ganttTasks.length <= 1 && <p>项目中还没有其他任务可作为依赖。</p>}</fieldset>
+            }} /><span className="project-gantt-dependency-title">{task.title}</span><em className={`project-gantt-dependency-status ${task.projectStatus}`}>{formatProjectTaskStatus(task.projectStatus)}</em></label>)}</div>{overview.ganttTasks.length <= 1 && <p>项目中还没有其他任务可作为依赖。</p>}</fieldset>
           </div>
-          <footer><div><button className="secondary-button" disabled={busy} onClick={() => setGanttDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !ganttDraft.plannedStart || !ganttDraft.plannedEnd} onClick={() => void saveGanttPlan()}>{busy && <LoaderCircle className="spin" size={14} />}保存计划</button></div></footer>
+          <footer><div><button className="secondary-button" disabled={busy} onClick={() => setGanttDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !ganttDraft.title.trim() || !ganttDraft.plannedStart || !ganttDraft.plannedEnd} onClick={() => void saveGanttPlan()}>{busy && <LoaderCircle className="spin" size={14} />}保存计划</button></div></footer>
         </section>
       </div>}
       {phaseDraft && overview && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setPhaseDraft(undefined); }}>
@@ -1017,7 +1038,8 @@ function createProjectGanttDraft(task: ClientProjectGanttTask): ProjectGanttPlan
   const end = task.plannedEnd ?? addProjectDays(start, durationWorkdays - 1);
   return {
     taskId: task.id,
-    taskTitle: task.title,
+    title: task.title,
+    projectStatus: task.projectStatus,
     plannedStart: start,
     plannedEnd: end,
     dependencyIds: task.dependencyIds,
@@ -1584,6 +1606,16 @@ function ProjectGanttChart({
       ? Math.max(1, projectDayDifference(task.plannedStart, task.plannedEnd) + 1)
       : 0;
     const dependencyTitles = task.dependencyIds.map((id) => taskById.get(id)?.title).filter((title): title is string => Boolean(title));
+    const blocked = task.dependencyIds.some((id) => taskById.get(id)?.projectStatus !== "done");
+    const statusLabel = blocked ? "受阻" : formatProjectTaskStatus(task.projectStatus);
+    const taskMeta = [statusLabel, task.autoSchedule ? "自动排期" : dependencyTitles.length > 0 ? `依赖：${dependencyTitles.join("、")}` : undefined].filter(Boolean).join(" · ");
+    const statusIcon = blocked
+      ? <AlertCircle size={12} />
+      : task.projectStatus === "planned" ? <Circle size={12} />
+      : task.projectStatus === "in_progress" ? <ArrowRight size={12} />
+      : task.projectStatus === "paused" ? <Pause size={12} />
+      : task.projectStatus === "done" ? <Check size={12} />
+      : <X size={12} />;
     const taskPreview = dragPreview?.taskId === task.id ? dragPreview : undefined;
     const previewStart = taskPreview?.start ?? task.plannedStart;
     const previewEnd = taskPreview?.end ?? task.plannedEnd;
@@ -1593,24 +1625,24 @@ function ProjectGanttChart({
     const durationLabel = `${task.durationWorkdays ?? (task.plannedStart && task.plannedEnd ? countProjectDays(task.plannedStart, task.plannedEnd) : 1)} 天`;
     const rowKey = `task:${task.id}`;
     return <div
-      className={`project-gantt-row ${task.status === "done" ? "done" : ""}${rowDrag?.kind === "task" && rowDrag.itemId === task.id ? " project-gantt-row-dragging" : ""}${rowDropClass(rowKey)}`}
+      className={`project-gantt-row ${task.projectStatus === "done" ? "done" : task.projectStatus === "cancelled" ? "cancelled" : ""}${rowDrag?.kind === "task" && rowDrag.itemId === task.id ? " project-gantt-row-dragging" : ""}${rowDropClass(rowKey)}`}
       key={task.id}
       onDragOver={(event) => dragOverRow(event, rowKey, "task", task.id, task.phaseId)}
       onDrop={(event) => dropOnRow(event, "task", task.id, task.phaseId)}
     >
-      <button className="project-gantt-task" title="拖动调整顺序，点击编辑" disabled={readOnly} draggable={!readOnly && !busy} onDragStart={(event) => startRowDrag(event, { kind: "task", itemId: task.id, phaseId: task.phaseId })} onDragEnd={finishRowDrag} onClick={() => openRowAfterClick(() => onEdit(task))} onContextMenu={(event) => openTaskMenu(event, task)}><span><strong>{task.title}</strong>{(task.autoSchedule || dependencyTitles.length > 0) && <small>{task.autoSchedule ? "自动排期" : `依赖：${dependencyTitles.join("、")}`}</small>}</span><span className="project-gantt-row-actions"><small className="project-gantt-duration">{durationLabel}</small><GripVertical size={14} /><Pencil size={13} /></span></button>
+      <button className="project-gantt-task" title="拖动调整顺序，点击编辑" disabled={readOnly} draggable={!readOnly && !busy} onDragStart={(event) => startRowDrag(event, { kind: "task", itemId: task.id, phaseId: task.phaseId })} onDragEnd={finishRowDrag} onClick={() => openRowAfterClick(() => onEdit(task))} onContextMenu={(event) => openTaskMenu(event, task)}><span><strong>{task.title}</strong><small className={blocked ? "blocked" : undefined}>{taskMeta}</small></span><span className="project-gantt-row-actions"><small className="project-gantt-duration">{durationLabel}</small><GripVertical size={14} /><Pencil size={13} /></span></button>
       <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event, task.phaseId)} {...createTrackHandlers(`task:${task.id}`, task.phaseId)}>
         {weekendBands()}
         {todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}
         {renderCreateSelection(`task:${task.id}`)}
         {durationDays ? <div
-          className={`project-gantt-bar ${taskPreview ? `dragging ${taskPreview.mode}` : ""} ${saving ? "saving" : ""}`}
+          className={`project-gantt-bar status-${task.projectStatus}${blocked ? " blocked" : ""}${taskPreview ? ` dragging ${taskPreview.mode}` : ""}${saving ? " saving" : ""}`}
           role="button"
           tabIndex={readOnly ? -1 : 0}
           aria-disabled={readOnly || saving}
-          aria-label={`编辑任务计划：${task.title}，${previewStart} 至 ${previewEnd}`}
-          title={`${task.title}：${previewStart} – ${previewEnd}`}
-          style={{ left: previewStartIndex * dayWidth, width: previewDurationDays * dayWidth, background: projectColor }}
+          aria-label={`编辑任务计划：${task.title}，${statusLabel}，${previewStart} 至 ${previewEnd}`}
+          title={`${task.title} · ${statusLabel}：${previewStart} – ${previewEnd}`}
+          style={{ left: previewStartIndex * dayWidth, width: previewDurationDays * dayWidth, "--project-gantt-task-color": projectColor } as CSSProperties}
           onContextMenu={(event) => openTaskMenu(event, task)}
           onClick={() => { if (!readOnly) openTaskAfterClick(task); }}
           onKeyDown={(event) => {
@@ -1635,8 +1667,8 @@ function ProjectGanttChart({
             onPointerUp={(event) => finishDrag(event)}
             onPointerCancel={(event) => finishDrag(event, true)}
           />}
+          <i className="project-gantt-bar-status" aria-hidden="true">{saving ? <LoaderCircle className="spin" size={12} /> : statusIcon}</i>
           <span>{taskPreview ? formatProjectGanttDragRange(previewStart!, previewEnd!) : task.title}</span>
-          {saving ? <LoaderCircle className="spin" size={12} /> : task.status === "done" ? <Check size={12} /> : null}
           {!readOnly && <button
             type="button"
             className="project-gantt-resize-handle end"
@@ -1743,8 +1775,9 @@ function ProjectGanttChart({
             ].sort();
             const phaseStart = phaseDates[0];
             const phaseEnd = phaseDates.at(-1);
-            const completed = phaseTasks.filter((task) => task.status === "done").length;
-            const completionPercent = phaseTasks.length ? Math.round((completed / phaseTasks.length) * 100) : 0;
+            const completed = phaseTasks.filter((task) => task.projectStatus === "done").length;
+            const phaseTaskCount = phaseTasks.filter((task) => task.projectStatus !== "cancelled").length;
+            const completionPercent = phaseTaskCount ? Math.round((completed / phaseTaskCount) * 100) : 0;
             const phaseRowKey = `phase:${phase.id}`;
             const phaseRow = <div
               className={`project-gantt-row project-gantt-phase-row${rowDropClass(phaseRowKey)}`}
@@ -1757,7 +1790,7 @@ function ProjectGanttChart({
                 if (next.has(phase.id)) next.delete(phase.id);
                 else next.add(phase.id);
                 return next;
-              })} onContextMenu={(event) => openPhaseMenu(event, phase)}>{collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<i style={{ background: phase.color }} /><span><strong>{phase.name}</strong><small>{phaseTasks.length} 项任务 · {phaseMilestones.length} 个里程碑 · {completionPercent}%</small></span><MoreHorizontal size={13} /></button>
+              })} onContextMenu={(event) => openPhaseMenu(event, phase)}>{collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<i style={{ background: phase.color }} /><span><strong>{phase.name}</strong><small>{phaseTaskCount} 项任务 · {phaseMilestones.length} 个里程碑 · {completionPercent}%</small></span><MoreHorizontal size={13} /></button>
               <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event, phase.id)} {...createTrackHandlers(`phase:${phase.id}`, phase.id)}>
                 {weekendBands()}
                 {todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}

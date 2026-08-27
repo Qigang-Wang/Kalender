@@ -1902,6 +1902,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .project-gantt-task span, .project-gantt-task strong, .project-gantt-task small { display: block; min-width: 0; }
 .project-gantt-task strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .project-gantt-task small { margin-top: 1px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.project-gantt-task small.blocked { color: #e4ad68; }
 .project-gantt-task > svg { color: var(--muted); }
 .project-gantt-task .project-gantt-row-actions { display: inline-flex; min-width: auto; align-items: center; gap: 5px; color: var(--muted); }
 .project-gantt-duration { margin: 0 3px 0 0 !important; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -1918,11 +1919,23 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .project-gantt-weekend { position: absolute; top: 0; bottom: 0; z-index: 0; display: block; background: rgb(120 143 166 / 9%); pointer-events: none; }
 .project-gantt-time-heading .project-gantt-weekend { background: rgb(120 143 166 / 11%); }
 .project-gantt-today { position: absolute; top: 0; bottom: 0; z-index: 1; width: 2px; background: #e4a659; opacity: .8; }
-.project-gantt-bar { position: absolute; top: 6px; z-index: 2; display: flex; overflow: hidden; height: 28px; align-items: center; justify-content: space-between; gap: 6px; padding: 0 10px; color: #12202c; cursor: grab; touch-action: pan-y; user-select: none; border: 0; border-radius: 6px; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 20%), 0 3px 10px rgb(0 0 0 / 20%); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.project-gantt-bar { position: absolute; top: 6px; z-index: 2; display: flex; overflow: hidden; height: 28px; align-items: center; justify-content: flex-start; gap: 6px; padding: 0 10px; color: #12202c; cursor: grab; touch-action: pan-y; user-select: none; background: var(--project-gantt-task-color); border: 1px solid color-mix(in srgb, var(--project-gantt-task-color) 74%, #1c425e); border-radius: 6px; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 20%), 0 3px 10px rgb(0 0 0 / 20%); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .project-gantt-bar:hover { filter: brightness(1.06); }
 .project-gantt-bar:focus-visible { outline: 2px solid #d8ecff; outline-offset: 2px; }
-.project-gantt-bar span { position: relative; z-index: 2; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.project-gantt-bar span { position: relative; z-index: 2; min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .project-gantt-bar > svg { position: relative; z-index: 2; flex: 0 0 auto; pointer-events: none; }
+.project-gantt-bar-status { position: relative; z-index: 2; display: grid; width: 16px; height: 16px; flex: 0 0 auto; place-items: center; font-style: normal; pointer-events: none; border-radius: 50%; }
+.project-gantt-bar-status > svg { display: block; }
+.project-gantt-bar.status-planned { color: #cbdde9; background: color-mix(in srgb, var(--project-gantt-task-color) 32%, #26323a); border-style: dashed; border-color: color-mix(in srgb, var(--project-gantt-task-color) 74%, #9bb3c3); box-shadow: none; }
+.project-gantt-bar.status-in_progress { background: var(--project-gantt-task-color); border-color: color-mix(in srgb, var(--project-gantt-task-color) 70%, #224e6d); }
+.project-gantt-bar.status-in_progress .project-gantt-bar-status { color: #215d89; background: rgb(255 255 255 / 48%); }
+.project-gantt-bar.status-paused { color: #f1d19c; background: repeating-linear-gradient(135deg, #58452c 0 7px, #493a27 7px 14px); border-color: #b78745; box-shadow: none; }
+.project-gantt-bar.status-done { color: #d0ead9; background: #294738; border-color: #57906d; opacity: .82; box-shadow: none; }
+.project-gantt-bar.status-done .project-gantt-bar-status { color: #fff; background: #4d9b68; }
+.project-gantt-bar.status-cancelled { color: #bdc4c0; background: #363c38; border-color: #626b65; opacity: .68; filter: grayscale(.7); text-decoration: line-through; box-shadow: none; }
+.project-gantt-bar.status-cancelled .project-gantt-bar-status { text-decoration: none; }
+.project-gantt-bar.blocked { color: #ffe1b4; background: repeating-linear-gradient(135deg, #503720 0 8px, #452f1c 8px 16px); border: 2px solid #e09b50; opacity: 1; filter: none; text-decoration: none; box-shadow: 0 0 0 3px rgb(222 145 69 / 10%); }
+.project-gantt-bar.blocked .project-gantt-bar-status { color: #fff; background: #c97727; }
 .project-gantt-bar.dragging { z-index: 4; cursor: grabbing; filter: brightness(1.08); box-shadow: inset 0 0 0 2px rgb(255 255 255 / 46%), 0 7px 18px rgb(0 0 0 / 36%); }
 .project-gantt-bar.resize-start, .project-gantt-bar.resize-end { cursor: ew-resize; }
 .project-gantt-bar.saving { cursor: wait; filter: saturate(.7); }
@@ -1938,7 +1951,6 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .project-gantt-create-selection.compact { justify-content: center; padding: 0; }
 .project-gantt-create-selection svg { flex: 0 0 auto; }
 .project-gantt-create-selection span { overflow: hidden; text-overflow: ellipsis; }
-.project-gantt-row.done .project-gantt-bar { opacity: .56; }
 .project-gantt-unscheduled { position: absolute; top: 6px; left: 12px; min-height: 28px; padding: 0 9px; color: var(--muted); background: #252a26; border: 1px dashed #555d57; border-radius: 6px; font-size: 12px; }
 .project-gantt-unscheduled:hover { color: var(--text); border-color: var(--blue); }
 .project-gantt-phase-row { min-height: 42px; background: #202521; }
@@ -1968,6 +1980,10 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .project-gantt-empty h2 { font-size: 16px; }
 .project-gantt-empty p { color: var(--muted); font-size: 12px; }
 .project-gantt-dialog { width: min(620px, 100%); }
+.project-gantt-dialog > header > div { min-width: 0; flex: 1 1 auto; }
+.project-gantt-title-input { width: 100%; height: 38px; padding: 0 9px; color: var(--text); background: #2c2f2d; border: 1px solid #464a47; border-radius: 8px; outline: 0; font-size: 18px; font-weight: 600; }
+.project-gantt-title-input:hover { border-color: #5b625d; }
+.project-gantt-title-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb(134 189 245 / 10%); }
 .project-area-dialog { width: min(460px, 100%); }
 .project-area-dialog > p { margin: -2px 0 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .project-area-options { display: grid; max-height: min(340px, 52vh); gap: 4px; overflow-y: auto; padding: 4px; background: #1b1e1c; border: 1px solid var(--line); border-radius: 10px; }
@@ -1981,16 +1997,26 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .project-gantt-form > label input, .project-gantt-form > label select { width: 100%; height: 38px; padding: 0 10px; color: var(--text); background: #2c2f2d; border: 1px solid #464a47; border-radius: 8px; outline: 0; }
 .project-gantt-form > label input:focus, .project-gantt-form > label select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb(134 189 245 / 10%); }
 .project-gantt-form > label input:disabled { color: var(--muted); cursor: not-allowed; opacity: .7; }
-.project-gantt-form .project-gantt-auto-schedule { display: flex; grid-column: 1 / -1; min-height: 48px; align-items: center; gap: 10px; padding: 8px 10px; background: #252925; border: 1px solid #393e3a; border-radius: 8px; }
-.project-gantt-form .project-gantt-auto-schedule > input { width: 16px; height: 16px; flex: 0 0 auto; padding: 0; accent-color: var(--blue); }
-.project-gantt-form .project-gantt-auto-schedule > span { margin: 0; }
-.project-gantt-form .project-gantt-auto-schedule strong, .project-gantt-form .project-gantt-auto-schedule small { display: block; }
-.project-gantt-form .project-gantt-auto-schedule strong { color: var(--text); font-size: 12px; }
-.project-gantt-form .project-gantt-auto-schedule small { margin-top: 2px; color: var(--muted); font-size: 12px; }
+.project-gantt-schedule-fields { display: grid; min-width: 0; grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) 100px minmax(0, 1fr); gap: 12px; }
+.project-gantt-schedule-fields > label > span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+.project-gantt-schedule-fields > label input { width: 100%; height: 38px; padding: 0 10px; color: var(--text); background: #2c2f2d; border: 1px solid #464a47; border-radius: 8px; outline: 0; }
+.project-gantt-schedule-fields > label input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgb(134 189 245 / 10%); }
 .project-gantt-form fieldset { min-width: 0; grid-column: 1 / -1; margin: 0; padding: 0; border: 0; }
+.project-gantt-form fieldset legend { display: flex; align-items: center; gap: 12px; width: 100%; }
+.project-gantt-form fieldset legend > span { color: var(--muted); }
+.project-gantt-form .project-gantt-auto-schedule { display: inline-flex; align-items: center; gap: 5px; color: var(--text); cursor: pointer; }
+.project-gantt-form .project-gantt-auto-schedule > input { width: 14px; height: 14px; margin: 0; accent-color: var(--blue); }
 .project-gantt-form fieldset > div { display: grid; max-height: 190px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; overflow-y: auto; }
-.project-gantt-form fieldset label { display: flex; min-width: 0; min-height: 34px; align-items: center; gap: 7px; padding: 6px 8px; background: #252925; border: 1px solid #393e3a; border-radius: 7px; }
-.project-gantt-form fieldset label span { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.project-gantt-form fieldset > div > label { display: flex; min-width: 0; min-height: 34px; align-items: center; gap: 7px; padding: 6px 8px; background: #252925; border: 1px solid #393e3a; border-radius: 7px; }
+.project-gantt-form fieldset > div > label span { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.project-gantt-dependency-title { min-width: 0; flex: 1 1 auto; }
+.project-gantt-dependency-status { flex: 0 0 auto; padding: 2px 6px; font-size: 11px; font-style: normal; line-height: 1.35; border-radius: 999px; white-space: nowrap; }
+.project-gantt-dependency-status.planned { color: #b9c2bd; background: rgb(185 194 189 / 12%); }
+.project-gantt-dependency-status.in_progress { color: #a9d2f8; background: rgb(88 157 220 / 18%); }
+.project-gantt-dependency-status.paused { color: #e8ca8f; background: rgb(202 154 67 / 17%); }
+.project-gantt-dependency-status.done { color: #a8d9ba; background: rgb(72 165 109 / 17%); }
+.project-gantt-dependency-status.cancelled { color: #c8aaa6; background: rgb(181 99 91 / 16%); }
+.project-gantt-blocked-status { margin-left: auto; padding: 2px 6px; color: #e8ca8f; background: rgb(202 154 67 / 17%); border-radius: 999px; font-size: 11px; font-style: normal; }
 .project-gantt-form fieldset input { width: 14px; height: 14px; flex: 0 0 auto; accent-color: var(--blue); }
 .project-gantt-form fieldset > p { color: var(--muted); font-size: 12px; }
 .project-phase-dialog, .project-gantt-task-dialog { width: min(590px, 100%); }
@@ -3242,9 +3268,9 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .project-gantt-table { min-width: calc(190px + var(--gantt-width)); width: calc(190px + var(--gantt-width)); }
   .project-gantt-heading, .project-gantt-row { grid-template-columns: 190px var(--gantt-width); }
   .project-gantt-form { grid-template-columns: 1fr; }
+  .project-gantt-schedule-fields { grid-template-columns: 1fr; }
   .project-gantt-form fieldset { grid-column: auto; }
   .project-gantt-form fieldset > div { grid-template-columns: 1fr; }
-  .project-gantt-form .project-gantt-auto-schedule { grid-column: auto; }
   .project-phase-form, .project-gantt-task-form { grid-template-columns: 1fr; }
   .project-gantt-task-form .wide { grid-column: auto; }
   .project-gantt > footer small { display: none; }
@@ -3834,8 +3860,7 @@ html[data-qgw-scheme="light"] :is(
   .project-gantt-ungrouped-row .project-gantt-task,
   .project-gantt-milestone-row .project-gantt-task,
   .project-area-options,
-  .project-gantt-form .project-gantt-auto-schedule,
-  .project-gantt-form fieldset label,
+  .project-gantt-form fieldset > div > label,
   .project-association-control,
   .task-source-field,
   .task-schedule-summary,
@@ -3871,8 +3896,7 @@ html[data-qgw-scheme="light"] :is(
   .project-gantt-unscheduled,
   .project-area-options > button:hover:not(:disabled),
   .project-area-options > button.active,
-  .project-gantt-form .project-gantt-auto-schedule,
-  .project-gantt-form fieldset label,
+  .project-gantt-form fieldset > div > label,
   .project-association-control,
   .task-source-field > a:hover,
   .task-source-field > a:focus-visible,
@@ -4086,6 +4110,51 @@ html[data-qgw-scheme="light"] :is(.project-gantt-heading, .project-gantt-task-he
   background: color-mix(in srgb, var(--surface-2) 58%, white);
   border-color: var(--line);
 }
+html[data-qgw-scheme="light"] .project-gantt-row {
+  border-bottom-color: var(--line-soft);
+}
+html[data-qgw-scheme="light"] .project-gantt-bar.status-planned {
+  color: #31566f;
+  background: color-mix(in srgb, var(--project-gantt-task-color) 26%, white);
+  border-color: color-mix(in srgb, var(--project-gantt-task-color) 72%, #5e7d93);
+}
+html[data-qgw-scheme="light"] .project-gantt-bar.status-paused {
+  color: #75501f;
+  background: repeating-linear-gradient(135deg, #f7e5bd 0 7px, #f1d9a8 7px 14px);
+  border-color: #d6a453;
+}
+html[data-qgw-scheme="light"] .project-gantt-bar.status-done {
+  color: #24593a;
+  background: #d7eddf;
+  border-color: #78b48e;
+}
+html[data-qgw-scheme="light"] .project-gantt-bar.status-cancelled {
+  color: #6f777c;
+  background: #e8ebed;
+  border-color: #abb4ba;
+}
+html[data-qgw-scheme="light"] .project-gantt-bar.blocked {
+  color: #713e11;
+  background: repeating-linear-gradient(135deg, #fee7c8 0 8px, #f8dcb5 8px 16px);
+  border-color: #d37b25;
+  box-shadow: 0 0 0 3px rgb(218 126 39 / 12%);
+}
+html[data-qgw-scheme="light"] .project-gantt-schedule-fields > label input {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-2) 62%, white);
+  border-color: var(--line);
+}
+html[data-qgw-scheme="light"] .project-gantt-title-input {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-2) 62%, white);
+  border-color: var(--line);
+}
+html[data-qgw-scheme="light"] .project-gantt-dependency-status.planned { color: #5f6d65; background: #e9eeeb; }
+html[data-qgw-scheme="light"] .project-gantt-dependency-status.in_progress { color: #326f9f; background: #e4f1fb; }
+html[data-qgw-scheme="light"] .project-gantt-dependency-status.paused,
+html[data-qgw-scheme="light"] .project-gantt-blocked-status { color: #8b651e; background: #f8efd9; }
+html[data-qgw-scheme="light"] .project-gantt-dependency-status.done { color: #397651; background: #e5f3ea; }
+html[data-qgw-scheme="light"] .project-gantt-dependency-status.cancelled { color: #8d4c46; background: #f7e9e7; }
 html[data-qgw-scheme="light"] .notes-workspace {
   box-shadow: 0 12px 32px rgb(70 82 92 / 6%);
 }
