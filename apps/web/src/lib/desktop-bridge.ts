@@ -25,7 +25,7 @@ export const DEFAULT_DESKTOP_REMINDER_SETTINGS: DesktopReminderSettings = {
   enabled: true,
   reminderMinutesBefore: 10,
   allDayReminderHour: 9,
-  launchAtLogin: false,
+  launchAtLogin: true,
   minimizeToTray: true,
   showEventTitle: true,
   missedReminderWindowMinutes: 30,

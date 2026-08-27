@@ -1,13 +1,26 @@
 use std::{collections::HashMap, fs, path::PathBuf, sync::Mutex, thread, time::Duration};
 
+#[cfg(target_os = "windows")]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(target_os = "windows")]
+use windows::Win32::{
+    Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+    UI::WindowsAndMessaging::{
+        CallWindowProcW, DefWindowProcW, SetWindowLongPtrW, GWLP_WNDPROC, SC_MINIMIZE, SWP_NOMOVE,
+        SWP_NOSIZE, WINDOWPOS, WM_SYSCOMMAND, WM_WINDOWPOSCHANGING, WNDPROC,
+    },
+};
+
 use chrono::{Days, Local, TimeZone, Utc};
 use notify_rust::Notification;
 use serde::{Deserialize, Serialize};
 use tauri::{
     image::Image,
-    menu::{IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{CheckMenuItem, IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+    AppHandle, LogicalSize, Manager, Monitor, State, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt;
 use url::Url;
@@ -17,8 +30,15 @@ const STATE_FILE: &str = "desktop-reminders.json";
 const REMINDER_CHECK_INTERVAL: Duration = Duration::from_secs(10);
 const SERVER_CONNECTION_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 const SERVER_CONNECTION_TIMEOUT: Duration = Duration::from_secs(3);
+const DESKTOP_WINDOW_GUARD_INTERVAL: Duration = Duration::from_millis(100);
 const DEFAULT_SERVER_URL: &str = "http://localhost:3000/";
 const MAX_SERVER_URL_LENGTH: usize = 2_048;
+
+#[cfg(target_os = "windows")]
+static NATIVE_DESKTOP_GUARD_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+#[cfg(target_os = "windows")]
+static ORIGINAL_MAIN_WNDPROCS: Mutex<Option<HashMap<isize, isize>>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,7 +58,7 @@ impl Default for DesktopSettings {
             enabled: true,
             reminder_minutes_before: 10,
             all_day_reminder_hour: 9,
-            launch_at_login: false,
+            launch_at_login: true,
             minimize_to_tray: true,
             show_event_title: true,
             missed_reminder_window_minutes: 30,
@@ -80,6 +100,14 @@ struct DesktopSummary {
     synced_at: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct DesktopMonitorPreference {
+    name: Option<String>,
+    position_x: i32,
+    position_y: i32,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PersistedState {
@@ -94,6 +122,10 @@ struct PersistedState {
     last_sync_attempt_at: Option<i64>,
     #[serde(default)]
     last_sync_error: Option<String>,
+    #[serde(default)]
+    desktop_mode: bool,
+    #[serde(default)]
+    desktop_monitor: Option<DesktopMonitorPreference>,
     server_url: Option<String>,
     #[serde(skip)]
     server_connected: Option<bool>,
@@ -103,6 +135,7 @@ struct DesktopRuntime {
     state: Mutex<PersistedState>,
     state_path: PathBuf,
     server_status_item: Mutex<Option<IconMenuItem<tauri::Wry>>>,
+    desktop_monitor_items: Mutex<Vec<CheckMenuItem<tauri::Wry>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -162,16 +195,7 @@ fn update_desktop_settings(
 ) -> Result<DesktopStatus, String> {
     ensure_main_caller(&window, &runtime)?;
     validate_settings(&settings)?;
-    let autostart = app.autolaunch();
-    if settings.launch_at_login {
-        autostart
-            .enable()
-            .map_err(|error| format!("无法启用开机启动：{error}"))?;
-    } else {
-        autostart
-            .disable()
-            .map_err(|error| format!("无法关闭开机启动：{error}"))?;
-    }
+    apply_autostart_setting(&app, settings.launch_at_login)?;
 
     let mut state = runtime
         .state
@@ -192,6 +216,7 @@ fn sync_reminders(
 ) -> Result<DesktopStatus, String> {
     ensure_main_caller(&window, &runtime)?;
     validate_settings(&payload.settings)?;
+    apply_autostart_setting(&app, payload.settings.launch_at_login)?;
     let mut state = runtime
         .state
         .lock()
@@ -325,6 +350,7 @@ fn desktop_window_minimize(
     runtime: State<'_, DesktopRuntime>,
 ) -> Result<(), String> {
     ensure_main_caller(&window, &runtime)?;
+    ensure_windowed_mode(&runtime)?;
     window
         .minimize()
         .map_err(|error| format!("无法最小化窗口：{error}"))
@@ -336,6 +362,7 @@ fn desktop_window_toggle_maximized(
     runtime: State<'_, DesktopRuntime>,
 ) -> Result<bool, String> {
     ensure_main_caller(&window, &runtime)?;
+    ensure_windowed_mode(&runtime)?;
     if window
         .is_maximized()
         .map_err(|error| format!("无法读取窗口状态：{error}"))?
@@ -358,6 +385,7 @@ fn desktop_window_start_dragging(
     runtime: State<'_, DesktopRuntime>,
 ) -> Result<(), String> {
     ensure_main_caller(&window, &runtime)?;
+    ensure_windowed_mode(&runtime)?;
     window
         .start_dragging()
         .map_err(|error| format!("无法拖动窗口：{error}"))
@@ -407,10 +435,16 @@ pub fn run() {
             let server_url = configured_server_url(&persisted).to_string();
             let connected = probe_server_health(&server_url);
             persisted.server_connected = Some(connected);
+            if let Err(error) =
+                apply_autostart_setting(app.handle(), persisted.settings.launch_at_login)
+            {
+                eprintln!("{error}");
+            }
             app.manage(DesktopRuntime {
                 state: Mutex::new(persisted),
                 state_path,
                 server_status_item: Mutex::new(None),
+                desktop_monitor_items: Mutex::new(Vec::new()),
             });
             build_tray(app)?;
             update_server_connection_menu(app.handle(), Some(connected));
@@ -421,6 +455,7 @@ pub fn run() {
             }
             start_reminder_scheduler(app.handle().clone());
             start_server_connection_monitor(app.handle().clone());
+            start_desktop_window_guard(app.handle().clone());
             if let Ok(state) = app.state::<DesktopRuntime>().state.lock() {
                 update_tray_tooltip(app.handle(), &state);
             }
@@ -430,20 +465,53 @@ pub fn run() {
             if window.label() != "main" {
                 return;
             }
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                let minimize = window
-                    .app_handle()
-                    .state::<DesktopRuntime>()
-                    .state
-                    .lock()
-                    .map(|state| state.settings.minimize_to_tray)
-                    .unwrap_or(true);
-                if minimize {
-                    api.prevent_close();
-                    let _ = window.hide();
-                } else {
-                    window.app_handle().exit(0);
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    let minimize = window
+                        .app_handle()
+                        .state::<DesktopRuntime>()
+                        .state
+                        .lock()
+                        .map(|state| state.settings.minimize_to_tray)
+                        .unwrap_or(true);
+                    if minimize {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    } else {
+                        window.app_handle().exit(0);
+                    }
                 }
+                WindowEvent::Moved(_)
+                | WindowEvent::Resized(_)
+                | WindowEvent::ScaleFactorChanged { .. } => {
+                    let desktop_mode = window
+                        .app_handle()
+                        .state::<DesktopRuntime>()
+                        .state
+                        .lock()
+                        .map(|state| state.desktop_mode)
+                        .unwrap_or(false);
+                    if desktop_mode {
+                        if let Some(main) = window.app_handle().get_webview_window("main") {
+                            let _ = fit_desktop_window(&main);
+                        }
+                    }
+                }
+                WindowEvent::Focused(false) => {
+                    let desktop_mode = window
+                        .app_handle()
+                        .state::<DesktopRuntime>()
+                        .state
+                        .lock()
+                        .map(|state| state.desktop_mode)
+                        .unwrap_or(false);
+                    if desktop_mode {
+                        if let Some(main) = window.app_handle().get_webview_window("main") {
+                            let _ = return_desktop_window_to_background(&main);
+                        }
+                    }
+                }
+                _ => {}
             }
         })
         .run(tauri::generate_context!())
@@ -452,6 +520,47 @@ pub fn run() {
 
 fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "打开 Kalender", true, None::<&str>)?;
+    let (desktop_mode_enabled, selected_monitor) = app
+        .state::<DesktopRuntime>()
+        .state
+        .lock()
+        .map(|state| (state.desktop_mode, state.desktop_monitor.clone()))
+        .unwrap_or((false, None));
+    let desktop_menu = Submenu::with_id(app, "desktop-menu", "桌面模式", true)?;
+    let monitors = app.available_monitors().unwrap_or_default();
+    let mut desktop_monitor_items = Vec::new();
+    for (index, monitor) in monitors.iter().enumerate() {
+        let preference = monitor_preference(monitor);
+        let selected = desktop_mode_enabled
+            && selected_monitor
+                .as_ref()
+                .is_some_and(|current| current == &preference);
+        let item = CheckMenuItem::with_id(
+            app,
+            format!("desktop-monitor-{index}"),
+            monitor_menu_label(index, monitor),
+            true,
+            selected,
+            None::<&str>,
+        )?;
+        desktop_menu.append(&item)?;
+        desktop_monitor_items.push(item);
+    }
+    if desktop_monitor_items.is_empty() {
+        let unavailable = MenuItem::with_id(
+            app,
+            "desktop-monitor-unavailable",
+            "没有检测到显示器",
+            false,
+            None::<&str>,
+        )?;
+        desktop_menu.append(&unavailable)?;
+    }
+    let desktop_separator = PredefinedMenuItem::separator(app)?;
+    let leave_desktop =
+        MenuItem::with_id(app, "desktop-mode-off", "退出桌面模式", true, None::<&str>)?;
+    desktop_menu.append(&desktop_separator)?;
+    desktop_menu.append(&leave_desktop)?;
     let pause_30 = MenuItem::with_id(app, "pause-30", "暂停 30 分钟", true, None::<&str>)?;
     let pause_120 = MenuItem::with_id(app, "pause-120", "暂停 2 小时", true, None::<&str>)?;
     let pause_today = MenuItem::with_id(app, "pause-today", "今天不再提醒", true, None::<&str>)?;
@@ -479,6 +588,7 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
         app,
         &[
             &open,
+            &desktop_menu,
             &pause_menu,
             &sync,
             &settings,
@@ -492,6 +602,9 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
     if let Ok(mut item) = app.state::<DesktopRuntime>().server_status_item.lock() {
         *item = Some(server_status);
     }
+    if let Ok(mut items) = app.state::<DesktopRuntime>().desktop_monitor_items.lock() {
+        *items = desktop_monitor_items;
+    }
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(
@@ -502,18 +615,29 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .tooltip("Kalender\n正在同步今日日程")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "open" => request_main_window(app, None),
-            "pause-30" => set_pause(app, Some(Utc::now().timestamp_millis() + 30 * 60_000)),
-            "pause-120" => set_pause(app, Some(Utc::now().timestamp_millis() + 120 * 60_000)),
-            "pause-today" => set_pause(app, end_of_local_day()),
-            "resume" => set_pause(app, None),
-            "sync" => dispatch_web_event(app, "kalender:desktop-sync-requested"),
-            "settings" => open_route(app, "/settings?tab=desktop"),
-            "server-status" => open_server_config(app),
-            "server-config" => open_server_config(app),
-            "quit" => app.exit(0),
-            _ => {}
+        .on_menu_event(|app, event| {
+            let id = event.id().as_ref();
+            if let Some(index) = id
+                .strip_prefix("desktop-monitor-")
+                .and_then(|value| value.parse::<usize>().ok())
+            {
+                select_desktop_monitor(app, index);
+                return;
+            }
+            match id {
+                "open" => show_main_window_from_tray(app),
+                "desktop-mode-off" => leave_desktop_mode(app),
+                "pause-30" => set_pause(app, Some(Utc::now().timestamp_millis() + 30 * 60_000)),
+                "pause-120" => set_pause(app, Some(Utc::now().timestamp_millis() + 120 * 60_000)),
+                "pause-today" => set_pause(app, end_of_local_day()),
+                "resume" => set_pause(app, None),
+                "sync" => dispatch_web_event(app, "kalender:desktop-sync-requested"),
+                "settings" => open_route(app, "/settings?tab=desktop"),
+                "server-status" => open_server_config(app),
+                "server-config" => open_server_config(app),
+                "quit" => app.exit(0),
+                _ => {}
+            }
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
@@ -522,11 +646,463 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 ..
             } = event
             {
-                request_main_window(tray.app_handle(), None);
+                show_main_window_from_tray(tray.app_handle());
             }
         })
         .build(app)?;
     Ok(())
+}
+
+fn apply_autostart_setting(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    let autostart = app.autolaunch();
+    let current = autostart
+        .is_enabled()
+        .map_err(|error| format!("无法读取开机启动状态：{error}"))?;
+    if current == enabled {
+        return Ok(());
+    }
+    if enabled {
+        autostart
+            .enable()
+            .map_err(|error| format!("无法启用开机启动：{error}"))
+    } else {
+        autostart
+            .disable()
+            .map_err(|error| format!("无法关闭开机启动：{error}"))
+    }
+}
+
+fn ensure_windowed_mode(runtime: &State<'_, DesktopRuntime>) -> Result<(), String> {
+    let desktop_mode = runtime
+        .state
+        .lock()
+        .map_err(|_| "桌面窗口状态暂时不可用".to_string())?
+        .desktop_mode;
+    if desktop_mode {
+        Err("桌面模式下窗口位置和大小已锁定".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+fn open_windowed_mode(app: &AppHandle, route: Option<&str>) {
+    if let Err(error) = set_desktop_mode(app, false) {
+        show_desktop_mode_error(&error);
+        return;
+    }
+    request_main_window(app, route);
+}
+
+fn show_main_window_from_tray(app: &AppHandle) {
+    let desktop_mode = app
+        .state::<DesktopRuntime>()
+        .state
+        .lock()
+        .map(|state| state.desktop_mode)
+        .unwrap_or(false);
+    if !desktop_mode {
+        request_main_window(app, None);
+        return;
+    }
+
+    let Some(window) = app.get_webview_window("main") else {
+        request_main_window(app, None);
+        return;
+    };
+    if let Err(error) = show_desktop_window_in_front(&window) {
+        show_desktop_mode_error(&error);
+    }
+}
+
+fn show_desktop_window_in_front(window: &WebviewWindow) -> Result<(), String> {
+    if window
+        .is_minimized()
+        .map_err(|error| format!("无法读取 Kalender 桌面窗口状态：{error}"))?
+    {
+        window
+            .unminimize()
+            .map_err(|error| format!("无法恢复 Kalender 桌面窗口：{error}"))?;
+    }
+    window
+        .show()
+        .map_err(|error| format!("无法显示 Kalender 桌面窗口：{error}"))?;
+    fit_desktop_window(window)?;
+    window
+        .set_always_on_bottom(false)
+        .map_err(|error| format!("无法提升 Kalender 桌面窗口：{error}"))?;
+    window
+        .set_always_on_top(true)
+        .map_err(|error| format!("无法将 Kalender 放到最前：{error}"))?;
+    window
+        .set_focus()
+        .map_err(|error| format!("无法聚焦 Kalender 桌面窗口：{error}"))
+}
+
+fn return_desktop_window_to_background(window: &WebviewWindow) -> Result<(), String> {
+    window
+        .set_always_on_top(false)
+        .map_err(|error| format!("无法恢复 Kalender 桌面窗口层级：{error}"))?;
+    window
+        .set_always_on_bottom(true)
+        .map_err(|error| format!("无法将 Kalender 放回桌面层：{error}"))?;
+    fit_desktop_window(window)
+}
+
+fn leave_desktop_mode(app: &AppHandle) {
+    if let Err(error) = set_desktop_mode(app, false) {
+        show_desktop_mode_error(&error);
+    }
+}
+
+fn select_desktop_monitor(app: &AppHandle, index: usize) {
+    let monitor = match app
+        .available_monitors()
+        .ok()
+        .and_then(|monitors| monitors.into_iter().nth(index))
+    {
+        Some(monitor) => monitor,
+        None => {
+            show_desktop_mode_error("所选显示器已经不可用，请重新打开托盘菜单");
+            return;
+        }
+    };
+    let preference = monitor_preference(&monitor);
+    let runtime = app.state::<DesktopRuntime>();
+    let previous = match runtime.state.lock() {
+        Ok(state) => state.desktop_monitor.clone(),
+        Err(_) => {
+            show_desktop_mode_error("桌面窗口状态暂时不可用");
+            return;
+        }
+    };
+    let persist_result = runtime
+        .state
+        .lock()
+        .map_err(|_| "桌面窗口状态暂时不可用".to_string())
+        .and_then(|mut state| {
+            state.desktop_monitor = Some(preference);
+            save_state(&runtime.state_path, &state)
+        });
+    if let Err(error) = persist_result {
+        show_desktop_mode_error(&error);
+        return;
+    }
+
+    if let Err(error) = set_desktop_mode(app, true) {
+        if let Ok(mut state) = runtime.state.lock() {
+            state.desktop_monitor = previous;
+            let _ = save_state(&runtime.state_path, &state);
+        }
+        update_desktop_mode_menu(app, false);
+        show_desktop_mode_error(&error);
+        return;
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        if let Err(error) = apply_window_mode(&window, true) {
+            show_desktop_mode_error(&error);
+        }
+    }
+    update_desktop_mode_menu(app, true);
+}
+
+fn set_desktop_mode(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    let runtime = app.state::<DesktopRuntime>();
+    let previous = runtime
+        .state
+        .lock()
+        .map_err(|_| "桌面窗口状态暂时不可用".to_string())?
+        .desktop_mode;
+    let window = app.get_webview_window("main");
+
+    if previous != enabled {
+        if let Some(window) = window.as_ref() {
+            if let Err(error) = apply_window_mode(window, enabled) {
+                update_desktop_mode_menu(app, previous);
+                return Err(error);
+            }
+        }
+        let persist_result = runtime
+            .state
+            .lock()
+            .map_err(|_| "桌面窗口状态暂时不可用".to_string())
+            .and_then(|mut state| {
+                state.desktop_mode = enabled;
+                save_state(&runtime.state_path, &state)
+            });
+        if let Err(error) = persist_result {
+            if let Some(window) = window.as_ref() {
+                let _ = apply_window_mode(window, previous);
+            }
+            update_desktop_mode_menu(app, previous);
+            return Err(error);
+        }
+    }
+    update_desktop_mode_menu(app, enabled);
+
+    if let Some(window) = window {
+        window
+            .unminimize()
+            .map_err(|error| format!("无法恢复 Kalender 窗口：{error}"))?;
+        window
+            .show()
+            .map_err(|error| format!("无法显示 Kalender 窗口：{error}"))?;
+        if !enabled {
+            window
+                .set_focus()
+                .map_err(|error| format!("无法聚焦 Kalender 窗口：{error}"))?;
+        }
+    } else if enabled {
+        request_main_window(app, None);
+    }
+    Ok(())
+}
+
+fn update_desktop_mode_menu(app: &AppHandle, enabled: bool) {
+    let (selected_monitor, items) = {
+        let runtime = app.state::<DesktopRuntime>();
+        let selected = runtime
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.desktop_monitor.clone());
+        let items = runtime
+            .desktop_monitor_items
+            .lock()
+            .map(|items| items.clone())
+            .unwrap_or_default();
+        (selected, items)
+    };
+    let monitors = app.available_monitors().unwrap_or_default();
+    for (index, item) in items.iter().enumerate() {
+        let checked = enabled
+            && monitors.get(index).is_some_and(|monitor| {
+                selected_monitor
+                    .as_ref()
+                    .is_some_and(|selected| selected == &monitor_preference(monitor))
+            });
+        let _ = item.set_checked(checked);
+    }
+}
+
+fn monitor_preference(monitor: &Monitor) -> DesktopMonitorPreference {
+    DesktopMonitorPreference {
+        name: monitor.name().cloned(),
+        position_x: monitor.position().x,
+        position_y: monitor.position().y,
+    }
+}
+
+fn monitor_menu_label(index: usize, monitor: &Monitor) -> String {
+    let name = monitor
+        .name()
+        .map(String::as_str)
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("未命名显示器");
+    let area = monitor.work_area();
+    format!(
+        "显示器 {} · {} · {}×{}",
+        index + 1,
+        name,
+        area.size.width,
+        area.size.height
+    )
+}
+
+fn selected_monitor(window: &WebviewWindow) -> Result<Monitor, String> {
+    let preference = window
+        .state::<DesktopRuntime>()
+        .state
+        .lock()
+        .map_err(|_| "桌面窗口状态暂时不可用".to_string())?
+        .desktop_monitor
+        .clone();
+    let monitors = window
+        .available_monitors()
+        .map_err(|error| format!("无法读取显示器列表：{error}"))?;
+    if let Some(preference) = preference {
+        if let Some(monitor) = monitors
+            .iter()
+            .find(|monitor| monitor_preference(monitor) == preference)
+        {
+            return Ok(monitor.clone());
+        }
+        if let Some(name) = preference.name.as_ref() {
+            if let Some(monitor) = monitors
+                .iter()
+                .find(|monitor| monitor.name().is_some_and(|current| current == name))
+            {
+                return Ok(monitor.clone());
+            }
+        }
+    }
+    window
+        .current_monitor()
+        .map_err(|error| format!("无法读取当前显示器：{error}"))?
+        .or(window
+            .primary_monitor()
+            .map_err(|error| format!("无法读取主显示器：{error}"))?)
+        .ok_or_else(|| "没有找到可用显示器".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn original_main_wndproc(hwnd: HWND) -> Option<WNDPROC> {
+    ORIGINAL_MAIN_WNDPROCS
+        .lock()
+        .ok()
+        .and_then(|procedures| {
+            procedures
+                .as_ref()
+                .and_then(|items| items.get(&(hwnd.0 as isize)).copied())
+        })
+        .map(|pointer| unsafe { std::mem::transmute(pointer) })
+}
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn native_desktop_wndproc(
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if NATIVE_DESKTOP_GUARD_ACTIVE.load(Ordering::Acquire) {
+        if message == WM_SYSCOMMAND && (wparam.0 as u32 & 0xfff0) == SC_MINIMIZE {
+            return LRESULT(0);
+        }
+        if message == WM_WINDOWPOSCHANGING {
+            let position = lparam.0 as *mut WINDOWPOS;
+            if let Some(position) = position.as_mut() {
+                // Explorer implements "Show desktop" by moving top-level windows to this
+                // hidden coordinate instead of sending an ordinary minimize request.
+                if position.x <= -30_000 || position.y <= -30_000 {
+                    position.flags |= SWP_NOMOVE | SWP_NOSIZE;
+                }
+            }
+        }
+    }
+
+    if let Some(original) = original_main_wndproc(hwnd) {
+        CallWindowProcW(original, hwnd, message, wparam, lparam)
+    } else {
+        DefWindowProcW(hwnd, message, wparam, lparam)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn install_native_desktop_guard(window: &WebviewWindow) -> Result<(), String> {
+    let hwnd = window
+        .hwnd()
+        .map_err(|error| format!("无法读取 Kalender 原生窗口：{error}"))?;
+    let mut procedures = ORIGINAL_MAIN_WNDPROCS
+        .lock()
+        .map_err(|_| "Windows 桌面窗口保护状态暂时不可用".to_string())?;
+    let items = procedures.get_or_insert_with(HashMap::new);
+    if items.contains_key(&(hwnd.0 as isize)) {
+        return Ok(());
+    }
+    let original = unsafe {
+        SetWindowLongPtrW(
+            hwnd,
+            GWLP_WNDPROC,
+            native_desktop_wndproc as *const () as isize,
+        )
+    };
+    if original == 0 {
+        return Err("无法安装 Windows 桌面窗口保护".to_string());
+    }
+    items.insert(hwnd.0 as isize, original);
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn install_native_desktop_guard(_window: &WebviewWindow) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn set_native_desktop_guard_active(enabled: bool) {
+    NATIVE_DESKTOP_GUARD_ACTIVE.store(enabled, Ordering::Release);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_native_desktop_guard_active(_enabled: bool) {}
+
+fn apply_window_mode(window: &WebviewWindow, desktop_mode: bool) -> Result<(), String> {
+    if !desktop_mode {
+        set_native_desktop_guard_active(false);
+    }
+    window
+        .set_fullscreen(false)
+        .map_err(|error| format!("无法退出全屏状态：{error}"))?;
+    window
+        .unmaximize()
+        .map_err(|error| format!("无法还原窗口：{error}"))?;
+    window
+        .set_always_on_top(false)
+        .map_err(|error| format!("无法更新窗口层级：{error}"))?;
+    window
+        .set_always_on_bottom(desktop_mode)
+        .map_err(|error| format!("无法更新桌面窗口层级：{error}"))?;
+    window
+        .set_skip_taskbar(desktop_mode)
+        .map_err(|error| format!("无法更新任务栏显示状态：{error}"))?;
+    window
+        .set_decorations(!desktop_mode)
+        .map_err(|error| format!("无法更新窗口边框：{error}"))?;
+    window
+        .set_resizable(!desktop_mode)
+        .map_err(|error| format!("无法更新窗口缩放状态：{error}"))?;
+    window
+        .set_minimizable(!desktop_mode)
+        .map_err(|error| format!("无法更新窗口最小化状态：{error}"))?;
+
+    if desktop_mode {
+        window
+            .set_min_size(None::<LogicalSize<f64>>)
+            .map_err(|error| format!("无法清除桌面窗口最小尺寸：{error}"))?;
+        fit_desktop_window(window)?;
+        set_native_desktop_guard_active(true);
+    } else {
+        window
+            .set_min_size(Some(LogicalSize::new(980.0, 640.0)))
+            .map_err(|error| format!("无法恢复窗口最小尺寸：{error}"))?;
+        window
+            .set_size(LogicalSize::new(1360.0, 860.0))
+            .map_err(|error| format!("无法恢复窗口尺寸：{error}"))?;
+        window
+            .center()
+            .map_err(|error| format!("无法居中 Kalender 窗口：{error}"))?;
+    }
+    Ok(())
+}
+
+fn fit_desktop_window(window: &WebviewWindow) -> Result<(), String> {
+    let monitor = selected_monitor(window)?;
+    let work_area = monitor.work_area();
+    let current_position = window
+        .outer_position()
+        .map_err(|error| format!("无法读取桌面窗口位置：{error}"))?;
+    if current_position != work_area.position {
+        window
+            .set_position(work_area.position)
+            .map_err(|error| format!("无法定位桌面窗口：{error}"))?;
+    }
+    let current_size = window
+        .inner_size()
+        .map_err(|error| format!("无法读取桌面窗口尺寸：{error}"))?;
+    if current_size != work_area.size {
+        window
+            .set_size(work_area.size)
+            .map_err(|error| format!("无法适配桌面工作区：{error}"))?;
+    }
+    Ok(())
+}
+
+fn show_desktop_mode_error(message: &str) {
+    let _ = Notification::new()
+        .appname("Kalender")
+        .summary("无法切换桌面模式")
+        .body(message)
+        .show();
 }
 
 fn start_reminder_scheduler(app: AppHandle) {
@@ -575,6 +1151,36 @@ fn start_server_connection_monitor(app: AppHandle) {
     thread::spawn(move || loop {
         check_server_connection(&app);
         thread::sleep(SERVER_CONNECTION_CHECK_INTERVAL);
+    });
+}
+
+fn start_desktop_window_guard(app: AppHandle) {
+    thread::spawn(move || loop {
+        thread::sleep(DESKTOP_WINDOW_GUARD_INTERVAL);
+        let desktop_mode = app
+            .state::<DesktopRuntime>()
+            .state
+            .lock()
+            .map(|state| state.desktop_mode)
+            .unwrap_or(false);
+        if !desktop_mode {
+            continue;
+        }
+        let Some(window) = app.get_webview_window("main") else {
+            continue;
+        };
+        let mut restored = false;
+        if window.is_minimized().unwrap_or(false) {
+            let _ = window.unminimize();
+            restored = true;
+        }
+        if !window.is_visible().unwrap_or(true) {
+            let _ = window.show();
+            restored = true;
+        }
+        if restored {
+            let _ = fit_desktop_window(&window);
+        }
     });
 }
 
@@ -743,9 +1349,28 @@ fn request_main_window(app: &AppHandle, route: Option<&str>) {
 
 fn show_main_window_unchecked(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
+        let was_fullscreen = window.is_fullscreen().unwrap_or(false);
+        let was_maximized = window.is_maximized().unwrap_or(false);
+        if window.is_minimized().unwrap_or(false) {
+            let _ = window.unminimize();
+        }
         let _ = window.show();
-        let _ = window.set_focus();
+        let desktop_mode = app
+            .state::<DesktopRuntime>()
+            .state
+            .lock()
+            .map(|state| state.desktop_mode)
+            .unwrap_or(false);
+        if desktop_mode {
+            let _ = apply_window_mode(&window, true);
+        } else {
+            if was_fullscreen {
+                let _ = window.set_fullscreen(true);
+            } else if was_maximized {
+                let _ = window.maximize();
+            }
+            let _ = window.set_focus();
+        }
     }
 }
 
@@ -756,7 +1381,7 @@ fn hide_main_window(app: &AppHandle) {
 }
 
 fn open_route(app: &AppHandle, route: &str) {
-    request_main_window(app, Some(route));
+    open_windowed_mode(app, Some(route));
 }
 
 fn create_main_window(app: &AppHandle, server_url: &str, visible: bool) -> Result<(), String> {
@@ -765,9 +1390,20 @@ fn create_main_window(app: &AppHandle, server_url: &str, visible: bool) -> Resul
     }
     let normalized = normalize_server_url(server_url).unwrap_or_else(|_| DEFAULT_SERVER_URL.into());
     let url = Url::parse(&normalized).map_err(|error| format!("服务器地址无效：{error}"))?;
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+    let desktop_mode = app
+        .state::<DesktopRuntime>()
+        .state
+        .lock()
+        .map(|state| state.desktop_mode)
+        .unwrap_or(false);
+    let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         .title("Kalender")
-        .decorations(true)
+        .disable_drag_drop_handler()
+        .decorations(!desktop_mode)
+        .resizable(!desktop_mode)
+        .minimizable(!desktop_mode)
+        .skip_taskbar(desktop_mode)
+        .always_on_bottom(desktop_mode)
         .initialization_script("window.__KALENDER_NATIVE_FRAME__ = true;")
         .visible(visible)
         .inner_size(1360.0, 860.0)
@@ -775,6 +1411,10 @@ fn create_main_window(app: &AppHandle, server_url: &str, visible: bool) -> Resul
         .center()
         .build()
         .map_err(|error| format!("无法创建 Kalender 窗口：{error}"))?;
+    install_native_desktop_guard(&window)?;
+    if desktop_mode {
+        apply_window_mode(&window, true)?;
+    }
     Ok(())
 }
 
@@ -1124,7 +1764,9 @@ mod tests {
 
     #[test]
     fn default_settings_are_valid() {
-        assert!(validate_settings(&DesktopSettings::default()).is_ok());
+        let settings = DesktopSettings::default();
+        assert!(validate_settings(&settings).is_ok());
+        assert!(settings.launch_at_login);
     }
 
     #[test]
@@ -1215,6 +1857,27 @@ mod tests {
     fn older_state_files_keep_the_local_default() {
         let loaded: PersistedState = serde_json::from_str("{}").unwrap();
         assert_eq!(configured_server_url(&loaded), DEFAULT_SERVER_URL);
+        assert!(!loaded.desktop_mode);
+    }
+
+    #[test]
+    fn desktop_mode_survives_state_persistence() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "kalender-desktop-window-mode-{}-{suffix}.json",
+            std::process::id()
+        ));
+        let state = PersistedState {
+            desktop_mode: true,
+            ..PersistedState::default()
+        };
+        save_state(&path, &state).unwrap();
+        let loaded = load_state(&path);
+        let _ = fs::remove_file(path);
+        assert!(loaded.desktop_mode);
     }
 
     #[test]
