@@ -1896,7 +1896,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .project-gantt-month-bands > span.tone-1 { background: #223b32; border-right-color: rgb(121 188 157 / 22%); }
 .project-gantt-month-bands > span.tone-2 { background: #42351f; border-right-color: rgb(211 169 102 / 24%); }
 .project-gantt-week-labels { position: absolute; inset: 0; z-index: 1; overflow: hidden; background-image: repeating-linear-gradient(90deg, transparent 0, transparent calc(var(--gantt-week-width) - 1px), #3d423e calc(var(--gantt-week-width) - 1px), #3d423e var(--gantt-week-width)); }
-.project-gantt-week-labels > span:not(.project-gantt-weekend) { position: absolute; top: 10px; z-index: 1; padding-left: 5px; white-space: nowrap; }
+.project-gantt-week-labels > .project-gantt-month-label { position: absolute; top: 9px; z-index: 1; padding-left: 8px; font-size: 13px; font-weight: 750; white-space: nowrap; }
 .project-gantt-row { position: relative; min-height: 40px; border-bottom: 1px solid #303531; }
 .project-gantt-row:last-child { border-bottom: 0; }
 .project-gantt-task { position: sticky; left: 0; z-index: 3; display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 3px 11px; color: inherit; background: #202421; border: 0; border-right: 1px solid #383d39; text-align: left; }

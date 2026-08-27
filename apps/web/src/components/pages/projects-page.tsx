@@ -1203,12 +1203,7 @@ function ProjectGanttChart({
   const [dayWidth, setDayWidth] = useState(PROJECT_GANTT_DEFAULT_DAY_WIDTH);
   const totalDays = Math.max(36, Math.round((rangeEndTime - rangeStartTime) / 86_400_000) + 1);
   const timelineWidth = totalDays * dayWidth;
-  const markerIntervalDays = dayWidth >= 24 ? 7 : dayWidth >= 14 ? 14 : dayWidth >= 8 ? 28 : 56;
-  const timeMarkers = Array.from({ length: Math.ceil(totalDays / markerIntervalDays) }, (_, index) => {
-    const date = new Date(rangeStartTime + index * markerIntervalDays * 86_400_000);
-    return { date, left: index * markerIntervalDays * dayWidth };
-  });
-  const monthSegments: { readonly key: string; readonly left: number; readonly width: number; readonly tone: number }[] = [];
+  const monthSegments: { readonly key: string; readonly label: string; readonly left: number; readonly width: number; readonly tone: number }[] = [];
   for (let cursor = new Date(rangeStartTime), index = 0; cursor.getTime() <= rangeEndTime; index += 1) {
     const year = cursor.getUTCFullYear();
     const month = cursor.getUTCMonth();
@@ -1217,6 +1212,7 @@ function ProjectGanttChart({
     const days = Math.max(1, Math.round((segmentEndTime - cursor.getTime()) / 86_400_000));
     monthSegments.push({
       key: `${year}-${month}`,
+      label: `${month + 1}月`,
       left: Math.round((cursor.getTime() - rangeStartTime) / 86_400_000) * dayWidth,
       width: days * dayWidth,
       tone: index % 3,
@@ -1824,7 +1820,7 @@ function ProjectGanttChart({
             <div className="project-gantt-task-heading" onContextMenu={(event) => openCanvasMenu(event, undefined, false)}>阶段、任务</div>
             <div className="project-gantt-time-heading" onContextMenu={(event) => openCanvasMenu(event)}>
               <div className="project-gantt-month-bands" aria-hidden="true">{monthSegments.map((segment) => <span className={`tone-${segment.tone}`} key={segment.key} style={{ left: segment.left, width: segment.width }} />)}</div>
-              <div className="project-gantt-week-labels">{weekendBands()}{timeMarkers.map((marker) => <span key={marker.date.toISOString()} style={{ left: marker.left }}>{new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(marker.date)}</span>)}</div>
+              <div className="project-gantt-week-labels">{weekendBands()}{monthSegments.map((segment) => <span className="project-gantt-month-label" key={segment.key} style={{ left: segment.left }}>{segment.label}</span>)}</div>
             </div>
           </div>
           {orderedPhases.flatMap((phase) => {
