@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import {
-  AlertCircle, CalendarDays, CalendarClock, Check, CheckCircle2, ChevronDown,
+  AlertCircle, CalendarDays, CalendarClock, Check, CheckCircle2,
   ChevronRight, Circle, Clock3, Folder, FolderPlus, GripVertical, Inbox, Link2, ListChecks,
-  LayoutGrid, LoaderCircle, Mail, MoreHorizontal, Pause, Pencil, Plus, RefreshCw, Star, Trash2, X,
+  LayoutGrid, LoaderCircle, Mail, MoreHorizontal, Pause, Plus, RefreshCw, Star, X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 
@@ -16,7 +16,7 @@ import { ContextMenu } from "../context-menu";
 import { resolveContextCommands, type TaskCommandId } from "../context-commands";
 import { DateTimeField } from "../ui/date-time-field";
 import { TransientToast } from "../workspace-shared";
-import { RelatedContentPanel } from "./related-content";
+import { TaskEditorDialog } from "./task-editor-dialog";
 import { resolveNewTaskDefaults } from "./task-view-model";
 
 const TASKS_CHANGED_EVENT = "kalender:tasks-changed";
@@ -84,6 +84,8 @@ interface ClientTask {
   readonly projectId?: string;
   readonly projectName?: string;
   readonly projectColor?: string;
+  readonly planItemId?: string;
+  readonly planItemTitle?: string;
   readonly areaName?: string;
   readonly assigneeUserId?: string;
   readonly assigneeDisplayName?: string;
@@ -135,9 +137,16 @@ interface TaskDraft {
   dueAt: string;
   estimatedMinutes: string;
   projectId: string;
+  planItemId: string;
   projectName: string;
   areaName: string;
   assigneeUserId: string;
+}
+
+interface ClientTaskPlanItem {
+  readonly id: string;
+  readonly title: string;
+  readonly projectStatus: "planned" | "in_progress" | "paused" | "done" | "cancelled";
 }
 
 interface ClientCollaborator {
@@ -178,6 +187,7 @@ export function TasksPage({
 }) {
   const [tasks, setTasks] = useState<readonly ClientTask[]>([]);
   const [taskProjects, setTaskProjects] = useState<readonly ClientProject[]>([]);
+  const [taskPlanItems, setTaskPlanItems] = useState<readonly ClientTaskPlanItem[]>([]);
   const [collaborators, setCollaborators] = useState<readonly ClientCollaborator[]>([]);
   const [view, setView] = useState<TaskView>(initialTaskView ?? "today");
   const [loading, setLoading] = useState(true);
@@ -217,6 +227,26 @@ export function TasksPage({
   }, []);
 
   useEffect(() => { void loadTasks(); }, [loadTasks]);
+  useEffect(() => {
+    let active = true;
+    if (!draft?.projectId) {
+      setTaskPlanItems([]);
+      return () => { active = false; };
+    }
+    void (async () => {
+      try {
+        const response = await workspaceFetch(`/api/projects/${encodeURIComponent(draft.projectId)}`);
+        const payload = await response.json() as {
+          readonly ok?: boolean;
+          readonly overview?: { readonly ganttTasks?: readonly ClientTaskPlanItem[] };
+        };
+        if (active) setTaskPlanItems(response.ok && payload.ok ? payload.overview?.ganttTasks ?? [] : []);
+      } catch {
+        if (active) setTaskPlanItems([]);
+      }
+    })();
+    return () => { active = false; };
+  }, [draft?.projectId]);
   const applyRealtimeTask = useCallback(async (event: RealtimeEvent) => {
     if (event.entityType !== "tasks" || !event.entityId) {
       await loadTasks({ background: true });
@@ -566,41 +596,20 @@ export function TasksPage({
         </section>
       )}
 
-      {draft && (
-        <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busyTaskId) setDraft(undefined); }}>
-          <section className="calendar-dialog task-dialog panel" role="dialog" aria-modal="true" aria-labelledby="task-dialog-title">
-            <header><div><h2 id="task-dialog-title">{draft.id ? "编辑任务" : "新建任务"}</h2></div><button aria-label="关闭" onClick={() => setDraft(undefined)} disabled={Boolean(busyTaskId)}><X size={18} /></button></header>
-            <div className="task-form">
-              <label className="task-title-field"><span>任务标题</span><input autoFocus value={draft.title} maxLength={240} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="要完成什么？" /></label>
-              <label><span>状态</span><AppSelect ariaLabel="任务状态" value={draft.status} onValueChange={(status) => setDraft({ ...draft, status: status as TaskStatus })} options={[{ value: "inbox", label: "Inbox · 待整理" }, { value: "next", label: "下一步" }, { value: "waiting", label: "等待中" }, { value: "someday", label: "以后也许" }, { value: "done", label: "已完成" }]} /></label>
-              <label><span>紧急程度</span><AppSelect ariaLabel="紧急程度" value={draft.urgencyMode} onValueChange={(urgencyMode) => setDraft({ ...draft, urgencyMode: urgencyMode as TaskUrgencyMode })} options={[{ value: "auto", label: "自动（按截止时间）" }, { value: "urgent", label: "紧急" }, { value: "not_urgent", label: "不紧急" }]} /></label>
-              <DateTimeField label="截止时间" value={draft.dueAt} onChange={(dueAt) => setDraft({ ...draft, dueAt })} />
-              <label><span>预计时长（分钟）</span><input type="number" min="5" max="1440" step="5" value={draft.estimatedMinutes} onChange={(event) => setDraft({ ...draft, estimatedMinutes: event.target.value })} placeholder="例如 45" /></label>
-              <label className="task-project-field"><span>项目</span><AppSelect ariaLabel="任务所属项目" value={draft.projectId || (draft.projectName ? "__legacy__" : "")} onValueChange={(projectId) => {
-                const project = taskProjects.find((entry) => entry.id === projectId);
-                setDraft({
-                  ...draft,
-                  projectId: project?.id ?? "",
-                  projectName: project?.name ?? "",
-                  areaName: project?.areaName ?? (projectId ? draft.areaName : ""),
-                });
-              }} options={[{ value: "", label: "无项目" }, ...(draft.projectName && !draft.projectId ? [{ value: "__legacy__", label: `旧标签 · ${draft.projectName}`, disabled: true }] : []), ...taskProjects.map((project) => ({ value: project.id, label: `${project.name}${project.areaName ? ` · ${project.areaName}` : ""}${project.status === "archived" ? " · 已归档" : ""}`, disabled: project.status === "archived" && project.id !== draft.projectId }))]} /></label>
-              <label className="task-important-field"><input type="checkbox" checked={draft.important} onChange={(event) => setDraft({ ...draft, important: event.target.checked })} /><Star size={15} fill={draft.important ? "currentColor" : "none"} /><span>这是重要任务</span></label>
-              <details className="task-advanced-options">
-                <summary><span>更多选项{draft.areaName || draft.assigneeUserId || draft.notes ? " · 已填写" : ""}</span><ChevronDown size={16} /></summary>
-                <div>
-                  <label><span>领域{draft.projectId ? " · 由项目继承" : ""}</span><input value={draft.areaName} maxLength={100} disabled={Boolean(draft.projectId)} onChange={(event) => setDraft({ ...draft, areaName: event.target.value })} placeholder="例如 工作 / 个人" /></label>
-                  <label><span>指派给</span><AppSelect ariaLabel="任务负责人" value={draft.assigneeUserId} onValueChange={(assigneeUserId) => setDraft({ ...draft, assigneeUserId })} options={[{ value: "", label: "未指派" }, ...collaborators.map((user) => ({ value: user.id, label: `${user.displayName} · ${user.email}` }))]} /></label>
-                  <label className="task-notes-field"><span>备注</span><textarea value={draft.notes} maxLength={10_000} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="补充完成标准、等待事项或下一步…" /></label>
-                </div>
-              </details>
-              {editingTask && <section className="task-time-blocks"><header><div><CalendarClock size={15} /><span>专注时间</span><em>{editingTask.scheduledBlocks.length}</em></div><button type="button" className="secondary-button" onClick={() => openSchedule(editingTask, undefined, true)}><Plus size={14} />添加时间</button></header>{editingTask.scheduledBlocks.length ? <div>{editingTask.scheduledBlocks.map((block) => <article key={block.eventId}><Link href={block.href}><CalendarClock size={14} /><span><strong>{formatTaskBlockRange(block.start, block.end)}</strong><small>{block.calendarName}</small></span></Link><button type="button" aria-label={`调整时间：${formatTaskBlockRange(block.start, block.end)}`} title="调整时间" onClick={() => openSchedule(editingTask, block, true)}><Pencil size={14} /></button><button type="button" className="danger-button" aria-label={`删除时间块：${formatTaskBlockRange(block.start, block.end)}`} title="删除时间块" disabled={scheduleBusy} onClick={() => void deleteTaskTimeBlock(editingTask, block)}><Trash2 size={14} /></button></article>)}</div> : <p>尚未安排专注时间。可以添加多个时间块，也可以稍后拖入日历。</p>}</section>}
-              {draft.id && <RelatedContentPanel kind="task" entityId={draft.id} emptyText="这个任务还没有关联来源或时间块。" />}
-            </div>
-            <footer><div><button className="secondary-button" disabled={Boolean(busyTaskId)} onClick={() => setDraft(undefined)}>取消</button><button className="primary-button" disabled={Boolean(busyTaskId) || !draft.title.trim()} onClick={() => void saveDraft()}>{busyTaskId && <LoaderCircle className="spin" size={15} />}{draft.id ? "保存修改" : "创建任务"}</button></div></footer>
-          </section>
-        </div>
-      )}
+      {draft && <TaskEditorDialog
+        draft={draft}
+        projects={taskProjects}
+        planItems={taskPlanItems}
+        collaborators={collaborators}
+        editingTask={editingTask}
+        busy={Boolean(busyTaskId)}
+        scheduleBusy={scheduleBusy}
+        onDraftChange={(nextDraft) => setDraft(nextDraft as TaskDraft)}
+        onClose={() => setDraft(undefined)}
+        onSave={() => void saveDraft()}
+        onSchedule={(block) => { if (editingTask) openSchedule(editingTask, block as ClientTaskTimeBlock | undefined, true); }}
+        onDeleteTimeBlock={(block) => { if (editingTask) void deleteTaskTimeBlock(editingTask, block as ClientTaskTimeBlock); }}
+      />}
 
       {scheduleDraft && (
         <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !scheduleBusy) setScheduleDraft(undefined); }}>
@@ -763,6 +772,7 @@ function TaskCard({ task, busy, compact, draggable, dragging, onDragStart, onDra
           {task.dueAt && <em className={new Date(task.dueAt).getTime() < Date.now() ? "overdue" : undefined}><CalendarClock size={12} />{formatTaskDue(task.dueAt)}</em>}
           {task.estimatedMinutes && <em><Clock3 size={12} />{formatTaskEstimate(task.estimatedMinutes)}</em>}
           {task.projectName && <em>{task.projectName}</em>}
+          {task.planItemTitle && <em>计划项：{task.planItemTitle}</em>}
           {task.areaName && <em>{task.areaName}</em>}
           {task.assigneeDisplayName && <em>指派给 {task.assigneeDisplayName}</em>}
           {source && <em><Link2 size={12} />{source.label}</em>}
@@ -778,7 +788,7 @@ function TaskCard({ task, busy, compact, draggable, dragging, onDragStart, onDra
 }
 
 function createEmptyTaskDraft(status: TaskStatus): TaskDraft {
-  return { title: "", notes: "", status, important: false, urgencyMode: "auto", dueAt: "", estimatedMinutes: "", projectId: "", projectName: "", areaName: "", assigneeUserId: "", sourceReferences: [] };
+  return { title: "", notes: "", status, important: false, urgencyMode: "auto", dueAt: "", estimatedMinutes: "", projectId: "", planItemId: "", projectName: "", areaName: "", assigneeUserId: "", sourceReferences: [] };
 }
 
 function taskToDraft(task: ClientTask): TaskDraft {
@@ -792,6 +802,7 @@ function taskToDraft(task: ClientTask): TaskDraft {
     dueAt: task.dueAt ? toLocalDateTimeInput(new Date(task.dueAt)) : "",
     estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : "",
     projectId: task.projectId ?? "",
+    planItemId: task.planItemId ?? "",
     projectName: task.projectName ?? "",
     areaName: task.areaName ?? "",
     assigneeUserId: task.assigneeUserId ?? "",
@@ -809,6 +820,7 @@ function taskDraftPayload(draft: TaskDraft) {
     dueAt: draft.dueAt ? new Date(draft.dueAt).toISOString() : undefined,
     estimatedMinutes: draft.estimatedMinutes ? Number(draft.estimatedMinutes) : undefined,
     projectId: draft.projectId || undefined,
+    planItemId: draft.projectId && draft.planItemId ? draft.planItemId : undefined,
     projectName: draft.projectId ? undefined : draft.projectName || undefined,
     areaName: draft.areaName || undefined,
     assigneeUserId: draft.assigneeUserId || undefined,

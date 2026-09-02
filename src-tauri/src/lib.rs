@@ -12,6 +12,12 @@ use windows::Win32::{
     },
 };
 
+#[cfg(target_os = "windows")]
+use winreg::{
+    enums::{HKEY_CURRENT_USER, KEY_SET_VALUE},
+    RegKey,
+};
+
 use chrono::{Days, Local, TimeZone, Utc};
 use notify_rust::Notification;
 use serde::{Deserialize, Serialize};
@@ -126,6 +132,8 @@ struct PersistedState {
     desktop_mode: bool,
     #[serde(default)]
     desktop_monitor: Option<DesktopMonitorPreference>,
+    #[serde(default)]
+    autostart_default_migrated: bool,
     server_url: Option<String>,
     #[serde(skip)]
     server_connected: Option<bool>,
@@ -202,6 +210,7 @@ fn update_desktop_settings(
         .lock()
         .map_err(|_| "桌面提醒状态暂时不可用".to_string())?;
     state.settings = settings;
+    state.autostart_default_migrated = true;
     save_state(&runtime.state_path, &state)?;
     update_tray_tooltip(&app, &state);
     Ok(status_from_state(&state))
@@ -229,6 +238,7 @@ fn sync_reminders(
         .filter_map(|item| item.delivered_at.map(|timestamp| (item.key(), timestamp)))
         .collect::<HashMap<_, _>>();
     state.settings = payload.settings;
+    state.autostart_default_migrated = true;
     state.summary = payload.summary;
     state.reminders = payload
         .reminders
@@ -432,6 +442,11 @@ pub fn run() {
                 .map_err(|error| format!("无法确定桌面数据目录：{error}"))?
                 .join(STATE_FILE);
             let mut persisted = load_state(&state_path);
+            if migrate_autostart_default(&mut persisted) {
+                if let Err(error) = save_state(&state_path, &persisted) {
+                    eprintln!("{error}");
+                }
+            }
             let server_url = configured_server_url(&persisted).to_string();
             let connected = probe_server_health(&server_url);
             persisted.server_connected = Some(connected);
@@ -655,6 +670,18 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
 
 fn apply_autostart_setting(app: &AppHandle, enabled: bool) -> Result<(), String> {
     let autostart = app.autolaunch();
+
+    #[cfg(target_os = "windows")]
+    if enabled {
+        // Refresh this on every launch so upgrades and reinstalls cannot leave
+        // the registry entry pointing at an old executable. The plugin writes
+        // an unquoted command, so replace it with a Windows-safe quoted path.
+        autostart
+            .enable()
+            .map_err(|error| format!("无法启用开机启动：{error}"))?;
+        return write_windows_autostart_command(app);
+    }
+
     let current = autostart
         .is_enabled()
         .map_err(|error| format!("无法读取开机启动状态：{error}"))?;
@@ -670,6 +697,31 @@ fn apply_autostart_setting(app: &AppHandle, enabled: bool) -> Result<(), String>
             .disable()
             .map_err(|error| format!("无法关闭开机启动：{error}"))
     }
+}
+
+#[cfg(target_os = "windows")]
+fn write_windows_autostart_command(app: &AppHandle) -> Result<(), String> {
+    let executable =
+        std::env::current_exe().map_err(|error| format!("无法确定 Kalender 程序路径：{error}"))?;
+    let command = format!("\"{}\"", executable.display());
+    let current_user = RegKey::predef(HKEY_CURRENT_USER);
+    let run = current_user
+        .open_subkey_with_flags(
+            "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+            KEY_SET_VALUE,
+        )
+        .map_err(|error| format!("无法打开 Windows 启动项：{error}"))?;
+    run.set_value(&app.package_info().name, &command)
+        .map_err(|error| format!("无法写入 Windows 启动项：{error}"))
+}
+
+fn migrate_autostart_default(state: &mut PersistedState) -> bool {
+    if state.autostart_default_migrated {
+        return false;
+    }
+    state.settings.launch_at_login = true;
+    state.autostart_default_migrated = true;
+    true
 }
 
 fn ensure_windowed_mode(runtime: &State<'_, DesktopRuntime>) -> Result<(), String> {
@@ -1767,6 +1819,31 @@ mod tests {
         let settings = DesktopSettings::default();
         assert!(validate_settings(&settings).is_ok());
         assert!(settings.launch_at_login);
+    }
+
+    #[test]
+    fn older_state_enables_autostart_once() {
+        let mut state: PersistedState = serde_json::from_str(
+            r#"{"settings":{"enabled":true,"reminderMinutesBefore":10,"allDayReminderHour":9,"launchAtLogin":false,"minimizeToTray":true,"showEventTitle":true,"missedReminderWindowMinutes":30}}"#,
+        )
+        .unwrap();
+
+        assert!(migrate_autostart_default(&mut state));
+        assert!(state.settings.launch_at_login);
+        assert!(state.autostart_default_migrated);
+        assert!(!migrate_autostart_default(&mut state));
+    }
+
+    #[test]
+    fn migrated_state_respects_an_explicitly_disabled_autostart() {
+        let mut state = PersistedState {
+            autostart_default_migrated: true,
+            ..PersistedState::default()
+        };
+        state.settings.launch_at_login = false;
+
+        assert!(!migrate_autostart_default(&mut state));
+        assert!(!state.settings.launch_at_login);
     }
 
     #[test]

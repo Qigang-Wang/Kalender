@@ -1768,6 +1768,100 @@ const PROJECT_TASK_STATUS_SCHEMA_SQL = String.raw`
    WHERE project_id IS NOT NULL;
 `;
 
+const PROJECT_PLAN_ITEMS_SCHEMA_SQL = String.raw`
+  CREATE TABLE IF NOT EXISTS project_plan_items (
+    id text PRIMARY KEY,
+    project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    phase_id text REFERENCES project_phases(id) ON DELETE SET NULL,
+    title text NOT NULL,
+    status text NOT NULL DEFAULT 'planned'
+      CHECK (status IN ('planned', 'in_progress', 'paused', 'done', 'cancelled')),
+    planned_start date,
+    planned_end date,
+    sort_order integer NOT NULL DEFAULT 0,
+    duration_workdays integer
+      CHECK (duration_workdays IS NULL OR duration_workdays BETWEEN 1 AND 2600),
+    auto_schedule boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CHECK ((planned_start IS NULL) = (planned_end IS NULL)),
+    CHECK (planned_end IS NULL OR planned_end >= planned_start)
+  );
+
+  CREATE TABLE IF NOT EXISTS project_plan_item_dependencies (
+    project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    predecessor_plan_item_id text NOT NULL REFERENCES project_plan_items(id) ON DELETE CASCADE,
+    successor_plan_item_id text NOT NULL REFERENCES project_plan_items(id) ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (predecessor_plan_item_id, successor_plan_item_id),
+    CHECK (predecessor_plan_item_id <> successor_plan_item_id)
+  );
+
+  ALTER TABLE tasks
+    ADD COLUMN IF NOT EXISTS plan_item_id text REFERENCES project_plan_items(id) ON DELETE SET NULL;
+
+  INSERT INTO project_plan_items (
+    id, project_id, phase_id, title, status, planned_start, planned_end,
+    sort_order, duration_workdays, auto_schedule, created_at, updated_at
+  )
+  SELECT t.id, t.project_id, t.phase_id, t.title, t.project_status,
+         CASE WHEN t.planned_start IS NOT NULL AND t.planned_end IS NOT NULL THEN t.planned_start END,
+         CASE WHEN t.planned_start IS NOT NULL AND t.planned_end IS NOT NULL THEN t.planned_end END,
+         t.gantt_sort_order,
+         COALESCE(t.duration_workdays,
+           CASE WHEN t.planned_start IS NOT NULL AND t.planned_end IS NOT NULL
+             THEN (t.planned_end - t.planned_start) + 1
+             ELSE 1
+           END),
+         t.auto_schedule, t.created_at, t.updated_at
+    FROM tasks t
+   WHERE t.project_id IS NOT NULL
+     AND (
+       (t.planned_start IS NOT NULL AND t.planned_end IS NOT NULL)
+       OR t.phase_id IS NOT NULL
+       OR EXISTS (
+         SELECT 1 FROM task_dependencies dependency
+          WHERE dependency.predecessor_task_id = t.id OR dependency.successor_task_id = t.id
+       )
+     )
+  ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO project_plan_item_dependencies (
+    project_id, predecessor_plan_item_id, successor_plan_item_id, created_at
+  )
+  SELECT dependency.project_id, dependency.predecessor_task_id,
+         dependency.successor_task_id, dependency.created_at
+    FROM task_dependencies dependency
+    JOIN project_plan_items predecessor ON predecessor.id = dependency.predecessor_task_id
+    JOIN project_plan_items successor ON successor.id = dependency.successor_task_id
+  ON CONFLICT DO NOTHING;
+
+  UPDATE tasks task
+     SET plan_item_id = plan.id
+    FROM project_plan_items plan
+   WHERE plan.id = task.id
+     AND task.plan_item_id IS NULL;
+
+  CREATE INDEX IF NOT EXISTS project_plan_items_project_phase_order_idx
+    ON project_plan_items (project_id, phase_id, sort_order, created_at);
+  CREATE INDEX IF NOT EXISTS project_plan_items_project_dates_idx
+    ON project_plan_items (project_id, planned_start, planned_end);
+  CREATE INDEX IF NOT EXISTS project_plan_item_dependencies_project_idx
+    ON project_plan_item_dependencies (project_id, successor_plan_item_id);
+  CREATE INDEX IF NOT EXISTS tasks_plan_item_idx
+    ON tasks (plan_item_id, status, updated_at);
+
+  DROP TRIGGER IF EXISTS kalender_realtime_project_plan_items ON project_plan_items;
+  CREATE TRIGGER kalender_realtime_project_plan_items
+    AFTER INSERT OR UPDATE OR DELETE ON project_plan_items
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('project');
+
+  DROP TRIGGER IF EXISTS kalender_realtime_project_plan_dependencies ON project_plan_item_dependencies;
+  CREATE TRIGGER kalender_realtime_project_plan_dependencies
+    AFTER INSERT OR UPDATE OR DELETE ON project_plan_item_dependencies
+    FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('project');
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1805,6 +1899,7 @@ export const DATABASE_MIGRATIONS = [
   { version: 34, name: "german-default-calendar-name", sql: GERMAN_DEFAULT_CALENDAR_NAME_SQL },
   { version: 35, name: "portable-username-auth", sql: PORTABLE_USERNAME_AUTH_SCHEMA_SQL },
   { version: 36, name: "project-task-status", sql: PROJECT_TASK_STATUS_SCHEMA_SQL },
+  { version: 37, name: "project-plan-items", sql: PROJECT_PLAN_ITEMS_SCHEMA_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

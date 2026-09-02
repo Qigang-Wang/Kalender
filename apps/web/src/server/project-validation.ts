@@ -5,6 +5,7 @@ import {
   type SaveProjectMilestoneInput,
   type SaveProjectTaskPlanInput,
 } from "./project-repository";
+import type { SaveProjectPlanItemInput } from "./project-plan-repository";
 import { projectTaskStatuses, type ProjectTaskStatus } from "./task-repository";
 
 export interface ProjectMilestoneRequestBody {
@@ -135,6 +136,27 @@ export function parseProjectTaskPlanInput(
     phaseId,
     durationWorkdays,
     autoSchedule: body.autoSchedule as boolean | undefined,
+  };
+}
+
+export function parseProjectPlanItemInput(
+  body: ProjectTaskPlanRequestBody | null,
+  projectId: string,
+  planItemId?: string,
+): SaveProjectPlanItemInput {
+  const parsed = parseProjectTaskPlanInput(body, projectId, planItemId ?? "new-plan-item");
+  if (!planItemId && !parsed.title) throw new ProjectValidationError("请填写计划项名称");
+  return {
+    id: planItemId,
+    projectId,
+    title: parsed.title,
+    projectStatus: parsed.projectStatus,
+    plannedStart: parsed.plannedStart,
+    plannedEnd: parsed.plannedEnd,
+    dependencyIds: parsed.dependencyIds,
+    phaseId: parsed.phaseId,
+    durationWorkdays: parsed.durationWorkdays,
+    autoSchedule: parsed.autoSchedule,
   };
 }
 

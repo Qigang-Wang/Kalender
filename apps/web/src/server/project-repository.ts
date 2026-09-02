@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { getDatabase } from "./database";
 import { getStoredProject, listStoredProjectNotes, type StoredNote, type StoredProject } from "./note-repository";
+import { listStoredProjectPlanItems, saveStoredProjectPlanItem, type StoredProjectPlanItem } from "./project-plan-repository";
 import { listStoredProjectTasks, type ProjectTaskStatus, type StoredTask, type TaskStatus, type TaskTimeBlock } from "./task-repository";
 
 export const projectMilestoneStatuses = ["planned", "active", "done"] as const;
@@ -52,9 +53,7 @@ export interface ProjectScheduledBlock extends TaskTimeBlock {
   readonly taskTitle: string;
 }
 
-export interface StoredProjectGanttTask extends StoredTask {
-  readonly dependencyIds: readonly string[];
-}
+export type StoredProjectGanttTask = StoredProjectPlanItem;
 
 export interface SaveProjectTaskPlanInput {
   readonly projectId: string;
@@ -109,26 +108,17 @@ export interface StoredProjectOverview {
 }
 
 export async function getStoredProjectOverview(projectId: string): Promise<StoredProjectOverview | undefined> {
-  const [project, projectTasks, projectNotes, milestones, phases, dependencies] = await Promise.all([
+  const [project, projectTasks, projectNotes, milestones, phases, planItems] = await Promise.all([
     getStoredProject(projectId),
     listStoredProjectTasks(projectId),
     listStoredProjectNotes(projectId),
     listStoredProjectMilestones(projectId),
     listStoredProjectPhases(projectId),
-    listProjectDependencyRows(projectId),
+    listStoredProjectPlanItems(projectId),
   ]);
   if (!project) return undefined;
 
-  const dependencyIdsByTask = new Map<string, string[]>();
-  for (const dependency of dependencies) {
-    const entries = dependencyIdsByTask.get(dependency.successor_task_id) ?? [];
-    entries.push(dependency.predecessor_task_id);
-    dependencyIdsByTask.set(dependency.successor_task_id, entries);
-  }
-  const ganttTasks = projectTasks.map((task) => ({
-    ...task,
-    dependencyIds: dependencyIdsByTask.get(task.id) ?? [],
-  }));
+  const ganttTasks = planItems;
   const scheduledBlocks = projectTasks
     .flatMap((task) => task.scheduledBlocks.map((block) => ({
       ...block,
@@ -136,13 +126,18 @@ export async function getStoredProjectOverview(projectId: string): Promise<Store
       taskTitle: task.title,
     })))
     .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime());
-  const completedTaskCount = projectTasks.filter((task) => task.projectStatus === "done").length;
-  const totalTaskCount = projectTasks.filter((task) => task.projectStatus !== "cancelled").length;
+  const completedTaskCount = projectTasks.filter((task) => task.status === "done").length;
+  const totalTaskCount = projectTasks.length;
   const now = Date.now();
   const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
   const sevenDaysAhead = now + 7 * 24 * 60 * 60 * 1000;
-  const openTasks = projectTasks.filter((task) => task.projectStatus !== "done" && task.projectStatus !== "cancelled");
-  const lastActivityAt = [project.updatedAt, ...projectTasks.map((task) => task.updatedAt), ...projectNotes.map((note) => note.updatedAt)]
+  const openTasks = projectTasks.filter((task) => task.status !== "done");
+  const lastActivityAt = [
+    project.updatedAt,
+    ...projectTasks.map((task) => task.updatedAt),
+    ...planItems.map((item) => item.updatedAt),
+    ...projectNotes.map((note) => note.updatedAt),
+  ]
     .reduce((latest, value) => new Date(value).getTime() > new Date(latest).getTime() ? value : latest, project.updatedAt);
 
   return {
@@ -198,6 +193,50 @@ interface TaskPlanRow {
 }
 
 export async function saveStoredProjectTaskPlan(input: SaveProjectTaskPlanInput): Promise<SaveProjectTaskPlanResult> {
+  // Compatibility path for older callers: promote the task to an independent plan item once,
+  // then keep only an optional link between the action and that plan item.
+  {
+    const compatibilityDatabase = await getDatabase();
+    const source = await compatibilityDatabase.query<{ title: string; plan_item_id: string | null }>(
+      "SELECT title, plan_item_id FROM tasks WHERE id = $1 AND project_id = $2 LIMIT 1",
+      [input.taskId, input.projectId],
+    );
+    if (!source.rows[0]) throw new ProjectRepositoryError("TASK_NOT_FOUND", "项目任务不存在", 404);
+    const dependencyPlans = input.dependencyIds.length
+      ? await compatibilityDatabase.query<{ id: string; plan_item_id: string | null }>(
+          "SELECT id, plan_item_id FROM tasks WHERE project_id = $1 AND id = ANY($2::text[])",
+          [input.projectId, input.dependencyIds],
+        )
+      : { rows: [] as { id: string; plan_item_id: string | null }[] };
+    if (dependencyPlans.rows.length !== input.dependencyIds.length || dependencyPlans.rows.some((entry) => !entry.plan_item_id)) {
+      throw new ProjectRepositoryError("TASK_DEPENDENCY_INVALID", "前置任务尚未关联计划项", 400);
+    }
+    const dependencyPlanByTask = new Map(dependencyPlans.rows.map((entry) => [entry.id, entry.plan_item_id!]));
+    const saved = await saveStoredProjectPlanItem({
+      id: source.rows[0].plan_item_id ?? undefined,
+      projectId: input.projectId,
+      title: input.title ?? source.rows[0].title,
+      projectStatus: input.projectStatus,
+      plannedStart: input.plannedStart,
+      plannedEnd: input.plannedEnd,
+      dependencyIds: input.dependencyIds.map((id) => dependencyPlanByTask.get(id)!),
+      phaseId: input.phaseId,
+      durationWorkdays: input.durationWorkdays,
+      autoSchedule: input.autoSchedule,
+    });
+    if (!source.rows[0].plan_item_id) {
+      await compatibilityDatabase.query(
+        "UPDATE tasks SET plan_item_id = $1, updated_at = now() WHERE id = $2 AND project_id = $3",
+        [saved.id, input.taskId, input.projectId],
+      );
+    }
+    const overview = await getStoredProjectOverview(input.projectId);
+    if (!overview) throw new ProjectRepositoryError("TASK_PLAN_SAVE_FAILED", "无法保存计划项", 500);
+    return { task: overview.ganttTasks.find((entry) => entry.id === saved.id) ?? saved, overview };
+  }
+}
+
+async function saveLegacyStoredProjectTaskPlan(input: SaveProjectTaskPlanInput): Promise<SaveProjectTaskPlanResult> {
   const database = await getDatabase();
   const project = await getStoredProject(input.projectId);
   if (!project) throw new ProjectRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);

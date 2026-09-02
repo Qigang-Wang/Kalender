@@ -1,6 +1,6 @@
 [package]
 name = "kalender-desktop"
-version = "0.1.5"
+version = "0.1.6"
 description = "Kalender desktop reminder client"
 authors = ["Kalender"]
 edition = "2021"
@@ -25,3 +25,4 @@ url = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+winreg = "0.10"

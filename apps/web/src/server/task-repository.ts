@@ -42,6 +42,8 @@ export interface StoredTask {
   readonly projectId?: string;
   readonly projectName?: string;
   readonly projectColor?: string;
+  readonly planItemId?: string;
+  readonly planItemTitle?: string;
   readonly areaName?: string;
   readonly assigneeUserId?: string;
   readonly assigneeDisplayName?: string;
@@ -74,6 +76,7 @@ export interface SaveTaskInput {
   readonly dueAt?: string;
   readonly estimatedMinutes?: number;
   readonly projectId?: string;
+  readonly planItemId?: string;
   readonly projectName?: string;
   readonly areaName?: string;
   readonly assigneeUserId?: string;
@@ -99,6 +102,8 @@ interface TaskRow {
   project_id: string | null;
   project_name: string | null;
   project_color: string | null;
+  plan_item_id: string | null;
+  plan_item_title: string | null;
   area_name: string | null;
   assignee_user_id: string | null;
   assignee_display_name: string | null;
@@ -134,12 +139,14 @@ const taskSelect = `
          t.phase_id, t.gantt_sort_order, t.duration_workdays, t.auto_schedule, t.project_id,
          COALESCE(p.name, t.project_name) AS project_name,
          p.color AS project_color,
+         t.plan_item_id, plan_item.title AS plan_item_title,
          COALESCE(p.area_name, t.area_name) AS area_name,
          t.assignee_user_id, assignee.display_name AS assignee_display_name, assignee.email AS assignee_email,
          t.completed_at, t.created_at, t.updated_at,
          count(tb.calendar_event_id)::int AS scheduled_block_count
     FROM tasks t
     LEFT JOIN projects p ON p.id = t.project_id
+    LEFT JOIN project_plan_items plan_item ON plan_item.id = t.plan_item_id
     LEFT JOIN app_users assignee ON assignee.id = t.assignee_user_id
     LEFT JOIN task_time_blocks tb ON tb.task_id = t.id`;
 
@@ -197,7 +204,7 @@ async function queryStoredTasks(
   const result = await database.query<TaskRow>(
     `${taskSelect}
      ${scoped.whereClause}
-     GROUP BY t.id, p.id, assignee.id
+     GROUP BY t.id, p.id, plan_item.id, assignee.id
      ORDER BY (t.status = 'done'), t.due_at ASC NULLS LAST, t.important DESC, t.updated_at DESC`,
     scoped.parameters,
   );
@@ -214,7 +221,7 @@ export async function getStoredTask(taskId: string): Promise<StoredTask | undefi
       }
     : { clause: "", parameters: [taskId] };
   const result = await database.query<TaskRow>(
-    `${taskSelect} WHERE t.id = $1${scoped.clause} GROUP BY t.id, p.id, assignee.id LIMIT 1`,
+    `${taskSelect} WHERE t.id = $1${scoped.clause} GROUP BY t.id, p.id, plan_item.id, assignee.id LIMIT 1`,
     scoped.parameters,
   );
   return (await attachSources(result.rows))[0];
@@ -235,8 +242,19 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
   const projectId = project?.id ?? null;
   const projectName = project?.name ?? input.projectName ?? null;
   const areaName = project?.areaName ?? input.areaName ?? null;
+  let planItemId: string | null = null;
 
   if (projectId) await ensureProjectAccess(projectId, "editor");
+  if (input.planItemId) {
+    const planItem = await database.query<{ id: string; project_id: string }>(
+      "SELECT id, project_id FROM project_plan_items WHERE id = $1 LIMIT 1",
+      [input.planItemId],
+    );
+    if (!planItem.rows[0] || !projectId || planItem.rows[0].project_id !== projectId) {
+      throw new TaskRepositoryError("PLAN_ITEM_NOT_FOUND", "关联计划项必须属于所选项目", 400);
+    }
+    planItemId = planItem.rows[0].id;
+  }
   if (input.assigneeUserId) {
     const assignee = await database.query<{ id: string }>(
       "SELECT id FROM app_users WHERE id = $1 AND disabled_at IS NULL LIMIT 1",
@@ -249,8 +267,9 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
     await transaction.query(
       `INSERT INTO tasks (
          id, user_id, title, notes, status, project_status, important, urgency_mode, due_at,
-         estimated_minutes, project_id, project_name, area_name, assignee_user_id, completed_at, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,CASE WHEN $5 = 'done' THEN 'done' ELSE 'planned' END,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
+         estimated_minutes, project_id, project_name, area_name, assignee_user_id, plan_item_id,
+         completed_at, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,CASE WHEN $5 = 'done' THEN 'done' ELSE 'planned' END,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now())
        ON CONFLICT (id) DO UPDATE SET
          title = EXCLUDED.title,
          notes = EXCLUDED.notes,
@@ -268,6 +287,7 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
          project_name = EXCLUDED.project_name,
          area_name = EXCLUDED.area_name,
          assignee_user_id = EXCLUDED.assignee_user_id,
+         plan_item_id = EXCLUDED.plan_item_id,
          completed_at = EXCLUDED.completed_at,
          updated_at = now()`,
       [
@@ -284,6 +304,7 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
         projectName,
         areaName,
         input.assigneeUserId ?? null,
+        planItemId,
         input.status === "done" ? new Date().toISOString() : null,
       ],
     );
@@ -427,6 +448,8 @@ async function attachSources(rows: readonly TaskRow[]): Promise<readonly StoredT
     projectId: row.project_id ?? undefined,
     projectName: row.project_name ?? undefined,
     projectColor: row.project_color ?? undefined,
+    planItemId: row.plan_item_id ?? undefined,
+    planItemTitle: row.plan_item_title ?? undefined,
     areaName: row.area_name ?? undefined,
     assigneeUserId: row.assignee_user_id ?? undefined,
     assigneeDisplayName: row.assignee_display_name ?? undefined,

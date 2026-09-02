@@ -10,8 +10,8 @@ import {
   reorderStoredProjectGanttItem,
   saveStoredProjectMilestone,
   saveStoredProjectPhase,
-  saveStoredProjectTaskPlan,
 } from "./project-repository";
+import { deleteStoredProjectPlanItem, reorderStoredProjectPlanItem, saveStoredProjectPlanItem } from "./project-plan-repository";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`Assertion failed: ${message}`);
@@ -66,9 +66,9 @@ async function main() {
       dueOn: "2026-08-04",
       status: "planned",
     });
-    await saveStoredProjectTaskPlan({
+    const predecessorPlan = await saveStoredProjectPlanItem({
       projectId: "project-test",
-      taskId: "task-a",
+      title: "Prepare prototype",
       plannedStart: "2026-07-24",
       plannedEnd: "2026-07-27",
       dependencyIds: [],
@@ -76,16 +76,17 @@ async function main() {
       durationWorkdays: 2,
       autoSchedule: false,
     });
-    await saveStoredProjectTaskPlan({
+    const successorPlan = await saveStoredProjectPlanItem({
       projectId: "project-test",
-      taskId: "task-b",
+      title: "Run validation",
       plannedStart: "2026-07-24",
       plannedEnd: "2026-07-28",
-      dependencyIds: ["task-a"],
+      dependencyIds: [predecessorPlan.id],
       phaseId: phase.id,
       durationWorkdays: 3,
       autoSchedule: true,
     });
+    await database.query("UPDATE tasks SET plan_item_id = $1 WHERE id = 'task-a'", [predecessorPlan.id]);
 
     let overview = await getStoredProjectOverview("project-test");
     assert(
@@ -96,23 +97,20 @@ async function main() {
       overview.milestones.find((entry) => entry.id === milestone.id)?.phaseId === phase.id,
       "project milestones can belong to a project phase",
     );
-    const predecessor = overview?.ganttTasks.find((task) => task.id === "task-a");
-    let successor = overview?.ganttTasks.find((task) => task.id === "task-b");
-    assert(predecessor?.plannedEnd === "2026-07-25", "task duration includes weekend days");
+    const predecessor = overview?.ganttTasks.find((task) => task.id === predecessorPlan.id);
+    let successor = overview?.ganttTasks.find((task) => task.id === successorPlan.id);
+    assert(overview?.ganttTasks.length === 2, "only explicit plan items appear in the gantt chart");
+    assert(predecessor?.linkedTaskCount === 1, "plan items expose linked action progress");
+    assert(predecessor?.plannedEnd === "2026-07-25", "plan item duration includes weekend days");
     assert(successor?.plannedStart === "2026-07-26", "automatic scheduling starts on the calendar day after the predecessor");
     assert(successor.plannedEnd === "2026-07-28", "automatic scheduling preserves calendar-day duration");
 
-    overview = await reorderStoredProjectGanttItem({
-      projectId: "project-test",
-      kind: "task",
-      itemId: "task-b",
-      phaseId: phase.id,
-      beforeId: "task-a",
-    });
+    await reorderStoredProjectPlanItem("project-test", successorPlan.id, phase.id, predecessorPlan.id);
+    overview = await getStoredProjectOverview("project-test");
     assert(
-      overview.ganttTasks.find((task) => task.id === "task-b")!.ganttSortOrder
-        < overview.ganttTasks.find((task) => task.id === "task-a")!.ganttSortOrder,
-      "tasks can be reordered inside a project phase",
+      overview!.ganttTasks.find((task) => task.id === successorPlan.id)!.ganttSortOrder
+        < overview!.ganttTasks.find((task) => task.id === predecessorPlan.id)!.ganttSortOrder,
+      "plan items can be reordered inside a project phase",
     );
 
     overview = await reorderStoredProjectGanttItem({
@@ -135,9 +133,9 @@ async function main() {
       phaseId: phase.id,
     });
 
-    const movedPlan = await saveStoredProjectTaskPlan({
+    const movedPlan = await saveStoredProjectPlanItem({
+      id: predecessorPlan.id,
       projectId: "project-test",
-      taskId: "task-a",
       title: "Prepare production prototype",
       plannedStart: "2026-07-27",
       plannedEnd: "2026-07-28",
@@ -147,11 +145,12 @@ async function main() {
       autoSchedule: false,
       projectStatus: "done",
     });
-    overview = movedPlan.overview;
-    successor = movedPlan.overview.ganttTasks.find((task) => task.id === "task-b");
-    assert(movedPlan.task.plannedStart === "2026-07-27", "save result returns the confirmed dragged task");
-    assert(movedPlan.task.title === "Prepare production prototype", "gantt plan can rename a task");
-    assert(movedPlan.task.projectStatus === "done" && movedPlan.task.status === "done" && Boolean(movedPlan.task.completedAt), "gantt plan can complete a task");
+    overview = await getStoredProjectOverview("project-test");
+    successor = overview!.ganttTasks.find((task) => task.id === successorPlan.id);
+    assert(movedPlan.plannedStart === "2026-07-27", "save result returns the confirmed plan item");
+    assert(movedPlan.title === "Prepare production prototype", "gantt plan can rename a plan item");
+    assert(movedPlan.projectStatus === "done", "gantt plan can complete a plan item");
+    assert(overview!.tasks.find((task) => task.id === "task-a")?.status === "next", "completing a plan item does not complete its linked action");
     assert(successor?.plannedStart === "2026-07-29", "moving a predecessor cascades to automatic successors");
     assert(successor.plannedEnd === "2026-07-31", "cascaded scheduling preserves consecutive-day duration");
 
@@ -159,12 +158,16 @@ async function main() {
     assert(await deleteStoredProjectPhase("project-test", validationPhase.id), "second phase can be deleted");
     overview = await getStoredProjectOverview("project-test");
     assert(overview?.phases.length === 0, "deleted phase is removed from the project");
-    assert(overview?.ganttTasks.every((task) => !task.phaseId), "deleting a phase preserves and ungroups its tasks");
+    assert(overview?.ganttTasks.every((task) => !task.phaseId), "deleting a phase preserves and ungroups its plan items");
     assert(
       overview?.milestones.some((entry) => entry.id === milestone.id && !entry.phaseId),
       "deleting a phase preserves its milestones as project-level milestones",
     );
-    console.log("Project phase and automatic scheduling tests passed");
+    assert(await deleteStoredProjectPlanItem("project-test", predecessorPlan.id), "plan item can be deleted independently");
+    overview = await getStoredProjectOverview("project-test");
+    assert(overview?.tasks.some((task) => task.id === "task-a" && !task.planItemId), "deleting a plan item preserves and unlinks its actions");
+    assert(overview?.ganttTasks.every((task) => !task.dependencyIds.includes(predecessorPlan.id)), "deleting a plan item removes plan dependencies");
+    console.log("Project plan-item separation and automatic scheduling tests passed");
   } finally {
     await closeDatabaseForRestore().catch(() => undefined);
     await rm(root, { recursive: true, force: true });

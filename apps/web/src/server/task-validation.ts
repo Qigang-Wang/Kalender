@@ -15,6 +15,7 @@ export interface TaskRequestBody {
   readonly dueAt?: unknown;
   readonly estimatedMinutes?: unknown;
   readonly projectId?: unknown;
+  readonly planItemId?: unknown;
   readonly projectName?: unknown;
   readonly areaName?: unknown;
   readonly assigneeUserId?: unknown;
@@ -56,6 +57,7 @@ export function parseTaskInput(body: TaskRequestBody | null, id?: string): SaveT
     dueAt,
     estimatedMinutes,
     projectId: optionalText(body.projectId, 100, "项目标识"),
+    planItemId: optionalText(body.planItemId, 100, "计划项标识"),
     projectName: optionalText(body.projectName, 100, "项目名称"),
     areaName: optionalText(body.areaName, 100, "领域名称"),
     assigneeUserId: optionalText(body.assigneeUserId, 100, "指派用户"),

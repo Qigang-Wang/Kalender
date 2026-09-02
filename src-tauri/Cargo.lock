@@ -1874,7 +1874,7 @@ dependencies = [
 
 [[package]]
 name = "kalender-desktop"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "chrono",
  "notify-rust",
@@ -1887,6 +1887,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "url",
  "windows",
+ "winreg 0.10.1",
 ]
 
 [[package]]

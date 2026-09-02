@@ -191,6 +191,22 @@ async function verifyLegacyUpgrade(database: TestPostgresDatabase) {
 
   await runDatabaseMigrations(database, DATABASE_MIGRATIONS.slice(0, 25));
   await database.query("UPDATE backup_settings SET retention_count = 14, encrypt_automatic = true WHERE id = 'workspace'");
+  await runDatabaseMigrations(database, DATABASE_MIGRATIONS.slice(0, 36));
+  await database.exec(`
+    INSERT INTO tasks (
+      id, title, status, project_id, project_name, planned_start, planned_end,
+      duration_workdays, project_status
+    ) VALUES (
+      'legacy-long-plan', 'Legacy long plan', 'next', 'legacy-project', 'Legacy Research',
+      '2026-07-01', '2026-07-10', 10, 'in_progress'
+    );
+    INSERT INTO tasks (
+      id, title, status, project_id, project_name, planned_end, project_status
+    ) VALUES (
+      'legacy-due-action', 'Legacy due action', 'next', 'legacy-project', 'Legacy Research',
+      '2026-07-10', 'planned'
+    );
+  `);
   const status = await runDatabaseMigrations(database, DATABASE_MIGRATIONS);
   assert(
     status.currentVersion === LATEST_DATABASE_SCHEMA_VERSION && status.pendingVersions.length === 0,
@@ -221,6 +237,20 @@ async function verifyLegacyUpgrade(database: TestPostgresDatabase) {
         AND relation = 'project-item'`,
   );
   assert(projectTaskLink.rows[0]?.count === 1, "project migration backfills shared EntityLink membership");
+  const migratedPlans = await database.query<{ id: string; plan_item_id: string | null }>(
+    `SELECT task.id, task.plan_item_id
+       FROM tasks task
+      WHERE task.id IN ('legacy-long-plan', 'legacy-due-action')
+      ORDER BY task.id`,
+  );
+  assert(
+    migratedPlans.rows.find((entry) => entry.id === "legacy-long-plan")?.plan_item_id === "legacy-long-plan",
+    "legacy tasks with an explicit date range become linked plan items",
+  );
+  assert(
+    migratedPlans.rows.find((entry) => entry.id === "legacy-due-action")?.plan_item_id === null,
+    "a due date alone stays an action and does not clutter the gantt chart",
+  );
   const migratedBody = await database.query<{
     text_body: string | null;
     html_body: string | null;

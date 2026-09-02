@@ -1,4 +1,5 @@
 export const DESKTOP_SETTINGS_STORAGE_KEY = "kalender.desktop.reminder-settings.v1";
+const DESKTOP_AUTOSTART_DEFAULT_MIGRATION_KEY = "kalender.desktop.autostart-default-enabled.v1";
 export const DESKTOP_SETTINGS_CHANGED_EVENT = "kalender:desktop-settings-changed";
 export const DESKTOP_SYNC_REQUESTED_EVENT = "kalender:desktop-sync-requested";
 export const DESKTOP_STATUS_CHANGED_EVENT = "kalender:desktop-status-changed";
@@ -74,8 +75,12 @@ export function readDesktopReminderSettings(): DesktopReminderSettings {
   if (typeof window === "undefined") return DEFAULT_DESKTOP_REMINDER_SETTINGS;
   try {
     const parsed = JSON.parse(window.localStorage.getItem(DESKTOP_SETTINGS_STORAGE_KEY) || "null") as Partial<DesktopReminderSettings> | null;
-    if (!parsed) return DEFAULT_DESKTOP_REMINDER_SETTINGS;
-    return normalizeDesktopReminderSettings({ ...DEFAULT_DESKTOP_REMINDER_SETTINGS, ...parsed });
+    const settings = normalizeDesktopReminderSettings({ ...DEFAULT_DESKTOP_REMINDER_SETTINGS, ...parsed });
+    if (window.localStorage.getItem(DESKTOP_AUTOSTART_DEFAULT_MIGRATION_KEY) === "1") return settings;
+    const migrated = { ...settings, launchAtLogin: true };
+    window.localStorage.setItem(DESKTOP_SETTINGS_STORAGE_KEY, JSON.stringify(migrated));
+    window.localStorage.setItem(DESKTOP_AUTOSTART_DEFAULT_MIGRATION_KEY, "1");
+    return migrated;
   } catch {
     return DEFAULT_DESKTOP_REMINDER_SETTINGS;
   }

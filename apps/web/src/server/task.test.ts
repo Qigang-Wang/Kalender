@@ -11,6 +11,7 @@ async function main() {
   const testRoot = path.join(tmpdir(), `kalender-task-test-${randomUUID()}`);
   process.env.KALENDER_DATA_DIR = testRoot;
   const repository = await import("./task-repository");
+  const planRepository = await import("./project-plan-repository");
   const noteRepository = await import("./note-repository");
   const schedule = await import("./task-schedule");
   const calendarRepository = await import("./calendar-repository");
@@ -24,6 +25,14 @@ async function main() {
     color: "#86bdf5",
     status: "active",
   });
+  const planItem = await planRepository.saveStoredProjectPlanItem({
+    projectId: project.id,
+    title: "Deliver customer rollout",
+    plannedStart: "2026-07-20",
+    plannedEnd: "2026-07-24",
+    durationWorkdays: 5,
+    dependencyIds: [],
+  });
 
   const input = parseTaskInput({
       title: " Confirm delivery time ",
@@ -33,15 +42,22 @@ async function main() {
       dueAt: "2026-07-20T12:00:00.000Z",
       estimatedMinutes: 45,
       projectId: project.id,
+      planItemId: planItem.id,
       sourceReferences: [{ kind: "mail", sourceId: "message-1", label: "Delivery email", href: "/inbox" }],
     });
   const created = await repository.saveStoredTask(input);
   assert(created.title === "Confirm delivery time", "task title is normalized");
   assert(created.important && created.estimatedMinutes === 45, "priority and estimate are stored");
   assert(created.projectId === project.id && created.projectName === project.name, "task stores a real project relation");
+  assert(created.planItemId === planItem.id && created.planItemTitle === planItem.title, "task can optionally link to a project plan item");
   assert(created.projectColor === project.color && created.areaName === "Work", "task inherits project presentation and area");
   assert(created.sourceReferences[0]?.kind === "mail", "mail backlink is stored");
   assert(created.isUrgent, "past automatic deadline is urgent");
+
+  const unlinked = await repository.saveStoredTask({ ...input, id: created.id, planItemId: undefined });
+  assert(!unlinked.planItemId && !unlinked.planItemTitle, "an action can be unlinked without deleting it");
+  const relinked = await repository.saveStoredTask({ ...input, id: created.id });
+  assert(relinked.planItemId === planItem.id, "an existing action can be linked again");
 
   const renamedProject = await noteRepository.saveStoredProject({
     id: project.id,

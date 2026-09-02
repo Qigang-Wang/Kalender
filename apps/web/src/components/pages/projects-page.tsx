@@ -25,6 +25,7 @@ import {
 } from "../context-commands";
 import { DateTimeField } from "../ui/date-time-field";
 import { TransientToast } from "../workspace-shared";
+import { TaskEditorDialog } from "./task-editor-dialog";
 
 const TASKS_CHANGED_EVENT = "kalender:tasks-changed";
 const PROJECTS_CHANGED_EVENT = "kalender:projects-changed";
@@ -73,7 +74,12 @@ interface ClientTask {
   readonly projectId?: string;
   readonly projectName?: string;
   readonly projectColor?: string;
+  readonly planItemId?: string;
+  readonly planItemTitle?: string;
   readonly areaName?: string;
+  readonly assigneeUserId?: string;
+  readonly assigneeDisplayName?: string;
+  readonly assigneeEmail?: string;
   readonly completedAt?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -112,6 +118,16 @@ function formatProjectTaskStatus(status: ProjectTaskStatus): string {
     case "paused": return "已暂停";
     case "done": return "已完成";
     case "cancelled": return "已取消";
+  }
+}
+
+function formatTaskStatus(status: TaskStatus): string {
+  switch (status) {
+    case "inbox": return "收集箱";
+    case "next": return "下一步";
+    case "waiting": return "等待中";
+    case "someday": return "将来/也许";
+    case "done": return "已完成";
   }
 }
 
@@ -214,8 +230,22 @@ interface ClientCollaborator {
   readonly email: string;
 }
 
-interface ClientProjectGanttTask extends ClientTask {
+interface ClientProjectGanttTask {
+  readonly id: string;
+  readonly projectId: string;
+  readonly phaseId?: string;
+  readonly title: string;
+  readonly projectStatus: ProjectTaskStatus;
+  readonly plannedStart?: string;
+  readonly plannedEnd?: string;
+  readonly ganttSortOrder: number;
+  readonly durationWorkdays?: number;
+  readonly autoSchedule: boolean;
   readonly dependencyIds: readonly string[];
+  readonly linkedTaskCount: number;
+  readonly completedTaskCount: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 interface ClientProjectPhase {
@@ -280,6 +310,23 @@ interface ProjectGanttTaskDraft {
   readonly insertAfterTaskId?: string;
 }
 
+interface ProjectTaskEditDraft {
+  readonly id: string;
+  readonly sourceReferences: readonly ClientTaskSource[];
+  title: string;
+  notes: string;
+  status: TaskStatus;
+  important: boolean;
+  urgencyMode: TaskUrgencyMode;
+  dueAt: string;
+  estimatedMinutes: string;
+  projectId: string;
+  planItemId: string;
+  projectName: string;
+  areaName: string;
+  assigneeUserId: string;
+}
+
 interface ProjectGanttReorderInput {
   readonly kind: "task" | "milestone";
   readonly itemId: string;
@@ -316,6 +363,48 @@ async function readProjectApiResponse<T extends object>(response: Response, fall
   }
 }
 
+function toLocalDateTimeInput(value: Date): string {
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+}
+
+function projectTaskToEditDraft(task: ClientTask): ProjectTaskEditDraft {
+  return {
+    id: task.id,
+    title: task.title,
+    notes: task.notes ?? "",
+    status: task.status,
+    important: task.important,
+    urgencyMode: task.urgencyMode,
+    dueAt: task.dueAt ? toLocalDateTimeInput(new Date(task.dueAt)) : "",
+    estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : "",
+    projectId: task.projectId ?? "",
+    planItemId: task.planItemId ?? "",
+    projectName: task.projectName ?? "",
+    areaName: task.areaName ?? "",
+    assigneeUserId: task.assigneeUserId ?? "",
+    sourceReferences: task.sourceReferences,
+  };
+}
+
+function projectTaskEditPayload(draft: ProjectTaskEditDraft) {
+  return {
+    title: draft.title,
+    notes: draft.notes || undefined,
+    status: draft.status,
+    important: draft.important,
+    urgencyMode: draft.urgencyMode,
+    dueAt: draft.dueAt ? new Date(draft.dueAt).toISOString() : undefined,
+    estimatedMinutes: draft.estimatedMinutes ? Number(draft.estimatedMinutes) : undefined,
+    projectId: draft.projectId || undefined,
+    planItemId: draft.projectId && draft.planItemId ? draft.planItemId : undefined,
+    projectName: draft.projectId ? undefined : draft.projectName || undefined,
+    areaName: draft.areaName || undefined,
+    assigneeUserId: draft.assigneeUserId || undefined,
+    sourceReferences: draft.sourceReferences.map(({ kind, sourceId, label, href }) => ({ kind, sourceId, label, href })),
+  };
+}
+
 export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?: string }) {
   const [projects, setProjects] = useState<readonly ClientProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
@@ -330,11 +419,20 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
   const [ganttDraft, setGanttDraft] = useState<ProjectGanttPlanDraft>();
   const [phaseDraft, setPhaseDraft] = useState<ProjectPhaseDraft>();
   const [ganttTaskDraft, setGanttTaskDraft] = useState<ProjectGanttTaskDraft>();
+  const [taskEditDraft, setTaskEditDraft] = useState<ProjectTaskEditDraft>();
+  const [taskEditPlanItems, setTaskEditPlanItems] = useState<readonly ClientProjectGanttTask[]>([]);
+  const [linkedActionTitle, setLinkedActionTitle] = useState("");
+  const [linkActionTaskId, setLinkActionTaskId] = useState("");
   const [projectMembers, setProjectMembers] = useState<readonly ClientProjectMember[]>([]);
   const [collaborators, setCollaborators] = useState<readonly ClientCollaborator[]>([]);
   const [memberDraftUserId, setMemberDraftUserId] = useState("");
   const [memberDraftAccess, setMemberDraftAccess] = useState<"viewer" | "editor">("viewer");
   const memberLoadSequenceRef = useRef(0);
+
+  useEffect(() => {
+    setLinkedActionTitle("");
+    setLinkActionTaskId("");
+  }, [ganttDraft?.taskId]);
 
   const loadProjects = useCallback(async () => {
     const response = await workspaceFetch("/api/projects?includeArchived=true");
@@ -349,12 +447,35 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     return payload.projects;
   }, [initialProjectId]);
 
-  const loadOverview = useCallback(async (projectId: string) => {
-    const response = await workspaceFetch(`/api/projects/${encodeURIComponent(projectId)}`, {}, 1_000);
+  const loadOverview = useCallback(async (projectId: string, cacheTtlMs = 1_000) => {
+    const response = await workspaceFetch(`/api/projects/${encodeURIComponent(projectId)}`, {}, cacheTtlMs);
     const payload = await response.json() as { readonly ok?: boolean; readonly overview?: ClientProjectOverview; readonly message?: string };
     if (!response.ok || !payload.ok || !payload.overview) throw new Error(payload.message ?? "无法读取项目概况");
     setOverview(payload.overview);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    const projectId = taskEditDraft?.projectId;
+    if (!projectId) {
+      setTaskEditPlanItems([]);
+      return () => { active = false; };
+    }
+    if (overview?.project.id === projectId) {
+      setTaskEditPlanItems(overview.ganttTasks);
+      return () => { active = false; };
+    }
+    void (async () => {
+      try {
+        const response = await workspaceFetch(`/api/projects/${encodeURIComponent(projectId)}`, {}, 0);
+        const payload = await response.json() as { readonly ok?: boolean; readonly overview?: ClientProjectOverview };
+        if (active) setTaskEditPlanItems(response.ok && payload.ok ? payload.overview?.ganttTasks ?? [] : []);
+      } catch {
+        if (active) setTaskEditPlanItems([]);
+      }
+    })();
+    return () => { active = false; };
+  }, [overview, taskEditDraft?.projectId]);
 
   const loadProjectMembers = useCallback(async (projectId: string) => {
     const requestSequence = ++memberLoadSequenceRef.current;
@@ -529,6 +650,96 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     }
   };
 
+  const saveProjectTask = async () => {
+    if (!overview || !taskEditDraft?.title.trim() || busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskEditDraft.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(projectTaskEditPayload(taskEditDraft)),
+      });
+      const payload = await readProjectApiResponse<{ readonly ok?: boolean; readonly task?: ClientTask; readonly message?: string }>(
+        response,
+        "无法保存任务",
+      );
+      if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? "无法保存任务");
+      await loadOverview(overview.project.id, 0);
+      setTaskEditDraft(undefined);
+      window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
+      window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
+      setFeedback("任务已更新");
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "无法保存任务");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createLinkedPlanAction = async () => {
+    if (!overview || !ganttDraft || !linkedActionTitle.trim() || busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: linkedActionTitle,
+          status: "next",
+          important: false,
+          urgencyMode: "auto",
+          projectId: overview.project.id,
+          planItemId: ganttDraft.taskId,
+        }),
+      });
+      const payload = await readProjectApiResponse<{ readonly ok?: boolean; readonly task?: ClientTask; readonly message?: string }>(
+        response,
+        "无法创建关联行动",
+      );
+      if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? "无法创建关联行动");
+      await loadOverview(overview.project.id, 0);
+      setLinkedActionTitle("");
+      window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
+      window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
+      setFeedback("关联行动已创建");
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "无法创建关联行动");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updatePlanActionLink = async (task: ClientTask, planItemId?: string) => {
+    if (!overview || busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(projectTaskEditPayload({
+          ...projectTaskToEditDraft(task),
+          planItemId: planItemId ?? "",
+        })),
+      });
+      const payload = await readProjectApiResponse<{ readonly ok?: boolean; readonly task?: ClientTask; readonly message?: string }>(
+        response,
+        planItemId ? "无法关联行动" : "无法解除关联",
+      );
+      if (!response.ok || !payload.ok || !payload.task) {
+        throw new Error(payload.message ?? (planItemId ? "无法关联行动" : "无法解除关联"));
+      }
+      await loadOverview(overview.project.id, 0);
+      setLinkActionTaskId("");
+      window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
+      window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
+      setFeedback(planItemId ? "行动已关联" : "行动已解除关联");
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : planItemId ? "无法关联行动" : "无法解除关联");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const createProjectNote = async () => {
     if (!overview || busy || overview.project.status === "archived") return;
     setBusy(true);
@@ -618,8 +829,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
       if (!response.ok || !payload.ok || !payload.overview) throw new Error(payload.message ?? "无法保存甘特计划");
       setOverview(payload.overview);
       setGanttDraft(undefined);
-      setFeedback("任务计划已更新");
-      window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
+      setFeedback("计划项已更新");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法保存甘特计划");
     } finally {
@@ -637,7 +847,6 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     setBusy(true);
     setOverview({
       ...overview,
-      tasks: overview.tasks.map((entry) => entry.id === task.id ? { ...entry, plannedStart, plannedEnd } : entry),
       ganttTasks: overview.ganttTasks.map((entry) => entry.id === task.id ? { ...entry, plannedStart, plannedEnd } : entry),
     });
     try {
@@ -733,7 +942,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
       }>(response, "无法保存甘特顺序");
       if (!response.ok || !payload.ok || !payload.overview) throw new Error(payload.message ?? "无法保存甘特顺序");
       setOverview(payload.overview);
-      setFeedback(input.kind === "milestone" ? "里程碑位置已更新" : "任务顺序已更新");
+      setFeedback(input.kind === "milestone" ? "里程碑位置已更新" : "计划项顺序已更新");
       return true;
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法保存甘特顺序");
@@ -773,7 +982,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
   const deletePhase = async (phase: ClientProjectPhase) => {
     if (!overview || busy || !await appConfirm({
       title: `删除阶段“${phase.name}”？`,
-      description: "阶段中的任务会保留，并移动到“未分组”。",
+      description: "阶段中的计划项会保留，并移动到“未分组”。",
       confirmLabel: "删除阶段",
       tone: "danger",
     })) return;
@@ -789,7 +998,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
       );
       if (!response.ok || !payload.ok) throw new Error(payload.message ?? "无法删除阶段");
       await loadOverview(overview.project.id);
-      setFeedback("阶段已删除，任务已移到未分组");
+      setFeedback("阶段已删除，计划项已移到未分组");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法删除阶段");
     } finally {
@@ -801,34 +1010,17 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     if (!overview || !ganttTaskDraft?.title.trim() || busy) return;
     setBusy(true);
     try {
-      const createResponse = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: ganttTaskDraft.title,
-          status: "next",
-          important: false,
-          urgencyMode: "auto",
-          projectId: overview.project.id,
-        }),
-      });
-      const createPayload = await readProjectApiResponse<{
-        readonly ok?: boolean;
-        readonly task?: ClientTask;
-        readonly message?: string;
-      }>(createResponse, "无法创建任务");
-      if (!createResponse.ok || !createPayload.ok || !createPayload.task) {
-        throw new Error(createPayload.message ?? "无法创建任务");
-      }
       const plannedEnd = ganttTaskDraft.plannedStart
         ? addProjectDays(ganttTaskDraft.plannedStart, ganttTaskDraft.durationWorkdays - 1)
         : undefined;
-      const planResponse = await fetch(
-        `/api/projects/${encodeURIComponent(overview.project.id)}/gantt/${encodeURIComponent(createPayload.task.id)}`,
+      const createResponse = await fetch(
+        `/api/projects/${encodeURIComponent(overview.project.id)}/gantt`,
         {
-          method: "PATCH",
+          method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            title: ganttTaskDraft.title,
+            projectStatus: "planned",
             plannedStart: ganttTaskDraft.plannedStart || undefined,
             plannedEnd,
             dependencyIds: [],
@@ -838,22 +1030,22 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
           }),
         },
       );
-      const planPayload = await readProjectApiResponse<{
+      const createPayload = await readProjectApiResponse<{
         readonly ok?: boolean;
+        readonly planItem?: ClientProjectGanttTask;
         readonly overview?: ClientProjectOverview;
         readonly message?: string;
-      }>(
-        planResponse,
-        "无法设置任务计划",
-      );
-      if (!planResponse.ok || !planPayload.ok || !planPayload.overview) throw new Error(planPayload.message ?? "无法设置任务计划");
-      let updatedOverview = planPayload.overview;
+      }>(createResponse, "无法创建计划项");
+      if (!createResponse.ok || !createPayload.ok || !createPayload.planItem || !createPayload.overview) {
+        throw new Error(createPayload.message ?? "无法创建计划项");
+      }
+      let updatedOverview = createPayload.overview;
       if (ganttTaskDraft.insertAfterTaskId) {
         const anchor = updatedOverview.ganttTasks.find((task) => task.id === ganttTaskDraft.insertAfterTaskId);
         const phaseId = ganttTaskDraft.phaseId || undefined;
         if (anchor && (anchor.phaseId ?? "") === (phaseId ?? "")) {
           const siblings = updatedOverview.ganttTasks
-            .filter((task) => task.id !== createPayload.task!.id && (task.phaseId ?? "") === (phaseId ?? ""))
+            .filter((task) => task.id !== createPayload.planItem!.id && (task.phaseId ?? "") === (phaseId ?? ""))
             .sort((left, right) => left.ganttSortOrder - right.ganttSortOrder || left.createdAt.localeCompare(right.createdAt));
           const anchorIndex = siblings.findIndex((task) => task.id === anchor.id);
           const reorderResponse = await fetch(
@@ -863,7 +1055,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 kind: "task",
-                itemId: createPayload.task.id,
+                itemId: createPayload.planItem.id,
                 phaseId: phaseId ?? null,
                 beforeId: siblings[anchorIndex + 1]?.id,
               }),
@@ -873,9 +1065,9 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
             readonly ok?: boolean;
             readonly overview?: ClientProjectOverview;
             readonly message?: string;
-          }>(reorderResponse, "无法放置新任务");
+          }>(reorderResponse, "无法放置新计划项");
           if (!reorderResponse.ok || !reorderPayload.ok || !reorderPayload.overview) {
-            throw new Error(reorderPayload.message ?? "无法放置新任务");
+            throw new Error(reorderPayload.message ?? "无法放置新计划项");
           }
           updatedOverview = reorderPayload.overview;
         }
@@ -883,9 +1075,9 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
       setOverview(updatedOverview);
       window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
       setGanttTaskDraft(undefined);
-      setFeedback("任务已添加到甘特图");
+      setFeedback("计划项已添加到甘特图");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法创建任务");
+      setFeedback(error instanceof Error ? error.message : "无法创建计划项");
     } finally {
       setBusy(false);
     }
@@ -893,30 +1085,36 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
 
   const deleteGanttTask = async (task: ClientProjectGanttTask) => {
     if (!overview || busy || !await appConfirm({
-      title: `永久删除任务“${task.title}”？`,
-      description: "相关依赖和日历时间块也会一并移除，此操作无法撤销。",
-      confirmLabel: "永久删除",
+      title: `删除计划项“${task.title}”？`,
+      description: "计划依赖会被移除，已关联的行动任务会保留并解除关联。",
+      confirmLabel: "删除计划项",
       tone: "danger",
     })) return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, { method: "DELETE" });
-      const payload = await readProjectApiResponse<{ readonly ok?: boolean; readonly message?: string }>(
-        response,
-        "无法删除任务",
+      const response = await fetch(
+        `/api/projects/${encodeURIComponent(overview.project.id)}/gantt/${encodeURIComponent(task.id)}`,
+        { method: "DELETE" },
       );
-      if (!response.ok || !payload.ok) throw new Error(payload.message ?? "无法删除任务");
-      await loadOverview(overview.project.id);
+      const payload = await readProjectApiResponse<{ readonly ok?: boolean; readonly overview?: ClientProjectOverview; readonly message?: string }>(
+        response,
+        "无法删除计划项",
+      );
+      if (!response.ok || !payload.ok || !payload.overview) throw new Error(payload.message ?? "无法删除计划项");
+      setOverview(payload.overview);
       window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
-      setFeedback("任务已删除");
+      setFeedback("计划项已删除，关联行动已保留");
     } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法删除任务");
+      setFeedback(error instanceof Error ? error.message : "无法删除计划项");
     } finally {
       setBusy(false);
     }
   };
 
-  const openTasks = overview?.tasks.filter((task) => task.projectStatus !== "done" && task.projectStatus !== "cancelled") ?? [];
+  const openTasks = overview?.tasks.filter((task) => task.status !== "done") ?? [];
+  const editingProjectTask = taskEditDraft
+    ? overview?.tasks.find((task) => task.id === taskEditDraft.id)
+    : undefined;
   const upcomingBlocks = overview?.scheduledBlocks.filter((block) => new Date(block.end).getTime() >= Date.now()).slice(0, 6) ?? [];
   const ganttDraftBlocked = Boolean(ganttDraft && overview?.ganttTasks.some((task) => (
     ganttDraft.dependencyIds.includes(task.id) && task.projectStatus !== "done"
@@ -960,7 +1158,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
             <section className="panel project-actions-panel">
               <header><div><ListChecks size={16} /><span><strong>下一步行动</strong></span></div><Link href="/tasks">查看全部</Link></header>
               {overview.project.status === "active" && <form onSubmit={(event) => { event.preventDefault(); void createQuickTask(); }}><Plus size={15} /><input value={quickTaskTitle} maxLength={240} onChange={(event) => setQuickTaskTitle(event.target.value)} placeholder="快速添加下一步行动…" /><button disabled={busy || !quickTaskTitle.trim()}>添加</button></form>}
-              <div className="project-action-list">{openTasks.slice(0, 7).map((task) => <Link href={`/tasks?task=${encodeURIComponent(task.id)}`} key={task.id}><span className={`project-task-status ${task.isUrgent ? "urgent" : ""}`}><Check size={12} /></span><span><strong>{task.title}</strong><small>{task.dueAt ? formatTaskDue(task.dueAt) : task.estimatedMinutes ? formatTaskEstimate(task.estimatedMinutes) : formatProjectTaskStatus(task.projectStatus)}</small></span>{task.important && <Star size={13} fill="currentColor" />}</Link>)}{!openTasks.length && <div className="project-panel-empty"><CheckCircle2 size={20} /><span>当前没有待推进任务</span></div>}</div>
+              <div className="project-action-list">{openTasks.slice(0, 7).map((task) => <button type="button" onClick={() => setTaskEditDraft(projectTaskToEditDraft(task))} key={task.id}><span className={`project-task-status ${task.isUrgent ? "urgent" : ""}`}><Check size={12} /></span><span><strong>{task.title}</strong><small>{task.dueAt ? formatTaskDue(task.dueAt) : task.estimatedMinutes ? formatTaskEstimate(task.estimatedMinutes) : task.planItemTitle ? `计划项：${task.planItemTitle}` : formatTaskStatus(task.status)}</small></span>{task.important && <Star size={13} fill="currentColor" />}</button>)}{!openTasks.length && <div className="project-panel-empty"><CheckCircle2 size={20} /><span>当前没有待推进任务</span></div>}</div>
             </section>
 
             <section className="panel project-notes-panel">
@@ -976,6 +1174,19 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
           </div>
         </> : <section className="panel project-empty-state"><FolderPlus size={26} /><h2>建立第一个项目</h2><p>项目会把任务、笔记和专注时间组织在同一个目标下。</p><button className="primary-button" onClick={() => { setProjectDialogError(undefined); setProjectDraft({ name: "", description: "", areaName: "", color: "#86bdf5", status: "active" }); }}><Plus size={14} />新建项目</button></section>}
       </main>
+
+      {taskEditDraft && <TaskEditorDialog
+        draft={taskEditDraft}
+        projects={projects}
+        planItems={taskEditPlanItems}
+        collaborators={collaborators}
+        editingTask={editingProjectTask}
+        busy={busy}
+        scheduleHref={`/tasks?schedule=${encodeURIComponent(taskEditDraft.id)}`}
+        onDraftChange={(nextDraft) => setTaskEditDraft(nextDraft as ProjectTaskEditDraft)}
+        onClose={() => setTaskEditDraft(undefined)}
+        onSave={() => void saveProjectTask()}
+      />}
 
       {projectDraft && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) { setProjectDialogError(undefined); setProjectDraft(undefined); } }}>
         <section className="calendar-dialog note-project-dialog panel" role="dialog" aria-modal="true" aria-labelledby="project-management-dialog-title">
@@ -1021,10 +1232,10 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
       </div>}
       {ganttDraft && overview && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setGanttDraft(undefined); }}>
         <section className="calendar-dialog project-gantt-dialog panel" role="dialog" aria-modal="true" aria-labelledby="project-gantt-dialog-title">
-          <header><div><input id="project-gantt-dialog-title" className="project-gantt-title-input" aria-label="任务名称" autoFocus maxLength={240} value={ganttDraft.title} onChange={(event) => setGanttDraft({ ...ganttDraft, title: event.target.value })} /></div><button aria-label="关闭" onClick={() => setGanttDraft(undefined)} disabled={busy}><X size={18} /></button></header>
+          <header><div><input id="project-gantt-dialog-title" className="project-gantt-title-input" aria-label="计划项名称" autoFocus maxLength={240} value={ganttDraft.title} onChange={(event) => setGanttDraft({ ...ganttDraft, title: event.target.value })} /></div><button aria-label="关闭" onClick={() => setGanttDraft(undefined)} disabled={busy}><X size={18} /></button></header>
           <div className="project-gantt-form">
             <label><span>所属阶段</span><AppSelect ariaLabel="所属阶段" value={ganttDraft.phaseId} onValueChange={(phaseId) => setGanttDraft({ ...ganttDraft, phaseId })} options={[{ value: "", label: "未分组" }, ...overview.phases.map((phase) => ({ value: phase.id, label: phase.name }))]} /></label>
-            <label><span>状态</span><AppSelect ariaLabel="项目任务状态" value={ganttDraft.projectStatus} onValueChange={(projectStatus) => setGanttDraft({ ...ganttDraft, projectStatus: projectStatus as ProjectTaskStatus })} options={[{ value: "planned", label: "待开始" }, { value: "in_progress", label: "进行中" }, { value: "paused", label: "已暂停" }, { value: "done", label: "已完成" }, { value: "cancelled", label: "已取消" }]} /></label>
+            <label><span>状态</span><AppSelect ariaLabel="计划项状态" value={ganttDraft.projectStatus} onValueChange={(projectStatus) => setGanttDraft({ ...ganttDraft, projectStatus: projectStatus as ProjectTaskStatus })} options={[{ value: "planned", label: "待开始" }, { value: "in_progress", label: "进行中" }, { value: "paused", label: "已暂停" }, { value: "done", label: "已完成" }, { value: "cancelled", label: "已取消" }]} /></label>
             <div className="project-gantt-schedule-fields">
               <DateTimeField label="计划开始" mode="date" disabled={ganttDraft.autoSchedule && ganttDraft.dependencyIds.length > 0} value={ganttDraft.plannedStart} onChange={(plannedStart) => {
                 setGanttDraft({ ...ganttDraft, plannedStart, plannedEnd: plannedStart ? addProjectDays(plannedStart, ganttDraft.durationWorkdays - 1) : "" });
@@ -1037,10 +1248,18 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
                 setGanttDraft({ ...ganttDraft, plannedEnd, durationWorkdays: ganttDraft.plannedStart && plannedEnd ? countProjectDays(ganttDraft.plannedStart, plannedEnd) : ganttDraft.durationWorkdays });
               }} />
             </div>
-            <fieldset><legend><label className="project-gantt-auto-schedule"><input type="checkbox" checked={ganttDraft.autoSchedule} onChange={(event) => setGanttDraft({ ...ganttDraft, autoSchedule: event.target.checked })} /><span>自动排期</span></label><span>前置任务</span>{ganttDraftBlocked && <em className="project-gantt-blocked-status">受阻</em>}</legend><div>{overview.ganttTasks.filter((task) => task.id !== ganttDraft.taskId).map((task) => <label key={task.id}><input type="checkbox" checked={ganttDraft.dependencyIds.includes(task.id)} onChange={(event) => {
+            <fieldset><legend><label className="project-gantt-auto-schedule"><input type="checkbox" checked={ganttDraft.autoSchedule} onChange={(event) => setGanttDraft({ ...ganttDraft, autoSchedule: event.target.checked })} /><span>自动排期</span></label><span>前置计划项</span>{ganttDraftBlocked && <em className="project-gantt-blocked-status">受阻</em>}</legend><div>{overview.ganttTasks.filter((task) => task.id !== ganttDraft.taskId).map((task) => <label key={task.id}><input type="checkbox" checked={ganttDraft.dependencyIds.includes(task.id)} onChange={(event) => {
               const dependencyIds = event.target.checked ? [...ganttDraft.dependencyIds, task.id] : ganttDraft.dependencyIds.filter((id) => id !== task.id);
               setGanttDraft({ ...ganttDraft, dependencyIds, autoSchedule: event.target.checked ? true : ganttDraft.autoSchedule });
-            }} /><span className="project-gantt-dependency-title">{task.title}</span><em className={`project-gantt-dependency-status ${task.projectStatus}`}>{formatProjectTaskStatus(task.projectStatus)}</em></label>)}</div>{overview.ganttTasks.length <= 1 && <p>项目中还没有其他任务可作为依赖。</p>}</fieldset>
+            }} /><span className="project-gantt-dependency-title">{task.title}</span><em className={`project-gantt-dependency-status ${task.projectStatus}`}>{formatProjectTaskStatus(task.projectStatus)}</em></label>)}</div>{overview.ganttTasks.length <= 1 && <p>项目中还没有其他计划项可作为依赖。</p>}</fieldset>
+            <section className="project-gantt-linked-actions">
+              <header><strong>关联行动</strong><small>{overview.tasks.filter((task) => task.planItemId === ganttDraft.taskId && task.status === "done").length}/{overview.tasks.filter((task) => task.planItemId === ganttDraft.taskId).length} 已完成</small></header>
+              {overview.tasks.some((task) => task.planItemId === ganttDraft.taskId)
+                ? <div className="project-gantt-linked-action-list">{overview.tasks.filter((task) => task.planItemId === ganttDraft.taskId).map((task) => <article key={task.id}><button type="button" className="project-gantt-linked-action-open" onClick={() => { setGanttDraft(undefined); setTaskEditDraft(projectTaskToEditDraft(task)); }}><Check size={12} /><span>{task.title}</span><small>{formatTaskStatus(task.status)}</small></button><button type="button" className="project-gantt-linked-action-remove" aria-label={`解除关联：${task.title}`} title="解除关联" disabled={busy} onClick={() => void updatePlanActionLink(task)}><X size={13} /></button></article>)}</div>
+                : <p>还没有关联行动，可以直接新建或关联现有任务。</p>}
+              <form className="project-gantt-new-action" onSubmit={(event) => { event.preventDefault(); void createLinkedPlanAction(); }}><input value={linkedActionTitle} maxLength={240} onChange={(event) => setLinkedActionTitle(event.target.value)} placeholder="新建关联行动…" /><button type="submit" disabled={busy || !linkedActionTitle.trim()}><Plus size={13} />新建</button></form>
+              <div className="project-gantt-link-action"><AppSelect ariaLabel="选择要关联的任务" size="compact" value={linkActionTaskId} onValueChange={setLinkActionTaskId} options={[{ value: "", label: "选择现有未关联任务" }, ...overview.tasks.filter((task) => !task.planItemId).map((task) => ({ value: task.id, label: `${task.title} · ${formatTaskStatus(task.status)}` }))]} /><button type="button" disabled={busy || !linkActionTaskId} onClick={() => { const task = overview.tasks.find((entry) => entry.id === linkActionTaskId); if (task) void updatePlanActionLink(task, ganttDraft.taskId); }}><Link2 size={13} />关联</button></div>
+            </section>
           </div>
           <footer><div><button className="secondary-button" disabled={busy} onClick={() => setGanttDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !ganttDraft.title.trim() || !ganttDraft.plannedStart || !ganttDraft.plannedEnd} onClick={() => void saveGanttPlan()}>{busy && <LoaderCircle className="spin" size={14} />}保存计划</button></div></footer>
         </section>
@@ -1057,14 +1276,14 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
       </div>}
       {ganttTaskDraft && overview && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setGanttTaskDraft(undefined); }}>
         <section className="calendar-dialog project-gantt-task-dialog panel" role="dialog" aria-modal="true" aria-labelledby="project-gantt-task-dialog-title">
-          <header><div><h2 id="project-gantt-task-dialog-title">新建任务</h2></div><button aria-label="关闭" onClick={() => setGanttTaskDraft(undefined)} disabled={busy}><X size={18} /></button></header>
+          <header><div><h2 id="project-gantt-task-dialog-title">新建计划项</h2></div><button aria-label="关闭" onClick={() => setGanttTaskDraft(undefined)} disabled={busy}><X size={18} /></button></header>
           <div className="project-gantt-task-form">
-            <label className="wide"><span>任务名称</span><input autoFocus maxLength={240} value={ganttTaskDraft.title} onChange={(event) => setGanttTaskDraft({ ...ganttTaskDraft, title: event.target.value })} placeholder="需要完成什么？" /></label>
+            <label className="wide"><span>计划项名称</span><input autoFocus maxLength={240} value={ganttTaskDraft.title} onChange={(event) => setGanttTaskDraft({ ...ganttTaskDraft, title: event.target.value })} placeholder="例如 完成硬件原型" /></label>
             <label><span>所属阶段</span><AppSelect ariaLabel="所属阶段" value={ganttTaskDraft.phaseId} onValueChange={(phaseId) => setGanttTaskDraft({ ...ganttTaskDraft, phaseId })} options={[{ value: "", label: "未分组" }, ...overview.phases.map((phase) => ({ value: phase.id, label: phase.name }))]} /></label>
             <DateTimeField label="计划开始" mode="date" value={ganttTaskDraft.plannedStart} onChange={(plannedStart) => setGanttTaskDraft({ ...ganttTaskDraft, plannedStart })} />
             <label><span>工期（天）</span><input type="number" min={1} max={2600} value={ganttTaskDraft.durationWorkdays} onChange={(event) => setGanttTaskDraft({ ...ganttTaskDraft, durationWorkdays: Math.max(1, Math.min(2600, Number(event.target.value) || 1)) })} /></label>
           </div>
-          <footer><small>{ganttTaskDraft.plannedStart ? `预计结束：${formatProjectMilestoneDate(addProjectDays(ganttTaskDraft.plannedStart, ganttTaskDraft.durationWorkdays - 1))}` : "不设置开始日期时，任务会进入未排期区域。"}</small><div><button className="secondary-button" disabled={busy} onClick={() => setGanttTaskDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !ganttTaskDraft.title.trim()} onClick={() => void createGanttTask()}>{busy && <LoaderCircle className="spin" size={14} />}创建任务</button></div></footer>
+          <footer><small>{ganttTaskDraft.plannedStart ? `预计结束：${formatProjectMilestoneDate(addProjectDays(ganttTaskDraft.plannedStart, ganttTaskDraft.durationWorkdays - 1))}` : "不设置开始日期时，计划项会进入未排期区域。"}</small><div><button className="secondary-button" disabled={busy} onClick={() => setGanttTaskDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !ganttTaskDraft.title.trim()} onClick={() => void createGanttTask()}>{busy && <LoaderCircle className="spin" size={14} />}创建计划项</button></div></footer>
         </section>
       </div>}
     </div>
@@ -1665,7 +1884,11 @@ function ProjectGanttChart({
     const dependencyTitles = task.dependencyIds.map((id) => taskById.get(id)?.title).filter((title): title is string => Boolean(title));
     const blocked = task.dependencyIds.some((id) => taskById.get(id)?.projectStatus !== "done");
     const statusLabel = blocked ? "受阻" : formatProjectTaskStatus(task.projectStatus);
-    const taskMeta = [blocked ? "受阻" : undefined, task.autoSchedule ? "自动排期" : dependencyTitles.length > 0 ? `依赖：${dependencyTitles.join("、")}` : undefined].filter(Boolean).join(" · ");
+    const taskMeta = [
+      blocked ? "受阻" : undefined,
+      task.autoSchedule ? "自动排期" : dependencyTitles.length > 0 ? `依赖：${dependencyTitles.join("、")}` : undefined,
+      task.linkedTaskCount > 0 ? `${task.completedTaskCount}/${task.linkedTaskCount} 个行动已完成` : undefined,
+    ].filter(Boolean).join(" · ");
     const statusIcon = blocked
       ? <AlertCircle size={12} />
       : task.projectStatus === "planned" ? <Circle size={12} />
@@ -1697,7 +1920,7 @@ function ProjectGanttChart({
           role="button"
           tabIndex={readOnly ? -1 : 0}
           aria-disabled={readOnly || saving}
-          aria-label={`编辑任务计划：${task.title}，${statusLabel}，${previewStart} 至 ${previewEnd}`}
+          aria-label={`编辑计划项：${task.title}，${statusLabel}，${previewStart} 至 ${previewEnd}`}
           title={`${task.title} · ${statusLabel}：${previewStart} – ${previewEnd}`}
           style={{ left: previewStartIndex * dayWidth, width: previewDurationDays * dayWidth, "--project-gantt-task-color": projectColor } as CSSProperties}
           onContextMenu={(event) => openTaskMenu(event, task)}
@@ -1776,15 +1999,15 @@ function ProjectGanttChart({
   };
 
   const menuCommands: readonly ResolvedContextCommand[] = menu?.kind === "task" ? [
-    { id: "gantt.edit-task", label: "编辑任务计划", group: "primary", risk: "local-write", icon: "edit", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
-    { id: "gantt.delete-task", label: "永久删除任务", group: "danger", risk: "destructive", icon: "trash", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
+    { id: "gantt.edit-task", label: "编辑计划项", group: "primary", risk: "local-write", icon: "edit", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
+    { id: "gantt.delete-task", label: "删除计划项", group: "danger", risk: "destructive", icon: "trash", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
   ] : menu?.kind === "phase" ? [
-    { id: "gantt.add-task", label: "在阶段中添加任务", group: "primary", risk: "local-write", icon: "task", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
+    { id: "gantt.add-task", label: "在阶段中添加计划项", group: "primary", risk: "local-write", icon: "task", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
     { id: "gantt.add-milestone", label: "在阶段中添加里程碑", group: "primary", risk: "local-write", icon: "calendar-plus", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
     { id: "gantt.edit-phase", label: "重命名或更改颜色", group: "organize", risk: "local-write", icon: "edit", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
     { id: "gantt.delete-phase", label: "删除阶段", group: "danger", risk: "destructive", icon: "trash", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
   ] : [
-    { id: "gantt.add-task", label: menu?.date ? `在 ${formatProjectMilestoneDate(menu.date)} 添加任务` : "添加任务", group: "primary", risk: "local-write", icon: "task", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
+    { id: "gantt.add-task", label: menu?.date ? `在 ${formatProjectMilestoneDate(menu.date)} 添加计划项` : "添加计划项", group: "primary", risk: "local-write", icon: "task", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
     { id: "gantt.add-milestone", label: menu?.date ? `在 ${formatProjectMilestoneDate(menu.date)} 添加里程碑` : "添加里程碑", group: "primary", risk: "local-write", icon: "calendar-plus", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
     { id: "gantt.add-phase", label: "添加阶段", group: "organize", risk: "local-write", icon: "folder", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
   ];
@@ -1817,7 +2040,7 @@ function ProjectGanttChart({
       <div className="project-gantt-scroll" ref={scrollRef}>
         <div className="project-gantt-table" style={{ "--gantt-width": `${timelineWidth}px`, "--gantt-day-width": `${dayWidth}px`, "--gantt-week-width": `${dayWidth * 7}px` } as CSSProperties}>
           <div className="project-gantt-heading">
-            <div className="project-gantt-task-heading" onContextMenu={(event) => openCanvasMenu(event, undefined, false)}>阶段、任务</div>
+            <div className="project-gantt-task-heading" onContextMenu={(event) => openCanvasMenu(event, undefined, false)}>阶段、计划项</div>
             <div className="project-gantt-time-heading" onContextMenu={(event) => openCanvasMenu(event)}>
               <div className="project-gantt-month-bands" aria-hidden="true">{monthSegments.map((segment) => <span className={`tone-${segment.tone}`} key={segment.key} style={{ left: segment.left, width: segment.width }} />)}</div>
               <div className="project-gantt-week-labels">{weekendBands()}{monthSegments.map((segment) => <span className="project-gantt-month-label" key={segment.key} style={{ left: segment.left }}>{segment.label}</span>)}</div>
@@ -1849,7 +2072,7 @@ function ProjectGanttChart({
                 if (next.has(phase.id)) next.delete(phase.id);
                 else next.add(phase.id);
                 return next;
-              })} onContextMenu={(event) => openPhaseMenu(event, phase)}>{collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<i style={{ background: phase.color }} /><span><strong>{phase.name}</strong><small>{phaseTaskCount} 项任务 · {phaseMilestones.length} 个里程碑 · {completionPercent}%</small></span><MoreHorizontal size={13} /></button>
+              })} onContextMenu={(event) => openPhaseMenu(event, phase)}>{collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<i style={{ background: phase.color }} /><span><strong>{phase.name}</strong><small>{phaseTaskCount} 个计划项 · {phaseMilestones.length} 个里程碑 · {completionPercent}%</small></span><MoreHorizontal size={13} /></button>
               <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event, phase.id)} {...createTrackHandlers(`phase:${phase.id}`, phase.id)}>
                 {monthWashes()}{weekendBands()}
                 {todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}
@@ -1865,19 +2088,19 @@ function ProjectGanttChart({
               onDragOver={(event) => dragOverRow(event, "phase:project", "phase", undefined, undefined)}
               onDrop={(event) => dropOnRow(event, "phase", undefined, undefined)}
             >
-              <button className="project-gantt-task project-gantt-phase" disabled={readOnly} onContextMenu={(event) => openCanvasMenu(event, undefined, false)}><FolderPlus size={14} /><span><strong>项目级 / 未分组</strong><small>{ungroupedTasks.length} 项任务 · {ungroupedMilestones.length} 个里程碑</small></span></button>
+              <button className="project-gantt-task project-gantt-phase" disabled={readOnly} onContextMenu={(event) => openCanvasMenu(event, undefined, false)}><FolderPlus size={14} /><span><strong>项目级 / 未分组</strong><small>{ungroupedTasks.length} 个计划项 · {ungroupedMilestones.length} 个里程碑</small></span></button>
               <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event)} {...createTrackHandlers("ungrouped")}>{monthWashes()}{weekendBands()}{todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}{renderCreateSelection("ungrouped")}</div>
             </div>}
             {ungroupedTasks.map(renderTaskRow)}
             {ungroupedMilestones.map(renderMilestoneRow)}
             {!tasks.length && !phases.length && !milestones.length && <div className="project-gantt-row project-gantt-empty-row">
-              <button className="project-gantt-task" disabled={readOnly} onClick={() => onCreateTask()} onContextMenu={(event) => openCanvasMenu(event, undefined, false)}><span><strong>还没有项目任务</strong></span><Plus size={14} /></button>
+              <button className="project-gantt-task" disabled={readOnly} onClick={() => onCreateTask()} onContextMenu={(event) => openCanvasMenu(event, undefined, false)}><span><strong>还没有计划项</strong></span><Plus size={14} /></button>
               <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event)} {...createTrackHandlers("empty")}>{monthWashes()}{weekendBands()}{todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}{renderCreateSelection("empty")}</div>
             </div>}
           </>}
         </div>
       </div>
-      <footer><span><i style={{ background: projectColor }} />计划任务</span><span><i className="weekend" />周末</span><span><i className="today" />今天</span><small>{readOnly ? "已归档项目为只读。" : "拖动调整日期 · 右键管理 · Ctrl + 滚轮缩放"}</small></footer>
+      <footer><span><i style={{ background: projectColor }} />计划项</span><span><i className="weekend" />周末</span><span><i className="today" />今天</span><small>{readOnly ? "已归档项目为只读。" : "拖动调整日期 · 右键管理 · Ctrl + 滚轮缩放"}</small></footer>
       {menu && <ContextMenu anchor={{ x: menu.x, y: menu.y }} ariaLabel="甘特图操作" commands={menuCommands} heading={menu.task?.title ?? menu.phase?.name ?? (menu.date ? formatProjectMilestoneDate(menu.date) : "项目甘特图")} returnFocus={menu.returnFocus} testId="project-gantt-context-menu" onClose={() => setMenu(undefined)} onSelect={selectMenuCommand} />}
     </section>
   );
