@@ -113,7 +113,7 @@ import {
   type NoteCommandId,
   type ProjectAreaCommandId,
   type ProjectCommandId,
-  type ProjectGanttCommandId,
+  type ProjectTimelineCommandId,
   type ResolvedContextCommand,
   type SidebarCommandId,
   type TaskCommandId,

@@ -90,12 +90,12 @@ export type ProjectAreaCommandId =
   | "project-area.toggle"
   | "project-area.collapse-others";
 
-export type ProjectGanttCommandId =
-  | "gantt.add-task"
+export type ProjectTimelineCommandId =
+  | "gantt.add-plan-item"
   | "gantt.add-milestone"
   | "gantt.add-phase"
-  | "gantt.edit-task"
-  | "gantt.delete-task"
+  | "gantt.edit-plan-item"
+  | "gantt.delete-plan-item"
   | "gantt.edit-phase"
   | "gantt.delete-phase"
   | "gantt.remove-phase";
@@ -119,7 +119,7 @@ export type SearchResultCommandId =
   | "search.copy-link"
   | "search.copy-title";
 
-export type ContextCommandId = MailMessageCommandId | MailFolderCommandId | MailAccountCommandId | CalendarAccountCommandId | SidebarCommandId | CalendarEventCommandId | CalendarSlotCommandId | TaskCommandId | NoteCommandId | ProjectCommandId | ProjectAreaCommandId | ProjectGanttCommandId | JobCommandId | BackupArtifactCommandId | SearchResultCommandId;
+export type ContextCommandId = MailMessageCommandId | MailFolderCommandId | MailAccountCommandId | CalendarAccountCommandId | SidebarCommandId | CalendarEventCommandId | CalendarSlotCommandId | TaskCommandId | NoteCommandId | ProjectCommandId | ProjectAreaCommandId | ProjectTimelineCommandId | JobCommandId | BackupArtifactCommandId | SearchResultCommandId;
 
 export interface MailMessageContextTarget {
   readonly kind: "mail-message";

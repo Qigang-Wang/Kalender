@@ -20,7 +20,7 @@ import { ContextMenu } from "../context-menu";
 import {
   resolveContextCommands,
   type ContextCommandId,
-  type ProjectGanttCommandId,
+  type ProjectTimelineCommandId,
   type ResolvedContextCommand,
 } from "../context-commands";
 import { DateTimeField } from "../ui/date-time-field";
@@ -33,7 +33,7 @@ const OPEN_PROJECT_DIALOG_EVENT = "kalender:open-project-dialog";
 const EDIT_PROJECT_DIALOG_EVENT = "kalender:edit-project-dialog";
 
 type TaskStatus = "inbox" | "next" | "waiting" | "someday" | "done";
-type ProjectTaskStatus = "planned" | "in_progress" | "paused" | "done" | "cancelled";
+type ProjectPlanItemStatus = "planned" | "in_progress" | "paused" | "done" | "cancelled";
 type TaskUrgencyMode = "auto" | "urgent" | "not_urgent";
 
 interface ClientTaskSource {
@@ -59,18 +59,11 @@ interface ClientTask {
   readonly title: string;
   readonly notes?: string;
   readonly status: TaskStatus;
-  readonly projectStatus: ProjectTaskStatus;
   readonly important: boolean;
   readonly urgencyMode: TaskUrgencyMode;
   readonly isUrgent: boolean;
   readonly dueAt?: string;
   readonly estimatedMinutes?: number;
-  readonly plannedStart?: string;
-  readonly plannedEnd?: string;
-  readonly phaseId?: string;
-  readonly ganttSortOrder: number;
-  readonly durationWorkdays?: number;
-  readonly autoSchedule: boolean;
   readonly projectId?: string;
   readonly projectName?: string;
   readonly projectColor?: string;
@@ -111,7 +104,7 @@ function formatTaskEstimate(minutes: number): string {
   return remainder ? `${hours} 小时 ${remainder} 分` : `${hours} 小时`;
 }
 
-function formatProjectTaskStatus(status: ProjectTaskStatus): string {
+function formatProjectPlanItemStatus(status: ProjectPlanItemStatus): string {
   switch (status) {
     case "planned": return "待开始";
     case "in_progress": return "进行中";
@@ -194,7 +187,7 @@ interface ClientProjectScheduledBlock extends ClientTaskTimeBlock {
 interface ClientProjectOverview {
   readonly project: ClientProject;
   readonly tasks: readonly ClientTask[];
-  readonly ganttTasks: readonly ClientProjectGanttTask[];
+  readonly planItems: readonly ClientProjectPlanItem[];
   readonly notes: readonly ClientNote[];
   readonly milestones: readonly ClientProjectMilestone[];
   readonly phases: readonly ClientProjectPhase[];
@@ -230,15 +223,15 @@ interface ClientCollaborator {
   readonly email: string;
 }
 
-interface ClientProjectGanttTask {
+interface ClientProjectPlanItem {
   readonly id: string;
   readonly projectId: string;
   readonly phaseId?: string;
   readonly title: string;
-  readonly projectStatus: ProjectTaskStatus;
+  readonly status: ProjectPlanItemStatus;
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
-  readonly ganttSortOrder: number;
+  readonly sortOrder: number;
   readonly durationWorkdays?: number;
   readonly autoSchedule: boolean;
   readonly dependencyIds: readonly string[];
@@ -283,10 +276,10 @@ interface ProjectMilestoneDraft {
   readonly status: ClientProjectMilestone["status"];
 }
 
-interface ProjectGanttPlanDraft {
-  readonly taskId: string;
+interface ProjectPlanItemDraft {
+  readonly planItemId: string;
   readonly title: string;
-  readonly projectStatus: ProjectTaskStatus;
+  readonly status: ProjectPlanItemStatus;
   readonly plannedStart: string;
   readonly plannedEnd: string;
   readonly dependencyIds: readonly string[];
@@ -302,12 +295,12 @@ interface ProjectPhaseDraft {
   readonly sortOrder: number;
 }
 
-interface ProjectGanttTaskDraft {
+interface ProjectPlanItemCreateDraft {
   readonly title: string;
   readonly phaseId: string;
   readonly plannedStart: string;
   readonly durationWorkdays: number;
-  readonly insertAfterTaskId?: string;
+  readonly insertAfterPlanItemId?: string;
 }
 
 interface ProjectTaskEditDraft {
@@ -327,8 +320,8 @@ interface ProjectTaskEditDraft {
   assigneeUserId: string;
 }
 
-interface ProjectGanttReorderInput {
-  readonly kind: "task" | "milestone";
+interface ProjectTimelineReorderInput {
+  readonly kind: "planItem" | "milestone";
   readonly itemId: string;
   readonly phaseId?: string;
   readonly beforeId?: string;
@@ -416,11 +409,11 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
   const [quickTaskTitle, setQuickTaskTitle] = useState("");
   const [projectDraft, setProjectDraft] = useState<ProjectManagementDraft>();
   const [milestoneDraft, setMilestoneDraft] = useState<ProjectMilestoneDraft>();
-  const [ganttDraft, setGanttDraft] = useState<ProjectGanttPlanDraft>();
+  const [planItemDraft, setPlanItemDraft] = useState<ProjectPlanItemDraft>();
   const [phaseDraft, setPhaseDraft] = useState<ProjectPhaseDraft>();
-  const [ganttTaskDraft, setGanttTaskDraft] = useState<ProjectGanttTaskDraft>();
+  const [planItemCreateDraft, setPlanItemCreateDraft] = useState<ProjectPlanItemCreateDraft>();
   const [taskEditDraft, setTaskEditDraft] = useState<ProjectTaskEditDraft>();
-  const [taskEditPlanItems, setTaskEditPlanItems] = useState<readonly ClientProjectGanttTask[]>([]);
+  const [taskEditPlanItems, setTaskEditPlanItems] = useState<readonly ClientProjectPlanItem[]>([]);
   const [linkedActionTitle, setLinkedActionTitle] = useState("");
   const [linkActionTaskId, setLinkActionTaskId] = useState("");
   const [projectMembers, setProjectMembers] = useState<readonly ClientProjectMember[]>([]);
@@ -432,7 +425,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
   useEffect(() => {
     setLinkedActionTitle("");
     setLinkActionTaskId("");
-  }, [ganttDraft?.taskId]);
+  }, [planItemDraft?.planItemId]);
 
   const loadProjects = useCallback(async () => {
     const response = await workspaceFetch("/api/projects?includeArchived=true");
@@ -462,14 +455,14 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
       return () => { active = false; };
     }
     if (overview?.project.id === projectId) {
-      setTaskEditPlanItems(overview.ganttTasks);
+      setTaskEditPlanItems(overview.planItems);
       return () => { active = false; };
     }
     void (async () => {
       try {
         const response = await workspaceFetch(`/api/projects/${encodeURIComponent(projectId)}`, {}, 0);
         const payload = await response.json() as { readonly ok?: boolean; readonly overview?: ClientProjectOverview };
-        if (active) setTaskEditPlanItems(response.ok && payload.ok ? payload.overview?.ganttTasks ?? [] : []);
+        if (active) setTaskEditPlanItems(response.ok && payload.ok ? payload.overview?.planItems ?? [] : []);
       } catch {
         if (active) setTaskEditPlanItems([]);
       }
@@ -677,7 +670,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
   };
 
   const createLinkedPlanAction = async () => {
-    if (!overview || !ganttDraft || !linkedActionTitle.trim() || busy) return;
+    if (!overview || !planItemDraft || !linkedActionTitle.trim() || busy) return;
     setBusy(true);
     try {
       const response = await fetch("/api/tasks", {
@@ -689,7 +682,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
           important: false,
           urgencyMode: "auto",
           projectId: overview.project.id,
-          planItemId: ganttDraft.taskId,
+          planItemId: planItemDraft.planItemId,
         }),
       });
       const payload = await readProjectApiResponse<{ readonly ok?: boolean; readonly task?: ClientTask; readonly message?: string }>(
@@ -816,19 +809,19 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     }
   };
 
-  const saveGanttPlan = async () => {
-    if (!overview || !ganttDraft || busy) return;
+  const savePlanItem = async () => {
+    if (!overview || !planItemDraft || busy) return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/projects/${encodeURIComponent(overview.project.id)}/gantt/${encodeURIComponent(ganttDraft.taskId)}`, {
+      const response = await fetch(`/api/projects/${encodeURIComponent(overview.project.id)}/plan-items/${encodeURIComponent(planItemDraft.planItemId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(ganttDraft),
+        body: JSON.stringify(planItemDraft),
       });
       const payload = await response.json() as { readonly ok?: boolean; readonly overview?: ClientProjectOverview; readonly message?: string };
       if (!response.ok || !payload.ok || !payload.overview) throw new Error(payload.message ?? "无法保存甘特计划");
       setOverview(payload.overview);
-      setGanttDraft(undefined);
+      setPlanItemDraft(undefined);
       setFeedback("计划项已更新");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法保存甘特计划");
@@ -837,8 +830,8 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     }
   };
 
-  const saveGanttDates = async (
-    task: ClientProjectGanttTask,
+  const savePlanItemDates = async (
+    task: ClientProjectPlanItem,
     plannedStart: string,
     plannedEnd: string,
   ): Promise<boolean> => {
@@ -847,10 +840,10 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     setBusy(true);
     setOverview({
       ...overview,
-      ganttTasks: overview.ganttTasks.map((entry) => entry.id === task.id ? { ...entry, plannedStart, plannedEnd } : entry),
+      planItems: overview.planItems.map((entry) => entry.id === task.id ? { ...entry, plannedStart, plannedEnd } : entry),
     });
     try {
-      const response = await fetch(`/api/projects/${encodeURIComponent(overview.project.id)}/gantt/${encodeURIComponent(task.id)}`, {
+      const response = await fetch(`/api/projects/${encodeURIComponent(overview.project.id)}/plan-items/${encodeURIComponent(task.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -862,8 +855,8 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
           autoSchedule: task.autoSchedule,
         }),
       });
-      const payload = await response.json() as { readonly ok?: boolean; readonly task?: ClientProjectGanttTask; readonly overview?: ClientProjectOverview; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.task || !payload.overview) throw new Error(payload.message ?? "无法保存甘特计划");
+      const payload = await response.json() as { readonly ok?: boolean; readonly planItem?: ClientProjectPlanItem; readonly overview?: ClientProjectOverview; readonly message?: string };
+      if (!response.ok || !payload.ok || !payload.planItem || !payload.overview) throw new Error(payload.message ?? "无法保存甘特计划");
       setOverview(payload.overview);
       setFeedback(`已更新“${task.title}”的计划日期`);
       return true;
@@ -923,12 +916,12 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     }
   };
 
-  const reorderGanttItem = async (input: ProjectGanttReorderInput): Promise<boolean> => {
+  const reorderTimelineItem = async (input: ProjectTimelineReorderInput): Promise<boolean> => {
     if (!overview || busy || overview.project.status === "archived") return false;
     setBusy(true);
     try {
       const response = await fetch(
-        `/api/projects/${encodeURIComponent(overview.project.id)}/gantt/reorder`,
+        `/api/projects/${encodeURIComponent(overview.project.id)}/timeline/reorder`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -1006,33 +999,33 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     }
   };
 
-  const createGanttTask = async () => {
-    if (!overview || !ganttTaskDraft?.title.trim() || busy) return;
+  const createPlanItem = async () => {
+    if (!overview || !planItemCreateDraft?.title.trim() || busy) return;
     setBusy(true);
     try {
-      const plannedEnd = ganttTaskDraft.plannedStart
-        ? addProjectDays(ganttTaskDraft.plannedStart, ganttTaskDraft.durationWorkdays - 1)
+      const plannedEnd = planItemCreateDraft.plannedStart
+        ? addProjectDays(planItemCreateDraft.plannedStart, planItemCreateDraft.durationWorkdays - 1)
         : undefined;
       const createResponse = await fetch(
-        `/api/projects/${encodeURIComponent(overview.project.id)}/gantt`,
+        `/api/projects/${encodeURIComponent(overview.project.id)}/plan-items`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            title: ganttTaskDraft.title,
-            projectStatus: "planned",
-            plannedStart: ganttTaskDraft.plannedStart || undefined,
+            title: planItemCreateDraft.title,
+            status: "planned",
+            plannedStart: planItemCreateDraft.plannedStart || undefined,
             plannedEnd,
             dependencyIds: [],
-            phaseId: ganttTaskDraft.phaseId || null,
-            durationWorkdays: ganttTaskDraft.durationWorkdays,
+            phaseId: planItemCreateDraft.phaseId || null,
+            durationWorkdays: planItemCreateDraft.durationWorkdays,
             autoSchedule: false,
           }),
         },
       );
       const createPayload = await readProjectApiResponse<{
         readonly ok?: boolean;
-        readonly planItem?: ClientProjectGanttTask;
+        readonly planItem?: ClientProjectPlanItem;
         readonly overview?: ClientProjectOverview;
         readonly message?: string;
       }>(createResponse, "无法创建计划项");
@@ -1040,21 +1033,21 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
         throw new Error(createPayload.message ?? "无法创建计划项");
       }
       let updatedOverview = createPayload.overview;
-      if (ganttTaskDraft.insertAfterTaskId) {
-        const anchor = updatedOverview.ganttTasks.find((task) => task.id === ganttTaskDraft.insertAfterTaskId);
-        const phaseId = ganttTaskDraft.phaseId || undefined;
+      if (planItemCreateDraft.insertAfterPlanItemId) {
+        const anchor = updatedOverview.planItems.find((task) => task.id === planItemCreateDraft.insertAfterPlanItemId);
+        const phaseId = planItemCreateDraft.phaseId || undefined;
         if (anchor && (anchor.phaseId ?? "") === (phaseId ?? "")) {
-          const siblings = updatedOverview.ganttTasks
+          const siblings = updatedOverview.planItems
             .filter((task) => task.id !== createPayload.planItem!.id && (task.phaseId ?? "") === (phaseId ?? ""))
-            .sort((left, right) => left.ganttSortOrder - right.ganttSortOrder || left.createdAt.localeCompare(right.createdAt));
+            .sort((left, right) => left.sortOrder - right.sortOrder || left.createdAt.localeCompare(right.createdAt));
           const anchorIndex = siblings.findIndex((task) => task.id === anchor.id);
           const reorderResponse = await fetch(
-            `/api/projects/${encodeURIComponent(overview.project.id)}/gantt/reorder`,
+            `/api/projects/${encodeURIComponent(overview.project.id)}/timeline/reorder`,
             {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                kind: "task",
+                kind: "planItem",
                 itemId: createPayload.planItem.id,
                 phaseId: phaseId ?? null,
                 beforeId: siblings[anchorIndex + 1]?.id,
@@ -1074,7 +1067,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
       }
       setOverview(updatedOverview);
       window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
-      setGanttTaskDraft(undefined);
+      setPlanItemCreateDraft(undefined);
       setFeedback("计划项已添加到甘特图");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法创建计划项");
@@ -1083,7 +1076,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     }
   };
 
-  const deleteGanttTask = async (task: ClientProjectGanttTask) => {
+  const deletePlanItem = async (task: ClientProjectPlanItem) => {
     if (!overview || busy || !await appConfirm({
       title: `删除计划项“${task.title}”？`,
       description: "计划依赖会被移除，已关联的行动任务会保留并解除关联。",
@@ -1093,7 +1086,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     setBusy(true);
     try {
       const response = await fetch(
-        `/api/projects/${encodeURIComponent(overview.project.id)}/gantt/${encodeURIComponent(task.id)}`,
+        `/api/projects/${encodeURIComponent(overview.project.id)}/plan-items/${encodeURIComponent(task.id)}`,
         { method: "DELETE" },
       );
       const payload = await readProjectApiResponse<{ readonly ok?: boolean; readonly overview?: ClientProjectOverview; readonly message?: string }>(
@@ -1116,8 +1109,8 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
     ? overview?.tasks.find((task) => task.id === taskEditDraft.id)
     : undefined;
   const upcomingBlocks = overview?.scheduledBlocks.filter((block) => new Date(block.end).getTime() >= Date.now()).slice(0, 6) ?? [];
-  const ganttDraftBlocked = Boolean(ganttDraft && overview?.ganttTasks.some((task) => (
-    ganttDraft.dependencyIds.includes(task.id) && task.projectStatus !== "done"
+  const planItemDraftBlocked = Boolean(planItemDraft && overview?.planItems.some((task) => (
+    planItemDraft.dependencyIds.includes(task.id) && task.status !== "done"
   )));
 
   return (
@@ -1135,20 +1128,20 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
         {loading && !overview ? <div className="project-overview-loading"><LoaderCircle className="spin" size={18} />正在整理项目…</div> : overview ? <>
           <ProjectGanttChart
             projectId={overview.project.id}
-            tasks={overview.ganttTasks}
+            planItems={overview.planItems}
             phases={overview.phases}
             milestones={overview.milestones}
             projectColor={overview.project.color}
             readOnly={overview.project.status === "archived"}
             busy={busy}
-            onChangeDates={saveGanttDates}
+            onChangeDates={savePlanItemDates}
             onChangeMilestoneDate={saveGanttMilestoneDate}
-            onReorderItem={reorderGanttItem}
-            onEdit={(task) => setGanttDraft(createProjectGanttDraft(task))}
+            onReorderItem={reorderTimelineItem}
+            onEdit={(task) => setPlanItemDraft(createProjectPlanItemDraft(task))}
             onEditMilestone={(milestone) => setMilestoneDraft({ id: milestone.id, title: milestone.title, dueOn: milestone.dueOn ?? "", status: milestone.status, phaseId: milestone.phaseId ?? "" })}
             onCreateMilestone={(dueOn, phaseId) => setMilestoneDraft({ title: "", dueOn: dueOn ?? "", status: "planned", phaseId: phaseId ?? "" })}
-            onCreateTask={(phaseId, plannedStart, durationWorkdays = 1, insertAfterTaskId) => setGanttTaskDraft({ title: "", phaseId: phaseId ?? "", plannedStart: plannedStart ?? "", durationWorkdays, insertAfterTaskId })}
-            onDeleteTask={(task) => void deleteGanttTask(task)}
+            onCreatePlanItem={(phaseId, plannedStart, durationWorkdays = 1, insertAfterPlanItemId) => setPlanItemCreateDraft({ title: "", phaseId: phaseId ?? "", plannedStart: plannedStart ?? "", durationWorkdays, insertAfterPlanItemId })}
+            onDeletePlanItem={(task) => void deletePlanItem(task)}
             onCreatePhase={() => setPhaseDraft({ name: "", color: overview.project.color, sortOrder: overview.phases.length })}
             onEditPhase={(phase) => setPhaseDraft({ id: phase.id, name: phase.name, color: phase.color, sortOrder: phase.sortOrder })}
             onDeletePhase={(phase) => void deletePhase(phase)}
@@ -1230,38 +1223,38 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
           <footer>{milestoneDraft.id && <button className="secondary-button danger-button" disabled={busy} onClick={() => void deleteMilestone(milestoneDraft)}><Trash2 size={14} />删除</button>}<div><button className="secondary-button" disabled={busy} onClick={() => setMilestoneDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !milestoneDraft.title.trim()} onClick={() => void saveMilestone()}>{busy && <LoaderCircle className="spin" size={14} />}{milestoneDraft.id ? "保存修改" : "添加里程碑"}</button></div></footer>
         </section>
       </div>}
-      {ganttDraft && overview && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setGanttDraft(undefined); }}>
+      {planItemDraft && overview && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setPlanItemDraft(undefined); }}>
         <section className="calendar-dialog project-gantt-dialog panel" role="dialog" aria-modal="true" aria-labelledby="project-gantt-dialog-title">
-          <header><div><input id="project-gantt-dialog-title" className="project-gantt-title-input" aria-label="计划项名称" autoFocus maxLength={240} value={ganttDraft.title} onChange={(event) => setGanttDraft({ ...ganttDraft, title: event.target.value })} /></div><button aria-label="关闭" onClick={() => setGanttDraft(undefined)} disabled={busy}><X size={18} /></button></header>
+          <header><div><input id="project-gantt-dialog-title" className="project-gantt-title-input" aria-label="计划项名称" autoFocus maxLength={240} value={planItemDraft.title} onChange={(event) => setPlanItemDraft({ ...planItemDraft, title: event.target.value })} /></div><button aria-label="关闭" onClick={() => setPlanItemDraft(undefined)} disabled={busy}><X size={18} /></button></header>
           <div className="project-gantt-form">
-            <label><span>所属阶段</span><AppSelect ariaLabel="所属阶段" value={ganttDraft.phaseId} onValueChange={(phaseId) => setGanttDraft({ ...ganttDraft, phaseId })} options={[{ value: "", label: "未分组" }, ...overview.phases.map((phase) => ({ value: phase.id, label: phase.name }))]} /></label>
-            <label><span>状态</span><AppSelect ariaLabel="计划项状态" value={ganttDraft.projectStatus} onValueChange={(projectStatus) => setGanttDraft({ ...ganttDraft, projectStatus: projectStatus as ProjectTaskStatus })} options={[{ value: "planned", label: "待开始" }, { value: "in_progress", label: "进行中" }, { value: "paused", label: "已暂停" }, { value: "done", label: "已完成" }, { value: "cancelled", label: "已取消" }]} /></label>
+            <label><span>所属阶段</span><AppSelect ariaLabel="所属阶段" value={planItemDraft.phaseId} onValueChange={(phaseId) => setPlanItemDraft({ ...planItemDraft, phaseId })} options={[{ value: "", label: "未分组" }, ...overview.phases.map((phase) => ({ value: phase.id, label: phase.name }))]} /></label>
+            <label><span>状态</span><AppSelect ariaLabel="计划项状态" value={planItemDraft.status} onValueChange={(status) => setPlanItemDraft({ ...planItemDraft, status: status as ProjectPlanItemStatus })} options={[{ value: "planned", label: "待开始" }, { value: "in_progress", label: "进行中" }, { value: "paused", label: "已暂停" }, { value: "done", label: "已完成" }, { value: "cancelled", label: "已取消" }]} /></label>
             <div className="project-gantt-schedule-fields">
-              <DateTimeField label="计划开始" mode="date" disabled={ganttDraft.autoSchedule && ganttDraft.dependencyIds.length > 0} value={ganttDraft.plannedStart} onChange={(plannedStart) => {
-                setGanttDraft({ ...ganttDraft, plannedStart, plannedEnd: plannedStart ? addProjectDays(plannedStart, ganttDraft.durationWorkdays - 1) : "" });
+              <DateTimeField label="计划开始" mode="date" disabled={planItemDraft.autoSchedule && planItemDraft.dependencyIds.length > 0} value={planItemDraft.plannedStart} onChange={(plannedStart) => {
+                setPlanItemDraft({ ...planItemDraft, plannedStart, plannedEnd: plannedStart ? addProjectDays(plannedStart, planItemDraft.durationWorkdays - 1) : "" });
               }} />
-              <label><span>工期（天）</span><input type="number" min={1} max={2600} value={ganttDraft.durationWorkdays} onChange={(event) => {
+              <label><span>工期（天）</span><input type="number" min={1} max={2600} value={planItemDraft.durationWorkdays} onChange={(event) => {
                 const durationWorkdays = Math.max(1, Math.min(2600, Number(event.target.value) || 1));
-                setGanttDraft({ ...ganttDraft, durationWorkdays, plannedEnd: ganttDraft.plannedStart ? addProjectDays(ganttDraft.plannedStart, durationWorkdays - 1) : "" });
+                setPlanItemDraft({ ...planItemDraft, durationWorkdays, plannedEnd: planItemDraft.plannedStart ? addProjectDays(planItemDraft.plannedStart, durationWorkdays - 1) : "" });
               }} /></label>
-              <DateTimeField label="计划结束" mode="date" min={ganttDraft.plannedStart} clearable={false} value={ganttDraft.plannedEnd} onChange={(plannedEnd) => {
-                setGanttDraft({ ...ganttDraft, plannedEnd, durationWorkdays: ganttDraft.plannedStart && plannedEnd ? countProjectDays(ganttDraft.plannedStart, plannedEnd) : ganttDraft.durationWorkdays });
+              <DateTimeField label="计划结束" mode="date" min={planItemDraft.plannedStart} clearable={false} value={planItemDraft.plannedEnd} onChange={(plannedEnd) => {
+                setPlanItemDraft({ ...planItemDraft, plannedEnd, durationWorkdays: planItemDraft.plannedStart && plannedEnd ? countProjectDays(planItemDraft.plannedStart, plannedEnd) : planItemDraft.durationWorkdays });
               }} />
             </div>
-            <fieldset><legend><label className="project-gantt-auto-schedule"><input type="checkbox" checked={ganttDraft.autoSchedule} onChange={(event) => setGanttDraft({ ...ganttDraft, autoSchedule: event.target.checked })} /><span>自动排期</span></label><span>前置计划项</span>{ganttDraftBlocked && <em className="project-gantt-blocked-status">受阻</em>}</legend><div>{overview.ganttTasks.filter((task) => task.id !== ganttDraft.taskId).map((task) => <label key={task.id}><input type="checkbox" checked={ganttDraft.dependencyIds.includes(task.id)} onChange={(event) => {
-              const dependencyIds = event.target.checked ? [...ganttDraft.dependencyIds, task.id] : ganttDraft.dependencyIds.filter((id) => id !== task.id);
-              setGanttDraft({ ...ganttDraft, dependencyIds, autoSchedule: event.target.checked ? true : ganttDraft.autoSchedule });
-            }} /><span className="project-gantt-dependency-title">{task.title}</span><em className={`project-gantt-dependency-status ${task.projectStatus}`}>{formatProjectTaskStatus(task.projectStatus)}</em></label>)}</div>{overview.ganttTasks.length <= 1 && <p>项目中还没有其他计划项可作为依赖。</p>}</fieldset>
+            <fieldset><legend><label className="project-gantt-auto-schedule"><input type="checkbox" checked={planItemDraft.autoSchedule} onChange={(event) => setPlanItemDraft({ ...planItemDraft, autoSchedule: event.target.checked })} /><span>自动排期</span></label><span>前置计划项</span>{planItemDraftBlocked && <em className="project-gantt-blocked-status">受阻</em>}</legend><div>{overview.planItems.filter((task) => task.id !== planItemDraft.planItemId).map((task) => <label key={task.id}><input type="checkbox" checked={planItemDraft.dependencyIds.includes(task.id)} onChange={(event) => {
+              const dependencyIds = event.target.checked ? [...planItemDraft.dependencyIds, task.id] : planItemDraft.dependencyIds.filter((id) => id !== task.id);
+              setPlanItemDraft({ ...planItemDraft, dependencyIds, autoSchedule: event.target.checked ? true : planItemDraft.autoSchedule });
+            }} /><span className="project-gantt-dependency-title">{task.title}</span><em className={`project-gantt-dependency-status ${task.status}`}>{formatProjectPlanItemStatus(task.status)}</em></label>)}</div>{overview.planItems.length <= 1 && <p>项目中还没有其他计划项可作为依赖。</p>}</fieldset>
             <section className="project-gantt-linked-actions">
-              <header><strong>关联行动</strong><small>{overview.tasks.filter((task) => task.planItemId === ganttDraft.taskId && task.status === "done").length}/{overview.tasks.filter((task) => task.planItemId === ganttDraft.taskId).length} 已完成</small></header>
-              {overview.tasks.some((task) => task.planItemId === ganttDraft.taskId)
-                ? <div className="project-gantt-linked-action-list">{overview.tasks.filter((task) => task.planItemId === ganttDraft.taskId).map((task) => <article key={task.id}><button type="button" className="project-gantt-linked-action-open" onClick={() => { setGanttDraft(undefined); setTaskEditDraft(projectTaskToEditDraft(task)); }}><Check size={12} /><span>{task.title}</span><small>{formatTaskStatus(task.status)}</small></button><button type="button" className="project-gantt-linked-action-remove" aria-label={`解除关联：${task.title}`} title="解除关联" disabled={busy} onClick={() => void updatePlanActionLink(task)}><X size={13} /></button></article>)}</div>
+              <header><strong>关联行动</strong><small>{overview.tasks.filter((task) => task.planItemId === planItemDraft.planItemId && task.status === "done").length}/{overview.tasks.filter((task) => task.planItemId === planItemDraft.planItemId).length} 已完成</small></header>
+              {overview.tasks.some((task) => task.planItemId === planItemDraft.planItemId)
+                ? <div className="project-gantt-linked-action-list">{overview.tasks.filter((task) => task.planItemId === planItemDraft.planItemId).map((task) => <article key={task.id}><button type="button" className="project-gantt-linked-action-open" onClick={() => { setPlanItemDraft(undefined); setTaskEditDraft(projectTaskToEditDraft(task)); }}><Check size={12} /><span>{task.title}</span><small>{formatTaskStatus(task.status)}</small></button><button type="button" className="project-gantt-linked-action-remove" aria-label={`解除关联：${task.title}`} title="解除关联" disabled={busy} onClick={() => void updatePlanActionLink(task)}><X size={13} /></button></article>)}</div>
                 : <p>还没有关联行动，可以直接新建或关联现有任务。</p>}
               <form className="project-gantt-new-action" onSubmit={(event) => { event.preventDefault(); void createLinkedPlanAction(); }}><input value={linkedActionTitle} maxLength={240} onChange={(event) => setLinkedActionTitle(event.target.value)} placeholder="新建关联行动…" /><button type="submit" disabled={busy || !linkedActionTitle.trim()}><Plus size={13} />新建</button></form>
-              <div className="project-gantt-link-action"><AppSelect ariaLabel="选择要关联的任务" size="compact" value={linkActionTaskId} onValueChange={setLinkActionTaskId} options={[{ value: "", label: "选择现有未关联任务" }, ...overview.tasks.filter((task) => !task.planItemId).map((task) => ({ value: task.id, label: `${task.title} · ${formatTaskStatus(task.status)}` }))]} /><button type="button" disabled={busy || !linkActionTaskId} onClick={() => { const task = overview.tasks.find((entry) => entry.id === linkActionTaskId); if (task) void updatePlanActionLink(task, ganttDraft.taskId); }}><Link2 size={13} />关联</button></div>
+              <div className="project-gantt-link-action"><AppSelect ariaLabel="选择要关联的任务" size="compact" value={linkActionTaskId} onValueChange={setLinkActionTaskId} options={[{ value: "", label: "选择现有未关联任务" }, ...overview.tasks.filter((task) => !task.planItemId).map((task) => ({ value: task.id, label: `${task.title} · ${formatTaskStatus(task.status)}` }))]} /><button type="button" disabled={busy || !linkActionTaskId} onClick={() => { const task = overview.tasks.find((entry) => entry.id === linkActionTaskId); if (task) void updatePlanActionLink(task, planItemDraft.planItemId); }}><Link2 size={13} />关联</button></div>
             </section>
           </div>
-          <footer><div><button className="secondary-button" disabled={busy} onClick={() => setGanttDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !ganttDraft.title.trim() || !ganttDraft.plannedStart || !ganttDraft.plannedEnd} onClick={() => void saveGanttPlan()}>{busy && <LoaderCircle className="spin" size={14} />}保存计划</button></div></footer>
+          <footer><div><button className="secondary-button" disabled={busy} onClick={() => setPlanItemDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !planItemDraft.title.trim() || !planItemDraft.plannedStart || !planItemDraft.plannedEnd} onClick={() => void savePlanItem()}>{busy && <LoaderCircle className="spin" size={14} />}保存计划</button></div></footer>
         </section>
       </div>}
       {phaseDraft && overview && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setPhaseDraft(undefined); }}>
@@ -1274,31 +1267,31 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
           <footer><div><button className="secondary-button" disabled={busy} onClick={() => setPhaseDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !phaseDraft.name.trim()} onClick={() => void savePhase()}>{busy && <LoaderCircle className="spin" size={14} />}{phaseDraft.id ? "保存修改" : "添加阶段"}</button></div></footer>
         </section>
       </div>}
-      {ganttTaskDraft && overview && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setGanttTaskDraft(undefined); }}>
+      {planItemCreateDraft && overview && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setPlanItemCreateDraft(undefined); }}>
         <section className="calendar-dialog project-gantt-task-dialog panel" role="dialog" aria-modal="true" aria-labelledby="project-gantt-task-dialog-title">
-          <header><div><h2 id="project-gantt-task-dialog-title">新建计划项</h2></div><button aria-label="关闭" onClick={() => setGanttTaskDraft(undefined)} disabled={busy}><X size={18} /></button></header>
+          <header><div><h2 id="project-gantt-task-dialog-title">新建计划项</h2></div><button aria-label="关闭" onClick={() => setPlanItemCreateDraft(undefined)} disabled={busy}><X size={18} /></button></header>
           <div className="project-gantt-task-form">
-            <label className="wide"><span>计划项名称</span><input autoFocus maxLength={240} value={ganttTaskDraft.title} onChange={(event) => setGanttTaskDraft({ ...ganttTaskDraft, title: event.target.value })} placeholder="例如 完成硬件原型" /></label>
-            <label><span>所属阶段</span><AppSelect ariaLabel="所属阶段" value={ganttTaskDraft.phaseId} onValueChange={(phaseId) => setGanttTaskDraft({ ...ganttTaskDraft, phaseId })} options={[{ value: "", label: "未分组" }, ...overview.phases.map((phase) => ({ value: phase.id, label: phase.name }))]} /></label>
-            <DateTimeField label="计划开始" mode="date" value={ganttTaskDraft.plannedStart} onChange={(plannedStart) => setGanttTaskDraft({ ...ganttTaskDraft, plannedStart })} />
-            <label><span>工期（天）</span><input type="number" min={1} max={2600} value={ganttTaskDraft.durationWorkdays} onChange={(event) => setGanttTaskDraft({ ...ganttTaskDraft, durationWorkdays: Math.max(1, Math.min(2600, Number(event.target.value) || 1)) })} /></label>
+            <label className="wide"><span>计划项名称</span><input autoFocus maxLength={240} value={planItemCreateDraft.title} onChange={(event) => setPlanItemCreateDraft({ ...planItemCreateDraft, title: event.target.value })} placeholder="例如 完成硬件原型" /></label>
+            <label><span>所属阶段</span><AppSelect ariaLabel="所属阶段" value={planItemCreateDraft.phaseId} onValueChange={(phaseId) => setPlanItemCreateDraft({ ...planItemCreateDraft, phaseId })} options={[{ value: "", label: "未分组" }, ...overview.phases.map((phase) => ({ value: phase.id, label: phase.name }))]} /></label>
+            <DateTimeField label="计划开始" mode="date" value={planItemCreateDraft.plannedStart} onChange={(plannedStart) => setPlanItemCreateDraft({ ...planItemCreateDraft, plannedStart })} />
+            <label><span>工期（天）</span><input type="number" min={1} max={2600} value={planItemCreateDraft.durationWorkdays} onChange={(event) => setPlanItemCreateDraft({ ...planItemCreateDraft, durationWorkdays: Math.max(1, Math.min(2600, Number(event.target.value) || 1)) })} /></label>
           </div>
-          <footer><small>{ganttTaskDraft.plannedStart ? `预计结束：${formatProjectMilestoneDate(addProjectDays(ganttTaskDraft.plannedStart, ganttTaskDraft.durationWorkdays - 1))}` : "不设置开始日期时，计划项会进入未排期区域。"}</small><div><button className="secondary-button" disabled={busy} onClick={() => setGanttTaskDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !ganttTaskDraft.title.trim()} onClick={() => void createGanttTask()}>{busy && <LoaderCircle className="spin" size={14} />}创建计划项</button></div></footer>
+          <footer><small>{planItemCreateDraft.plannedStart ? `预计结束：${formatProjectMilestoneDate(addProjectDays(planItemCreateDraft.plannedStart, planItemCreateDraft.durationWorkdays - 1))}` : "不设置开始日期时，计划项会进入未排期区域。"}</small><div><button className="secondary-button" disabled={busy} onClick={() => setPlanItemCreateDraft(undefined)}>取消</button><button className="primary-button" disabled={busy || !planItemCreateDraft.title.trim()} onClick={() => void createPlanItem()}>{busy && <LoaderCircle className="spin" size={14} />}创建计划项</button></div></footer>
         </section>
       </div>}
     </div>
   );
 }
 
-function createProjectGanttDraft(task: ClientProjectGanttTask): ProjectGanttPlanDraft {
+function createProjectPlanItemDraft(task: ClientProjectPlanItem): ProjectPlanItemDraft {
   const start = task.plannedStart ?? toDateInput(new Date());
   const durationWorkdays = task.durationWorkdays
     ?? (task.plannedStart && task.plannedEnd ? countProjectDays(task.plannedStart, task.plannedEnd) : 1);
   const end = task.plannedEnd ?? addProjectDays(start, durationWorkdays - 1);
   return {
-    taskId: task.id,
+    planItemId: task.id,
     title: task.title,
-    projectStatus: task.projectStatus,
+    status: task.status,
     plannedStart: start,
     plannedEnd: end,
     dependencyIds: task.dependencyIds,
@@ -1311,7 +1304,7 @@ function createProjectGanttDraft(task: ClientProjectGanttTask): ProjectGanttPlan
 type ProjectGanttDragMode = "move" | "resize-start" | "resize-end";
 
 interface ProjectGanttDragPreview {
-  readonly taskId: string;
+  readonly planItemId: string;
   readonly mode: ProjectGanttDragMode;
   readonly pointerId: number;
   readonly originClientX: number;
@@ -1335,7 +1328,7 @@ interface ProjectGanttMilestoneDragPreview {
 }
 
 interface ProjectGanttRowDrag {
-  readonly kind: "task" | "milestone";
+  readonly kind: "planItem" | "milestone";
   readonly itemId: string;
   readonly phaseId?: string;
 }
@@ -1348,20 +1341,20 @@ interface ProjectGanttDropTarget {
 interface ProjectGanttCreateSelection {
   readonly rowKey: string;
   readonly phaseId?: string;
-  readonly insertAfterTaskId?: string;
+  readonly insertAfterPlanItemId?: string;
   readonly pointerId: number;
   readonly originIndex: number;
   readonly currentIndex: number;
 }
 
 interface ProjectGanttMenuState {
-  readonly kind: "canvas" | "phase" | "task";
+  readonly kind: "canvas" | "phase" | "planItem";
   readonly x: number;
   readonly y: number;
   readonly date?: string;
   readonly phase?: ClientProjectPhase;
   readonly phaseId?: string;
-  readonly task?: ClientProjectGanttTask;
+  readonly planItem?: ClientProjectPlanItem;
   readonly returnFocus?: HTMLElement | null;
 }
 
@@ -1372,7 +1365,7 @@ const PROJECT_GANTT_ZOOM_STEP = 3;
 
 function ProjectGanttChart({
   projectId,
-  tasks,
+  planItems,
   phases,
   milestones,
   projectColor,
@@ -1384,37 +1377,37 @@ function ProjectGanttChart({
   onEdit,
   onEditMilestone,
   onCreateMilestone,
-  onCreateTask,
-  onDeleteTask,
+  onCreatePlanItem,
+  onDeletePlanItem,
   onCreatePhase,
   onEditPhase,
   onDeletePhase,
 }: {
   readonly projectId: string;
-  readonly tasks: readonly ClientProjectGanttTask[];
+  readonly planItems: readonly ClientProjectPlanItem[];
   readonly phases: readonly ClientProjectPhase[];
   readonly milestones: readonly ClientProjectMilestone[];
   readonly projectColor: string;
   readonly readOnly: boolean;
   readonly busy: boolean;
-  readonly onChangeDates: (task: ClientProjectGanttTask, plannedStart: string, plannedEnd: string) => Promise<boolean>;
+  readonly onChangeDates: (task: ClientProjectPlanItem, plannedStart: string, plannedEnd: string) => Promise<boolean>;
   readonly onChangeMilestoneDate: (milestone: ClientProjectMilestone, dueOn: string) => Promise<boolean>;
-  readonly onReorderItem: (input: ProjectGanttReorderInput) => Promise<boolean>;
-  readonly onEdit: (task: ClientProjectGanttTask) => void;
+  readonly onReorderItem: (input: ProjectTimelineReorderInput) => Promise<boolean>;
+  readonly onEdit: (task: ClientProjectPlanItem) => void;
   readonly onEditMilestone: (milestone: ClientProjectMilestone) => void;
   readonly onCreateMilestone: (dueOn?: string, phaseId?: string) => void;
-  readonly onCreateTask: (phaseId?: string, plannedStart?: string, durationWorkdays?: number, insertAfterTaskId?: string) => void;
-  readonly onDeleteTask: (task: ClientProjectGanttTask) => void;
+  readonly onCreatePlanItem: (phaseId?: string, plannedStart?: string, durationWorkdays?: number, insertAfterPlanItemId?: string) => void;
+  readonly onDeletePlanItem: (planItem: ClientProjectPlanItem) => void;
   readonly onCreatePhase: () => void;
   readonly onEditPhase: (phase: ClientProjectPhase) => void;
   readonly onDeletePhase: (phase: ClientProjectPhase) => void;
 }) {
-  const plannedTasks = tasks.filter((task) => task.plannedStart && task.plannedEnd);
+  const scheduledPlanItems = planItems.filter((planItem) => planItem.plannedStart && planItem.plannedEnd);
   const today = toDateInput(new Date());
   const todayTime = projectDateToUtcTime(today);
-  const plannedDates = [...plannedTasks.flatMap((task) => [
-    projectDateToUtcTime(task.plannedStart!),
-    projectDateToUtcTime(task.plannedEnd!),
+  const plannedDates = [...scheduledPlanItems.flatMap((planItem) => [
+    projectDateToUtcTime(planItem.plannedStart!),
+    projectDateToUtcTime(planItem.plannedEnd!),
   ]), ...milestones.filter((milestone) => milestone.dueOn).map((milestone) => projectDateToUtcTime(milestone.dueOn!))];
   const rangeStartTime = Math.min(todayTime, ...(plannedDates.length ? plannedDates : [todayTime])) - 7 * 86_400_000;
   const rangeEndTime = Math.max(todayTime + 28 * 86_400_000, ...(plannedDates.length ? plannedDates : [todayTime])) + 7 * 86_400_000;
@@ -1443,7 +1436,7 @@ function ProjectGanttChart({
     return { index, day: date.getUTCDay() };
   }).filter((entry) => entry.day === 0 || entry.day === 6);
   const todayOffset = projectDayDifference(rangeStart, today) * dayWidth;
-  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const planItemById = new Map(planItems.map((planItem) => [planItem.id, planItem]));
   const scrollRef = useRef<HTMLDivElement>(null);
   const dayWidthRef = useRef(dayWidth);
   const dragPreviewRef = useRef<ProjectGanttDragPreview | undefined>(undefined);
@@ -1455,7 +1448,7 @@ function ProjectGanttChart({
   const [dragPreview, setDragPreview] = useState<ProjectGanttDragPreview>();
   const [milestoneDragPreview, setMilestoneDragPreview] = useState<ProjectGanttMilestoneDragPreview>();
   const [createSelection, setCreateSelection] = useState<ProjectGanttCreateSelection>();
-  const [savingTaskId, setSavingTaskId] = useState<string>();
+  const [savingPlanItemId, setSavingPlanItemId] = useState<string>();
   const [savingMilestoneId, setSavingMilestoneId] = useState<string>();
   const [rowDrag, setRowDrag] = useState<ProjectGanttRowDrag>();
   const [dropTarget, setDropTarget] = useState<ProjectGanttDropTarget>();
@@ -1533,8 +1526,8 @@ function ProjectGanttChart({
     return () => scroll.removeEventListener("wheel", handleWheel);
   });
 
-  const sortTasks = (entries: readonly ClientProjectGanttTask[]) => [...entries].sort((left, right) => {
-    if (left.ganttSortOrder !== right.ganttSortOrder) return left.ganttSortOrder - right.ganttSortOrder;
+  const sortPlanItems = (entries: readonly ClientProjectPlanItem[]) => [...entries].sort((left, right) => {
+    if (left.sortOrder !== right.sortOrder) return left.sortOrder - right.sortOrder;
     return left.createdAt.localeCompare(right.createdAt) || left.title.localeCompare(right.title);
   });
   const sortMilestones = (entries: readonly ClientProjectMilestone[]) => [...entries].sort((left, right) => (
@@ -1542,7 +1535,7 @@ function ProjectGanttChart({
   ));
   const orderedPhases = [...phases].sort((left, right) => left.sortOrder - right.sortOrder || left.createdAt.localeCompare(right.createdAt));
   const phaseIds = new Set(phases.map((phase) => phase.id));
-  const ungroupedTasks = sortTasks(tasks.filter((task) => !task.phaseId || !phaseIds.has(task.phaseId)));
+  const ungroupedPlanItems = sortPlanItems(planItems.filter((planItem) => !planItem.phaseId || !phaseIds.has(planItem.phaseId)));
   const ungroupedMilestones = sortMilestones(milestones.filter((milestone) => !milestone.phaseId || !phaseIds.has(milestone.phaseId)));
 
   const updateDragPreview = (clientX: number) => {
@@ -1564,18 +1557,18 @@ function ProjectGanttChart({
 
   const startDrag = (
     event: ReactPointerEvent<HTMLElement>,
-    task: ClientProjectGanttTask,
+    task: ClientProjectPlanItem,
     mode: ProjectGanttDragMode,
     startIndex: number,
     durationDays: number,
   ) => {
-    if (event.pointerType !== "mouse" || readOnly || busy || savingTaskId || !task.plannedStart || !task.plannedEnd) return;
+    if (event.pointerType !== "mouse" || readOnly || busy || savingPlanItemId || !task.plannedStart || !task.plannedEnd) return;
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     event.currentTarget.focus();
     suppressClickRef.current = false;
     const next: ProjectGanttDragPreview = {
-      taskId: task.id,
+      planItemId: task.id,
       mode,
       pointerId: event.pointerId,
       originClientX: event.clientX,
@@ -1601,18 +1594,18 @@ function ProjectGanttChart({
     document.body.classList.remove("project-gantt-is-dragging");
     suppressClickRef.current = current.moved;
     if (cancelled || !current.moved) return;
-    const task = tasks.find((entry) => entry.id === current.taskId);
+    const task = planItems.find((entry) => entry.id === current.planItemId);
     if (!task) return;
-    setSavingTaskId(task.id);
-    void onChangeDates(task, current.start, current.end).finally(() => setSavingTaskId(undefined));
+    setSavingPlanItemId(task.id);
+    void onChangeDates(task, current.start, current.end).finally(() => setSavingPlanItemId(undefined));
   };
 
-  const openTaskAfterClick = (task: ClientProjectGanttTask) => {
+  const openPlanItemAfterClick = (task: ClientProjectPlanItem) => {
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
       return;
     }
-    if (!savingTaskId) onEdit(task);
+    if (!savingPlanItemId) onEdit(task);
   };
 
   const updateMilestoneDragPreview = (clientX: number) => {
@@ -1698,13 +1691,13 @@ function ProjectGanttChart({
   };
 
   const canDropRow = (
-    targetKind: "phase" | "task" | "milestone",
+    targetKind: "phase" | "planItem" | "milestone",
     targetId: string | undefined,
     targetPhaseId: string | undefined,
   ) => {
     if (!rowDrag || busy || readOnly) return false;
-    if (rowDrag.kind === "task") {
-      return targetKind === "task"
+    if (rowDrag.kind === "planItem") {
+      return targetKind === "planItem"
         && targetId !== rowDrag.itemId
         && (targetPhaseId ?? "") === (rowDrag.phaseId ?? "");
     }
@@ -1714,7 +1707,7 @@ function ProjectGanttChart({
   const dragOverRow = (
     event: ReactDragEvent<HTMLElement>,
     key: string,
-    targetKind: "phase" | "task" | "milestone",
+    targetKind: "phase" | "planItem" | "milestone",
     targetId: string | undefined,
     targetPhaseId: string | undefined,
   ) => {
@@ -1722,7 +1715,7 @@ function ProjectGanttChart({
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     const bounds = event.currentTarget.getBoundingClientRect();
-    const orderedTarget = (rowDrag?.kind === "task" && targetKind === "task")
+    const orderedTarget = (rowDrag?.kind === "planItem" && targetKind === "planItem")
       || (rowDrag?.kind === "milestone" && targetKind === "milestone");
     const position = orderedTarget
       ? (event.clientY < bounds.top + bounds.height / 2 ? "before" : "after")
@@ -1732,23 +1725,23 @@ function ProjectGanttChart({
 
   const dropOnRow = (
     event: ReactDragEvent<HTMLElement>,
-    targetKind: "phase" | "task" | "milestone",
+    targetKind: "phase" | "planItem" | "milestone",
     targetId: string | undefined,
     targetPhaseId: string | undefined,
   ) => {
     if (!rowDrag || !canDropRow(targetKind, targetId, targetPhaseId)) return;
     event.preventDefault();
     let beforeId: string | undefined;
-    const orderedTarget = (rowDrag.kind === "task" && targetKind === "task")
+    const orderedTarget = (rowDrag.kind === "planItem" && targetKind === "planItem")
       || (rowDrag.kind === "milestone" && targetKind === "milestone");
     if (orderedTarget && targetId) {
-      const siblings = rowDrag.kind === "task"
-        ? sortTasks(tasks.filter((task) => (task.phaseId ?? "") === (targetPhaseId ?? "") && task.id !== rowDrag.itemId))
+      const siblings = rowDrag.kind === "planItem"
+        ? sortPlanItems(planItems.filter((planItem) => (planItem.phaseId ?? "") === (targetPhaseId ?? "") && planItem.id !== rowDrag.itemId))
         : sortMilestones(milestones.filter((milestone) => (milestone.phaseId ?? "") === (targetPhaseId ?? "") && milestone.id !== rowDrag.itemId));
       const targetIndex = siblings.findIndex((entry) => entry.id === targetId);
       beforeId = dropTarget?.position === "after" ? siblings[targetIndex + 1]?.id : targetId;
     }
-    const input: ProjectGanttReorderInput = {
+    const input: ProjectTimelineReorderInput = {
       kind: rowDrag.kind,
       itemId: rowDrag.itemId,
       phaseId: targetPhaseId,
@@ -1771,15 +1764,15 @@ function ProjectGanttChart({
     event: ReactPointerEvent<HTMLDivElement>,
     rowKey: string,
     phaseId?: string,
-    insertAfterTaskId?: string,
+    insertAfterPlanItemId?: string,
   ) => {
-    if (event.button !== 0 || event.pointerType !== "mouse" || readOnly || busy || savingTaskId || savingMilestoneId || dragPreviewRef.current || milestoneDragPreviewRef.current || rowDrag) return;
+    if (event.button !== 0 || event.pointerType !== "mouse" || readOnly || busy || savingPlanItemId || savingMilestoneId || dragPreviewRef.current || milestoneDragPreviewRef.current || rowDrag) return;
     if ((event.target as Element).closest(".project-gantt-bar, .project-gantt-unscheduled, .project-gantt-milestone")) return;
     const index = dateIndexFromPointer(event);
     const next: ProjectGanttCreateSelection = {
       rowKey,
       phaseId,
-      insertAfterTaskId,
+      insertAfterPlanItemId,
       pointerId: event.pointerId,
       originIndex: index,
       currentIndex: index,
@@ -1812,11 +1805,11 @@ function ProjectGanttChart({
     if (cancelled) return;
     const startIndex = Math.min(current.originIndex, current.currentIndex);
     const endIndex = Math.max(current.originIndex, current.currentIndex);
-    onCreateTask(current.phaseId, addProjectDays(rangeStart, startIndex), endIndex - startIndex + 1, current.insertAfterTaskId);
+    onCreatePlanItem(current.phaseId, addProjectDays(rangeStart, startIndex), endIndex - startIndex + 1, current.insertAfterPlanItemId);
   };
 
-  const createTrackHandlers = (rowKey: string, phaseId?: string, insertAfterTaskId?: string) => ({
-    onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => startCreateSelection(event, rowKey, phaseId, insertAfterTaskId),
+  const createTrackHandlers = (rowKey: string, phaseId?: string, insertAfterPlanItemId?: string) => ({
+    onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => startCreateSelection(event, rowKey, phaseId, insertAfterPlanItemId),
     onPointerMove: updateCreateSelection,
     onPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => finishCreateSelection(event),
     onPointerCancel: (event: ReactPointerEvent<HTMLDivElement>) => finishCreateSelection(event, true),
@@ -1863,10 +1856,10 @@ function ProjectGanttChart({
     setMenu({ kind: "phase", x: event.clientX, y: event.clientY, phase, phaseId: phase.id, returnFocus: event.currentTarget });
   };
 
-  const openTaskMenu = (event: ReactMouseEvent<HTMLElement>, task: ClientProjectGanttTask) => {
+  const openPlanItemMenu = (event: ReactMouseEvent<HTMLElement>, task: ClientProjectPlanItem) => {
     event.preventDefault();
     event.stopPropagation();
-    setMenu({ kind: "task", x: event.clientX, y: event.clientY, task, phaseId: task.phaseId, returnFocus: event.currentTarget });
+    setMenu({ kind: "planItem", x: event.clientX, y: event.clientY, planItem: task, phaseId: task.phaseId, returnFocus: event.currentTarget });
   };
 
   const weekendBands = () => weekendDays.map((entry) => (
@@ -1876,14 +1869,14 @@ function ProjectGanttChart({
     <i className={`project-gantt-month-wash tone-${segment.tone}`} key={segment.key} style={{ left: segment.left, width: segment.width }} />
   ));
 
-  const renderTaskRow = (task: ClientProjectGanttTask) => {
+  const renderPlanItemRow = (task: ClientProjectPlanItem) => {
     const startIndex = task.plannedStart ? projectDayDifference(rangeStart, task.plannedStart) : 0;
     const durationDays = task.plannedStart && task.plannedEnd
       ? Math.max(1, projectDayDifference(task.plannedStart, task.plannedEnd) + 1)
       : 0;
-    const dependencyTitles = task.dependencyIds.map((id) => taskById.get(id)?.title).filter((title): title is string => Boolean(title));
-    const blocked = task.dependencyIds.some((id) => taskById.get(id)?.projectStatus !== "done");
-    const statusLabel = blocked ? "受阻" : formatProjectTaskStatus(task.projectStatus);
+    const dependencyTitles = task.dependencyIds.map((id) => planItemById.get(id)?.title).filter((title): title is string => Boolean(title));
+    const blocked = task.dependencyIds.some((id) => planItemById.get(id)?.status !== "done");
+    const statusLabel = blocked ? "受阻" : formatProjectPlanItemStatus(task.status);
     const taskMeta = [
       blocked ? "受阻" : undefined,
       task.autoSchedule ? "自动排期" : dependencyTitles.length > 0 ? `依赖：${dependencyTitles.join("、")}` : undefined,
@@ -1891,40 +1884,40 @@ function ProjectGanttChart({
     ].filter(Boolean).join(" · ");
     const statusIcon = blocked
       ? <AlertCircle size={12} />
-      : task.projectStatus === "planned" ? <Circle size={12} />
-      : task.projectStatus === "in_progress" ? <ArrowRight size={12} />
-      : task.projectStatus === "paused" ? <Pause size={12} />
-      : task.projectStatus === "done" ? <Check size={12} />
+      : task.status === "planned" ? <Circle size={12} />
+      : task.status === "in_progress" ? <ArrowRight size={12} />
+      : task.status === "paused" ? <Pause size={12} />
+      : task.status === "done" ? <Check size={12} />
       : <X size={12} />;
-    const taskPreview = dragPreview?.taskId === task.id ? dragPreview : undefined;
+    const taskPreview = dragPreview?.planItemId === task.id ? dragPreview : undefined;
     const previewStart = taskPreview?.start ?? task.plannedStart;
     const previewEnd = taskPreview?.end ?? task.plannedEnd;
     const previewStartIndex = previewStart ? projectDayDifference(rangeStart, previewStart) : startIndex;
     const previewDurationDays = previewStart && previewEnd ? projectDayDifference(previewStart, previewEnd) + 1 : durationDays;
-    const saving = savingTaskId === task.id;
+    const saving = savingPlanItemId === task.id;
     const durationLabel = `${task.durationWorkdays ?? (task.plannedStart && task.plannedEnd ? countProjectDays(task.plannedStart, task.plannedEnd) : 1)} 天`;
-    const rowKey = `task:${task.id}`;
+    const rowKey = `plan-item:${task.id}`;
     return <div
-      className={`project-gantt-row ${task.projectStatus === "done" ? "done" : task.projectStatus === "cancelled" ? "cancelled" : ""}${rowDrag?.kind === "task" && rowDrag.itemId === task.id ? " project-gantt-row-dragging" : ""}${rowDropClass(rowKey)}`}
+      className={`project-gantt-row ${task.status === "done" ? "done" : task.status === "cancelled" ? "cancelled" : ""}${rowDrag?.kind === "planItem" && rowDrag.itemId === task.id ? " project-gantt-row-dragging" : ""}${rowDropClass(rowKey)}`}
       key={task.id}
-      onDragOver={(event) => dragOverRow(event, rowKey, "task", task.id, task.phaseId)}
-      onDrop={(event) => dropOnRow(event, "task", task.id, task.phaseId)}
+      onDragOver={(event) => dragOverRow(event, rowKey, "planItem", task.id, task.phaseId)}
+      onDrop={(event) => dropOnRow(event, "planItem", task.id, task.phaseId)}
     >
-      <button className="project-gantt-task" title="拖动调整顺序，点击编辑" disabled={readOnly} draggable={!readOnly && !busy} onDragStart={(event) => startRowDrag(event, { kind: "task", itemId: task.id, phaseId: task.phaseId })} onDragEnd={finishRowDrag} onClick={() => openRowAfterClick(() => onEdit(task))} onContextMenu={(event) => openTaskMenu(event, task)}><span><strong>{task.title}</strong>{taskMeta && <small className={blocked ? "blocked" : undefined}>{taskMeta}</small>}</span><span className="project-gantt-row-actions"><small className="project-gantt-duration">{durationLabel}</small><GripVertical size={14} /><Pencil size={13} /></span></button>
-      <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event, task.phaseId)} {...createTrackHandlers(`task:${task.id}`, task.phaseId, task.id)}>
+      <button className="project-gantt-task" title="拖动调整顺序，点击编辑" disabled={readOnly} draggable={!readOnly && !busy} onDragStart={(event) => startRowDrag(event, { kind: "planItem", itemId: task.id, phaseId: task.phaseId })} onDragEnd={finishRowDrag} onClick={() => openRowAfterClick(() => onEdit(task))} onContextMenu={(event) => openPlanItemMenu(event, task)}><span><strong>{task.title}</strong>{taskMeta && <small className={blocked ? "blocked" : undefined}>{taskMeta}</small>}</span><span className="project-gantt-row-actions"><small className="project-gantt-duration">{durationLabel}</small><GripVertical size={14} /><Pencil size={13} /></span></button>
+      <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event, task.phaseId)} {...createTrackHandlers(`plan-item:${task.id}`, task.phaseId, task.id)}>
         {monthWashes()}{weekendBands()}
         {todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}
-        {renderCreateSelection(`task:${task.id}`)}
+        {renderCreateSelection(`plan-item:${task.id}`)}
         {durationDays ? <div
-          className={`project-gantt-bar status-${task.projectStatus}${blocked ? " blocked" : ""}${taskPreview ? ` dragging ${taskPreview.mode}` : ""}${saving ? " saving" : ""}`}
+          className={`project-gantt-bar status-${task.status}${blocked ? " blocked" : ""}${taskPreview ? ` dragging ${taskPreview.mode}` : ""}${saving ? " saving" : ""}`}
           role="button"
           tabIndex={readOnly ? -1 : 0}
           aria-disabled={readOnly || saving}
           aria-label={`编辑计划项：${task.title}，${statusLabel}，${previewStart} 至 ${previewEnd}`}
           title={`${task.title} · ${statusLabel}：${previewStart} – ${previewEnd}`}
           style={{ left: previewStartIndex * dayWidth, width: previewDurationDays * dayWidth, "--project-gantt-task-color": projectColor } as CSSProperties}
-          onContextMenu={(event) => openTaskMenu(event, task)}
-          onClick={() => { if (!readOnly) openTaskAfterClick(task); }}
+          onContextMenu={(event) => openPlanItemMenu(event, task)}
+          onClick={() => { if (!readOnly) openPlanItemAfterClick(task); }}
           onKeyDown={(event) => {
             if ((event.key === "Enter" || event.key === " ") && !readOnly && !saving) {
               event.preventDefault();
@@ -1941,7 +1934,7 @@ function ProjectGanttChart({
             className="project-gantt-resize-handle start"
             aria-label={`调整“${task.title}”的开始日期`}
             title="拖动调整开始日期"
-            onClick={(event) => { event.stopPropagation(); openTaskAfterClick(task); }}
+            onClick={(event) => { event.stopPropagation(); openPlanItemAfterClick(task); }}
             onPointerDown={(event) => startDrag(event, task, "resize-start", startIndex, durationDays)}
             onPointerMove={(event) => updateDragPreview(event.clientX)}
             onPointerUp={(event) => finishDrag(event)}
@@ -1954,13 +1947,13 @@ function ProjectGanttChart({
             className="project-gantt-resize-handle end"
             aria-label={`调整“${task.title}”的结束日期`}
             title="拖动调整结束日期"
-            onClick={(event) => { event.stopPropagation(); openTaskAfterClick(task); }}
+            onClick={(event) => { event.stopPropagation(); openPlanItemAfterClick(task); }}
             onPointerDown={(event) => startDrag(event, task, "resize-end", startIndex, durationDays)}
             onPointerMove={(event) => updateDragPreview(event.clientX)}
             onPointerUp={(event) => finishDrag(event)}
             onPointerCancel={(event) => finishDrag(event, true)}
           />}
-        </div> : <button className="project-gantt-unscheduled" disabled={readOnly} onClick={() => onEdit(task)} onContextMenu={(event) => openTaskMenu(event, task)}>设置计划日期</button>}
+        </div> : <button className="project-gantt-unscheduled" disabled={readOnly} onClick={() => onEdit(task)} onContextMenu={(event) => openPlanItemMenu(event, task)}>设置计划日期</button>}
       </div>
     </div>;
   };
@@ -1998,27 +1991,27 @@ function ProjectGanttChart({
     </div>;
   };
 
-  const menuCommands: readonly ResolvedContextCommand[] = menu?.kind === "task" ? [
-    { id: "gantt.edit-task", label: "编辑计划项", group: "primary", risk: "local-write", icon: "edit", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
-    { id: "gantt.delete-task", label: "删除计划项", group: "danger", risk: "destructive", icon: "trash", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
+  const menuCommands: readonly ResolvedContextCommand[] = menu?.kind === "planItem" ? [
+    { id: "gantt.edit-plan-item", label: "编辑计划项", group: "primary", risk: "local-write", icon: "edit", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
+    { id: "gantt.delete-plan-item", label: "删除计划项", group: "danger", risk: "destructive", icon: "trash", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
   ] : menu?.kind === "phase" ? [
-    { id: "gantt.add-task", label: "在阶段中添加计划项", group: "primary", risk: "local-write", icon: "task", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
+    { id: "gantt.add-plan-item", label: "在阶段中添加计划项", group: "primary", risk: "local-write", icon: "task", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
     { id: "gantt.add-milestone", label: "在阶段中添加里程碑", group: "primary", risk: "local-write", icon: "calendar-plus", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
     { id: "gantt.edit-phase", label: "重命名或更改颜色", group: "organize", risk: "local-write", icon: "edit", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
     { id: "gantt.delete-phase", label: "删除阶段", group: "danger", risk: "destructive", icon: "trash", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
   ] : [
-    { id: "gantt.add-task", label: menu?.date ? `在 ${formatProjectMilestoneDate(menu.date)} 添加计划项` : "添加计划项", group: "primary", risk: "local-write", icon: "task", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
+    { id: "gantt.add-plan-item", label: menu?.date ? `在 ${formatProjectMilestoneDate(menu.date)} 添加计划项` : "添加计划项", group: "primary", risk: "local-write", icon: "task", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
     { id: "gantt.add-milestone", label: menu?.date ? `在 ${formatProjectMilestoneDate(menu.date)} 添加里程碑` : "添加里程碑", group: "primary", risk: "local-write", icon: "calendar-plus", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
     { id: "gantt.add-phase", label: "添加阶段", group: "organize", risk: "local-write", icon: "folder", disabledReason: readOnly || busy ? "当前项目不可修改" : undefined },
   ];
 
   const selectMenuCommand = (commandId: ContextCommandId) => {
-    const ganttCommand = commandId as ProjectGanttCommandId;
-    if (ganttCommand === "gantt.add-task") onCreateTask(menu?.phase?.id ?? menu?.phaseId, menu?.date);
+    const ganttCommand = commandId as ProjectTimelineCommandId;
+    if (ganttCommand === "gantt.add-plan-item") onCreatePlanItem(menu?.phase?.id ?? menu?.phaseId, menu?.date);
     else if (ganttCommand === "gantt.add-milestone") onCreateMilestone(menu?.date, menu?.phase?.id ?? menu?.phaseId);
     else if (ganttCommand === "gantt.add-phase") onCreatePhase();
-    else if (ganttCommand === "gantt.edit-task" && menu?.task) onEdit(menu.task);
-    else if (ganttCommand === "gantt.delete-task" && menu?.task) onDeleteTask(menu.task);
+    else if (ganttCommand === "gantt.edit-plan-item" && menu?.planItem) onEdit(menu.planItem);
+    else if (ganttCommand === "gantt.delete-plan-item" && menu?.planItem) onDeletePlanItem(menu.planItem);
     else if (ganttCommand === "gantt.edit-phase" && menu?.phase) onEditPhase(menu.phase);
     else if (ganttCommand === "gantt.delete-phase" && menu?.phase) onDeletePhase(menu.phase);
   };
@@ -2047,19 +2040,19 @@ function ProjectGanttChart({
             </div>
           </div>
           {orderedPhases.flatMap((phase) => {
-            const phaseTasks = sortTasks(tasks.filter((task) => task.phaseId === phase.id));
+            const phasePlanItems = sortPlanItems(planItems.filter((planItem) => planItem.phaseId === phase.id));
             const phaseMilestones = sortMilestones(milestones.filter((milestone) => milestone.phaseId === phase.id));
             const collapsed = collapsedPhaseIds.has(phase.id);
-            const phasePlannedTasks = phaseTasks.filter((task) => task.plannedStart && task.plannedEnd);
+            const scheduledPhasePlanItems = phasePlanItems.filter((task) => task.plannedStart && task.plannedEnd);
             const phaseDates = [
-              ...phasePlannedTasks.flatMap((task) => [task.plannedStart!, task.plannedEnd!]),
+              ...scheduledPhasePlanItems.flatMap((task) => [task.plannedStart!, task.plannedEnd!]),
               ...phaseMilestones.flatMap((milestone) => milestone.dueOn ? [milestone.dueOn] : []),
             ].sort();
             const phaseStart = phaseDates[0];
             const phaseEnd = phaseDates.at(-1);
-            const completed = phaseTasks.filter((task) => task.projectStatus === "done").length;
-            const phaseTaskCount = phaseTasks.filter((task) => task.projectStatus !== "cancelled").length;
-            const completionPercent = phaseTaskCount ? Math.round((completed / phaseTaskCount) * 100) : 0;
+            const completed = phasePlanItems.filter((task) => task.status === "done").length;
+            const phasePlanItemCount = phasePlanItems.filter((task) => task.status !== "cancelled").length;
+            const completionPercent = phasePlanItemCount ? Math.round((completed / phasePlanItemCount) * 100) : 0;
             const phaseRowKey = `phase:${phase.id}`;
             const phaseRow = <div
               className={`project-gantt-row project-gantt-phase-row${rowDropClass(phaseRowKey)}`}
@@ -2072,7 +2065,7 @@ function ProjectGanttChart({
                 if (next.has(phase.id)) next.delete(phase.id);
                 else next.add(phase.id);
                 return next;
-              })} onContextMenu={(event) => openPhaseMenu(event, phase)}>{collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<i style={{ background: phase.color }} /><span><strong>{phase.name}</strong><small>{phaseTaskCount} 个计划项 · {phaseMilestones.length} 个里程碑 · {completionPercent}%</small></span><MoreHorizontal size={13} /></button>
+              })} onContextMenu={(event) => openPhaseMenu(event, phase)}>{collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<i style={{ background: phase.color }} /><span><strong>{phase.name}</strong><small>{phasePlanItemCount} 个计划项 · {phaseMilestones.length} 个里程碑 · {completionPercent}%</small></span><MoreHorizontal size={13} /></button>
               <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event, phase.id)} {...createTrackHandlers(`phase:${phase.id}`, phase.id)}>
                 {monthWashes()}{weekendBands()}
                 {todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}
@@ -2080,28 +2073,28 @@ function ProjectGanttChart({
                 {phaseStart && phaseEnd && <div className="project-gantt-phase-bar" style={{ left: projectDayDifference(rangeStart, phaseStart) * dayWidth, width: (projectDayDifference(phaseStart, phaseEnd) + 1) * dayWidth, borderColor: phase.color }}><i style={{ width: `${completionPercent}%`, background: phase.color }} /></div>}
               </div>
             </div>;
-            return collapsed ? [phaseRow] : [phaseRow, ...phaseTasks.map(renderTaskRow), ...phaseMilestones.map(renderMilestoneRow)];
+            return collapsed ? [phaseRow] : [phaseRow, ...phasePlanItems.map(renderPlanItemRow), ...phaseMilestones.map(renderMilestoneRow)];
           })}
-          {(ungroupedTasks.length > 0 || ungroupedMilestones.length > 0 || rowDrag?.kind === "milestone" || (!tasks.length && !phases.length && !milestones.length)) && <>
+          {(ungroupedPlanItems.length > 0 || ungroupedMilestones.length > 0 || rowDrag?.kind === "milestone" || (!planItems.length && !phases.length && !milestones.length)) && <>
             {phases.length > 0 && <div
               className={`project-gantt-row project-gantt-phase-row project-gantt-ungrouped-row${rowDropClass("phase:project")}`}
               onDragOver={(event) => dragOverRow(event, "phase:project", "phase", undefined, undefined)}
               onDrop={(event) => dropOnRow(event, "phase", undefined, undefined)}
             >
-              <button className="project-gantt-task project-gantt-phase" disabled={readOnly} onContextMenu={(event) => openCanvasMenu(event, undefined, false)}><FolderPlus size={14} /><span><strong>项目级 / 未分组</strong><small>{ungroupedTasks.length} 个计划项 · {ungroupedMilestones.length} 个里程碑</small></span></button>
+              <button className="project-gantt-task project-gantt-phase" disabled={readOnly} onContextMenu={(event) => openCanvasMenu(event, undefined, false)}><FolderPlus size={14} /><span><strong>项目级 / 未分组</strong><small>{ungroupedPlanItems.length} 个计划项 · {ungroupedMilestones.length} 个里程碑</small></span></button>
               <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event)} {...createTrackHandlers("ungrouped")}>{monthWashes()}{weekendBands()}{todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}{renderCreateSelection("ungrouped")}</div>
             </div>}
-            {ungroupedTasks.map(renderTaskRow)}
+            {ungroupedPlanItems.map(renderPlanItemRow)}
             {ungroupedMilestones.map(renderMilestoneRow)}
-            {!tasks.length && !phases.length && !milestones.length && <div className="project-gantt-row project-gantt-empty-row">
-              <button className="project-gantt-task" disabled={readOnly} onClick={() => onCreateTask()} onContextMenu={(event) => openCanvasMenu(event, undefined, false)}><span><strong>还没有计划项</strong></span><Plus size={14} /></button>
+            {!planItems.length && !phases.length && !milestones.length && <div className="project-gantt-row project-gantt-empty-row">
+              <button className="project-gantt-task" disabled={readOnly} onClick={() => onCreatePlanItem()} onContextMenu={(event) => openCanvasMenu(event, undefined, false)}><span><strong>还没有计划项</strong></span><Plus size={14} /></button>
               <div className="project-gantt-track can-create" onContextMenu={(event) => openCanvasMenu(event)} {...createTrackHandlers("empty")}>{monthWashes()}{weekendBands()}{todayOffset >= 0 && todayOffset <= timelineWidth && <i className="project-gantt-today" style={{ left: todayOffset }} />}{renderCreateSelection("empty")}</div>
             </div>}
           </>}
         </div>
       </div>
       <footer><span><i style={{ background: projectColor }} />计划项</span><span><i className="weekend" />周末</span><span><i className="today" />今天</span><small>{readOnly ? "已归档项目为只读。" : "拖动调整日期 · 右键管理 · Ctrl + 滚轮缩放"}</small></footer>
-      {menu && <ContextMenu anchor={{ x: menu.x, y: menu.y }} ariaLabel="甘特图操作" commands={menuCommands} heading={menu.task?.title ?? menu.phase?.name ?? (menu.date ? formatProjectMilestoneDate(menu.date) : "项目甘特图")} returnFocus={menu.returnFocus} testId="project-gantt-context-menu" onClose={() => setMenu(undefined)} onSelect={selectMenuCommand} />}
+      {menu && <ContextMenu anchor={{ x: menu.x, y: menu.y }} ariaLabel="甘特图操作" commands={menuCommands} heading={menu.planItem?.title ?? menu.phase?.name ?? (menu.date ? formatProjectMilestoneDate(menu.date) : "项目甘特图")} returnFocus={menu.returnFocus} testId="project-gantt-context-menu" onClose={() => setMenu(undefined)} onSelect={selectMenuCommand} />}
     </section>
   );
 }

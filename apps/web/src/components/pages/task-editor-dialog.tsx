@@ -45,7 +45,7 @@ interface EditorProject {
 interface EditorPlanItem {
   readonly id: string;
   readonly title: string;
-  readonly projectStatus: "planned" | "in_progress" | "paused" | "done" | "cancelled";
+  readonly status: "planned" | "in_progress" | "paused" | "done" | "cancelled";
 }
 
 interface EditorCollaborator {
@@ -117,7 +117,7 @@ export function TaskEditorDialog({
             areaName: project?.areaName ?? (projectId ? draft.areaName : ""),
           });
         }} options={[{ value: "", label: "无项目" }, ...(draft.projectName && !draft.projectId ? [{ value: "__legacy__", label: `旧标签 · ${draft.projectName}`, disabled: true }] : []), ...projects.map((project) => ({ value: project.id, label: `${project.name}${project.areaName ? ` · ${project.areaName}` : ""}${project.status === "archived" ? " · 已归档" : ""}`, disabled: project.status === "archived" && project.id !== draft.projectId }))]} /></label>
-        {draft.projectId && <label className="task-project-field"><span>关联计划项（可选）</span><AppSelect ariaLabel="任务关联计划项" value={draft.planItemId} onValueChange={(planItemId) => update({ planItemId })} options={[{ value: "", label: "不关联 · 仅作为行动任务" }, ...planItems.map((item) => ({ value: item.id, label: `${item.title}${item.projectStatus === "done" ? " · 已完成" : item.projectStatus === "cancelled" ? " · 已取消" : ""}` }))]} /></label>}
+        {draft.projectId && <label className="task-project-field"><span>关联计划项（可选）</span><AppSelect ariaLabel="任务关联计划项" value={draft.planItemId} onValueChange={(planItemId) => update({ planItemId })} options={[{ value: "", label: "不关联 · 仅作为行动任务" }, ...planItems.map((item) => ({ value: item.id, label: `${item.title}${item.status === "done" ? " · 已完成" : item.status === "cancelled" ? " · 已取消" : ""}` }))]} /></label>}
         <label className="task-important-field"><input type="checkbox" checked={draft.important} onChange={(event) => update({ important: event.target.checked })} /><Star size={15} fill={draft.important ? "currentColor" : "none"} /><span>这是重要任务</span></label>
         <details className="task-advanced-options">
           <summary><span>更多选项{draft.areaName || draft.assigneeUserId || draft.notes ? " · 已填写" : ""}</span><ChevronDown size={16} /></summary>

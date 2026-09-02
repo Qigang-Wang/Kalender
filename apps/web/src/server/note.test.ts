@@ -13,6 +13,7 @@ async function main() {
   const notes = await import("./note-repository");
   const tasks = await import("./task-repository");
   const projectRepository = await import("./project-repository");
+  const projectPlans = await import("./project-plan-repository");
   const editorAssets = await import("./editor-asset-service");
   const projectValidation = await import("./project-validation");
   const entityLinks = await import("./entity-link-repository");
@@ -27,8 +28,8 @@ async function main() {
 
   const assetUserId = randomUUID();
   await database.query(
-    `INSERT INTO app_users (id, display_name, email, password_hash, role)
-     VALUES ($1, 'Asset Test', $2, 'test-hash', 'user')`,
+    `INSERT INTO app_users (id, display_name, email, role)
+     VALUES ($1, 'Asset Test', $2, 'user')`,
     [assetUserId, `asset-${assetUserId}@example.test`],
   );
   const sourceImage = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -173,34 +174,36 @@ async function main() {
     urgencyMode: "auto",
     projectId: project.id,
   });
-  await projectRepository.saveStoredProjectTaskPlan(projectValidation.parseProjectTaskPlanInput({
+  const sourcePlan = await projectPlans.saveStoredProjectPlanItem(projectValidation.parseProjectPlanItemInput({
+    title: "Build project Gantt",
     plannedStart: "2026-07-27",
     plannedEnd: "2026-07-31",
     dependencyIds: [],
-  }, project.id, task.id));
-  await projectRepository.saveStoredProjectTaskPlan(projectValidation.parseProjectTaskPlanInput({
+  }, project.id));
+  const dependentPlan = await projectPlans.saveStoredProjectPlanItem(projectValidation.parseProjectPlanItemInput({
+    title: "Validate project Gantt",
     plannedStart: "2026-08-03",
     plannedEnd: "2026-08-07",
-    dependencyIds: [task.id],
-  }, project.id, dependentTask.id));
+    dependencyIds: [sourcePlan.id],
+  }, project.id));
   const ganttOverview = await projectRepository.getStoredProjectOverview(project.id);
-  const plannedDependent = ganttOverview?.ganttTasks.find((entry) => entry.id === dependentTask.id);
+  const plannedDependent = ganttOverview?.planItems.find((entry) => entry.id === dependentPlan.id);
   assert(
     plannedDependent?.plannedStart === "2026-08-03"
       && plannedDependent.plannedEnd === "2026-08-07"
-      && plannedDependent.dependencyIds[0] === task.id,
-    "project Gantt stores task ranges and predecessor relationships",
+      && plannedDependent.dependencyIds[0] === sourcePlan.id,
+    "project Gantt stores plan-item ranges and predecessor relationships",
   );
   try {
-    await projectRepository.saveStoredProjectTaskPlan(projectValidation.parseProjectTaskPlanInput({
+    await projectPlans.saveStoredProjectPlanItem(projectValidation.parseProjectPlanItemInput({
       plannedStart: "2026-07-27",
       plannedEnd: "2026-07-31",
-      dependencyIds: [dependentTask.id],
-    }, project.id, task.id));
-    throw new Error("cyclic task dependency unexpectedly accepted");
+      dependencyIds: [dependentPlan.id],
+    }, project.id, sourcePlan.id));
+    throw new Error("cyclic plan-item dependency unexpectedly accepted");
   } catch (error) {
     assert(
-      error instanceof projectRepository.ProjectRepositoryError && error.code === "TASK_DEPENDENCY_CYCLE",
+      error instanceof projectPlans.ProjectPlanRepositoryError && error.code === "PLAN_DEPENDENCY_CYCLE",
       "project Gantt rejects circular dependencies",
     );
   }

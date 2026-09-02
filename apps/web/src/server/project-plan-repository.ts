@@ -3,17 +3,19 @@ import { randomUUID } from "node:crypto";
 import { getDatabase, type DatabaseExecutor } from "./database";
 import { getStoredProject } from "./note-repository";
 import { ensureProjectAccess } from "./project-collaboration";
-import type { ProjectTaskStatus } from "./task-repository";
+
+export const projectPlanItemStatuses = ["planned", "in_progress", "paused", "done", "cancelled"] as const;
+export type ProjectPlanItemStatus = (typeof projectPlanItemStatuses)[number];
 
 export interface StoredProjectPlanItem {
   readonly id: string;
   readonly projectId: string;
   readonly phaseId?: string;
   readonly title: string;
-  readonly projectStatus: ProjectTaskStatus;
+  readonly status: ProjectPlanItemStatus;
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
-  readonly ganttSortOrder: number;
+  readonly sortOrder: number;
   readonly durationWorkdays?: number;
   readonly autoSchedule: boolean;
   readonly dependencyIds: readonly string[];
@@ -27,7 +29,7 @@ export interface SaveProjectPlanItemInput {
   readonly id?: string;
   readonly projectId: string;
   readonly title?: string;
-  readonly projectStatus?: ProjectTaskStatus;
+  readonly status?: ProjectPlanItemStatus;
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
   readonly dependencyIds: readonly string[];
@@ -41,7 +43,7 @@ interface PlanItemRow {
   readonly project_id: string;
   readonly phase_id: string | null;
   readonly title: string;
-  readonly status: ProjectTaskStatus;
+  readonly status: ProjectPlanItemStatus;
   readonly planned_start: string | Date | null;
   readonly planned_end: string | Date | null;
   readonly sort_order: number;
@@ -175,7 +177,7 @@ export async function saveStoredProjectPlanItem(input: SaveProjectPlanItemInput)
   const plannedEnd = plannedStart
     ? addProjectDays(plannedStart, durationWorkdays - 1)
     : input.plannedEnd;
-  const status = input.projectStatus ?? current?.status ?? "planned";
+  const status = input.status ?? current?.status ?? "planned";
   const autoSchedule = input.autoSchedule ?? current?.auto_schedule ?? false;
 
   await database.transaction(async (transaction) => {
@@ -360,10 +362,10 @@ function mapPlanItem(row: PlanItemRow, dependencyIds: readonly string[]): Stored
     projectId: row.project_id,
     phaseId: row.phase_id ?? undefined,
     title: row.title,
-    projectStatus: row.status,
+    status: row.status,
     plannedStart: row.planned_start ? toDateOnly(row.planned_start) : undefined,
     plannedEnd: row.planned_end ? toDateOnly(row.planned_end) : undefined,
-    ganttSortOrder: row.sort_order,
+    sortOrder: row.sort_order,
     durationWorkdays: row.duration_workdays ?? undefined,
     autoSchedule: row.auto_schedule,
     dependencyIds,

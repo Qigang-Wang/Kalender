@@ -251,6 +251,34 @@ async function verifyLegacyUpgrade(database: TestPostgresDatabase) {
     migratedPlans.rows.find((entry) => entry.id === "legacy-due-action")?.plan_item_id === null,
     "a due date alone stays an action and does not clutter the gantt chart",
   );
+  const migratedLongPlan = await database.query<{ status: string; planned_start: string; planned_end: string }>(
+    `SELECT status, planned_start::text, planned_end::text
+       FROM project_plan_items
+      WHERE id = 'legacy-long-plan'`,
+  );
+  assert(
+    migratedLongPlan.rows[0]?.status === "in_progress"
+      && migratedLongPlan.rows[0]?.planned_start === "2026-07-01"
+      && migratedLongPlan.rows[0]?.planned_end === "2026-07-10",
+    "the independent plan item preserves legacy dates and status before task planning columns are removed",
+  );
+  const legacyTaskPlanningColumns = await database.query<{ count: number }>(
+    `SELECT count(*)::integer AS count
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'tasks'
+        AND column_name IN (
+          'planned_start', 'planned_end', 'phase_id', 'gantt_sort_order',
+          'duration_workdays', 'auto_schedule', 'project_status'
+        )`,
+  );
+  assert(legacyTaskPlanningColumns.rows[0]?.count === 0, "tasks no longer store project planning fields");
+  const legacyDependencyTable = await database.query<{ count: number }>(
+    `SELECT count(*)::integer AS count
+       FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = 'task_dependencies'`,
+  );
+  assert(legacyDependencyTable.rows[0]?.count === 0, "legacy task dependencies are removed after plan-item migration");
   const migratedBody = await database.query<{
     text_body: string | null;
     html_body: string | null;

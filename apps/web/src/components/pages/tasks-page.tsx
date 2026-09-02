@@ -76,11 +76,6 @@ interface ClientTask {
   readonly isUrgent: boolean;
   readonly dueAt?: string;
   readonly estimatedMinutes?: number;
-  readonly plannedStart?: string;
-  readonly plannedEnd?: string;
-  readonly phaseId?: string;
-  readonly durationWorkdays?: number;
-  readonly autoSchedule: boolean;
   readonly projectId?: string;
   readonly projectName?: string;
   readonly projectColor?: string;
@@ -146,7 +141,7 @@ interface TaskDraft {
 interface ClientTaskPlanItem {
   readonly id: string;
   readonly title: string;
-  readonly projectStatus: "planned" | "in_progress" | "paused" | "done" | "cancelled";
+  readonly status: "planned" | "in_progress" | "paused" | "done" | "cancelled";
 }
 
 interface ClientCollaborator {
@@ -238,9 +233,9 @@ export function TasksPage({
         const response = await workspaceFetch(`/api/projects/${encodeURIComponent(draft.projectId)}`);
         const payload = await response.json() as {
           readonly ok?: boolean;
-          readonly overview?: { readonly ganttTasks?: readonly ClientTaskPlanItem[] };
+          readonly overview?: { readonly planItems?: readonly ClientTaskPlanItem[] };
         };
-        if (active) setTaskPlanItems(response.ok && payload.ok ? payload.overview?.ganttTasks ?? [] : []);
+        if (active) setTaskPlanItems(response.ok && payload.ok ? payload.overview?.planItems ?? [] : []);
       } catch {
         if (active) setTaskPlanItems([]);
       }

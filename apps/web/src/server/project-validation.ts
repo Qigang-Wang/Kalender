@@ -1,12 +1,14 @@
 import {
   projectMilestoneStatuses,
-  type ReorderProjectGanttItemInput,
+  type ReorderProjectTimelineItemInput,
   type SaveProjectPhaseInput,
   type SaveProjectMilestoneInput,
-  type SaveProjectTaskPlanInput,
 } from "./project-repository";
-import type { SaveProjectPlanItemInput } from "./project-plan-repository";
-import { projectTaskStatuses, type ProjectTaskStatus } from "./task-repository";
+import {
+  projectPlanItemStatuses,
+  type ProjectPlanItemStatus,
+  type SaveProjectPlanItemInput,
+} from "./project-plan-repository";
 
 export interface ProjectMilestoneRequestBody {
   readonly title?: unknown;
@@ -16,9 +18,9 @@ export interface ProjectMilestoneRequestBody {
   readonly phaseId?: unknown;
 }
 
-export interface ProjectTaskPlanRequestBody {
+export interface ProjectPlanItemRequestBody {
   readonly title?: unknown;
-  readonly projectStatus?: unknown;
+  readonly status?: unknown;
   readonly plannedStart?: unknown;
   readonly plannedEnd?: unknown;
   readonly dependencyIds?: unknown;
@@ -33,18 +35,18 @@ export interface ProjectPhaseRequestBody {
   readonly sortOrder?: unknown;
 }
 
-export interface ProjectGanttReorderRequestBody {
+export interface ProjectTimelineReorderRequestBody {
   readonly kind?: unknown;
   readonly itemId?: unknown;
   readonly phaseId?: unknown;
   readonly beforeId?: unknown;
 }
 
-export function parseProjectGanttReorderInput(
-  body: ProjectGanttReorderRequestBody | null,
+export function parseProjectTimelineReorderInput(
+  body: ProjectTimelineReorderRequestBody | null,
   projectId: string,
-): ReorderProjectGanttItemInput {
-  if (!body || (body.kind !== "task" && body.kind !== "milestone")) {
+): ReorderProjectTimelineItemInput {
+  if (!body || (body.kind !== "planItem" && body.kind !== "milestone")) {
     throw new ProjectValidationError("甘特拖放类型无效");
   }
   if (typeof body.itemId !== "string" || !body.itemId.trim() || body.itemId.length > 100) {
@@ -65,24 +67,25 @@ export function parseProjectGanttReorderInput(
   return { projectId, kind: body.kind, itemId: body.itemId.trim(), phaseId, beforeId };
 }
 
-export function parseProjectTaskPlanInput(
-  body: ProjectTaskPlanRequestBody | null,
+export function parseProjectPlanItemInput(
+  body: ProjectPlanItemRequestBody | null,
   projectId: string,
-  taskId: string,
-): SaveProjectTaskPlanInput {
-  if (!body) throw new ProjectValidationError("缺少任务计划");
+  planItemId?: string,
+): SaveProjectPlanItemInput {
+  if (!body) throw new ProjectValidationError("缺少项目计划项");
   let title: string | undefined;
   if (body.title !== undefined) {
     if (typeof body.title !== "string") throw new ProjectValidationError("请填写任务标题");
     title = body.title.trim();
     if (!title || title.length > 240) throw new ProjectValidationError("任务标题需要 1–240 个字符");
   }
-  let projectStatus: ProjectTaskStatus | undefined;
-  if (body.projectStatus !== undefined) {
-    if (!projectTaskStatuses.includes(body.projectStatus as ProjectTaskStatus)) {
-      throw new ProjectValidationError("项目任务状态无效");
+  if (!planItemId && !title) throw new ProjectValidationError("请填写计划项名称");
+  let status: ProjectPlanItemStatus | undefined;
+  if (body.status !== undefined) {
+    if (!projectPlanItemStatuses.includes(body.status as ProjectPlanItemStatus)) {
+      throw new ProjectValidationError("计划项状态无效");
     }
-    projectStatus = body.projectStatus as ProjectTaskStatus;
+    status = body.status as ProjectPlanItemStatus;
   }
   const plannedStart = parseOptionalDate(body.plannedStart, "计划开始日期");
   const plannedEnd = parseOptionalDate(body.plannedEnd, "计划结束日期");
@@ -126,37 +129,16 @@ export function parseProjectTaskPlanInput(
     throw new ProjectValidationError("自动排期设置无效");
   }
   return {
+    id: planItemId,
     projectId,
-    taskId,
     title,
-    projectStatus,
+    status,
     plannedStart,
     plannedEnd,
     dependencyIds,
     phaseId,
     durationWorkdays,
     autoSchedule: body.autoSchedule as boolean | undefined,
-  };
-}
-
-export function parseProjectPlanItemInput(
-  body: ProjectTaskPlanRequestBody | null,
-  projectId: string,
-  planItemId?: string,
-): SaveProjectPlanItemInput {
-  const parsed = parseProjectTaskPlanInput(body, projectId, planItemId ?? "new-plan-item");
-  if (!planItemId && !parsed.title) throw new ProjectValidationError("请填写计划项名称");
-  return {
-    id: planItemId,
-    projectId,
-    title: parsed.title,
-    projectStatus: parsed.projectStatus,
-    plannedStart: parsed.plannedStart,
-    plannedEnd: parsed.plannedEnd,
-    dependencyIds: parsed.dependencyIds,
-    phaseId: parsed.phaseId,
-    durationWorkdays: parsed.durationWorkdays,
-    autoSchedule: parsed.autoSchedule,
   };
 }
 

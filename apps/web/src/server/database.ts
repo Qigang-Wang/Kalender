@@ -1862,6 +1862,39 @@ const PROJECT_PLAN_ITEMS_SCHEMA_SQL = String.raw`
     FOR EACH ROW EXECUTE FUNCTION kalender_notify_realtime_topic('project');
 `;
 
+const PROJECT_PLAN_TASK_CLEANUP_SCHEMA_SQL = String.raw`
+  DO $$
+  BEGIN
+    IF EXISTS (
+      SELECT 1
+        FROM tasks task
+       WHERE task.plan_item_id IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1
+             FROM project_plan_items item
+            WHERE item.id = task.plan_item_id
+              AND item.project_id = task.project_id
+         )
+    ) THEN
+      RAISE EXCEPTION 'Cannot remove legacy task planning columns before every linked plan item is valid';
+    END IF;
+  END
+  $$;
+
+  DROP TABLE IF EXISTS task_dependencies;
+  DROP INDEX IF EXISTS tasks_project_phase_plan_idx;
+  DROP INDEX IF EXISTS tasks_project_phase_gantt_order_idx;
+
+  ALTER TABLE tasks
+    DROP COLUMN IF EXISTS planned_start,
+    DROP COLUMN IF EXISTS planned_end,
+    DROP COLUMN IF EXISTS phase_id,
+    DROP COLUMN IF EXISTS gantt_sort_order,
+    DROP COLUMN IF EXISTS duration_workdays,
+    DROP COLUMN IF EXISTS auto_schedule,
+    DROP COLUMN IF EXISTS project_status;
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1900,6 +1933,7 @@ export const DATABASE_MIGRATIONS = [
   { version: 35, name: "portable-username-auth", sql: PORTABLE_USERNAME_AUTH_SCHEMA_SQL },
   { version: 36, name: "project-task-status", sql: PROJECT_TASK_STATUS_SCHEMA_SQL },
   { version: 37, name: "project-plan-items", sql: PROJECT_PLAN_ITEMS_SCHEMA_SQL },
+  { version: 38, name: "remove-legacy-task-planning", sql: PROJECT_PLAN_TASK_CLEANUP_SCHEMA_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;
