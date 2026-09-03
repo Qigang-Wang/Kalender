@@ -100,7 +100,11 @@ export async function listStoredProjectPlanItems(projectId: string): Promise<rea
   return items.rows.map((row) => mapPlanItem(row, dependencyIdsByItem.get(row.id) ?? []));
 }
 
-export async function saveStoredProjectPlanItem(input: SaveProjectPlanItemInput, options: { readonly expectedUpdatedAt?: string } = {}): Promise<StoredProjectPlanItem> {
+export async function validateStoredProjectPlanItemInput(input: SaveProjectPlanItemInput): Promise<void> {
+  await prepareStoredProjectPlanItem(input);
+}
+
+async function prepareStoredProjectPlanItem(input: SaveProjectPlanItemInput) {
   const database = await getDatabase();
   const project = await getStoredProject(input.projectId);
   if (!project) throw new ProjectPlanRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
@@ -184,6 +188,12 @@ export async function saveStoredProjectPlanItem(input: SaveProjectPlanItemInput,
   const status = input.status ?? current?.status ?? "planned";
   const autoSchedule = input.autoSchedule ?? current?.auto_schedule ?? false;
 
+  return { database, id, phaseId, title, status, plannedStart, plannedEnd, sortOrder, durationWorkdays, autoSchedule, dependencyIds };
+}
+
+export async function saveStoredProjectPlanItem(input: SaveProjectPlanItemInput, options: { readonly expectedUpdatedAt?: string } = {}): Promise<StoredProjectPlanItem> {
+  const { database, id, phaseId, title, status, plannedStart, plannedEnd, sortOrder, durationWorkdays, autoSchedule, dependencyIds } = await prepareStoredProjectPlanItem(input);
+
   await database.transaction(async (transaction) => {
     const written = await transaction.query<{ id: string }>(
       `INSERT INTO project_plan_items (
@@ -231,13 +241,8 @@ export async function saveStoredProjectPlanItem(input: SaveProjectPlanItemInput,
 }
 
 export async function deleteStoredProjectPlanItem(projectId: string, planItemId: string, expectedUpdatedAt?: string): Promise<boolean> {
+  await validateStoredProjectPlanItemDelete(projectId, planItemId);
   const database = await getDatabase();
-  const project = await getStoredProject(projectId);
-  if (!project) throw new ProjectPlanRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
-  await ensureProjectAccess(projectId, "editor");
-  if (project.status === "archived") {
-    throw new ProjectPlanRepositoryError("PROJECT_ARCHIVED", "已归档项目不能删除计划项", 409);
-  }
   return database.transaction(async (transaction) => {
     const result = await transaction.query<{ id: string }>(
       `DELETE FROM project_plan_items WHERE id = $1 AND project_id = $2
@@ -250,6 +255,16 @@ export async function deleteStoredProjectPlanItem(projectId: string, planItemId:
     if (!exists.rows[0]) throw new ProjectPlanRepositoryError("PLAN_ITEM_NOT_FOUND", "项目计划项不存在", 404);
     throw new ProjectPlanRepositoryError("VERSION_CONFLICT", "计划项已被更新，请读取最新版本后重试", 409);
   });
+}
+
+export async function validateStoredProjectPlanItemDelete(projectId: string, planItemId: string): Promise<void> {
+  const database = await getDatabase();
+  const project = await getStoredProject(projectId);
+  if (!project) throw new ProjectPlanRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
+  await ensureProjectAccess(projectId, "editor");
+  if (project.status === "archived") throw new ProjectPlanRepositoryError("PROJECT_ARCHIVED", "已归档项目不能删除计划项", 409);
+  const item = await database.query<{ id: string }>("SELECT id FROM project_plan_items WHERE id = $1 AND project_id = $2 LIMIT 1", [planItemId, projectId]);
+  if (!item.rows[0]) throw new ProjectPlanRepositoryError("PLAN_ITEM_NOT_FOUND", "项目计划项不存在", 404);
 }
 
 export async function reorderStoredProjectPlanItem(

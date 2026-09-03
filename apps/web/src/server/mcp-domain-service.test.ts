@@ -6,6 +6,22 @@ import path from "node:path";
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(`Assertion failed: ${message}`); }
 const key = (label: string) => `mcp-domain-${label}-${randomUUID()}`;
 
+async function rejectionSignature(operation: () => Promise<unknown>): Promise<string> {
+  try {
+    await operation();
+    return "fulfilled";
+  } catch (error) {
+    const value = error as { name?: unknown; code?: unknown; status?: unknown; message?: unknown };
+    return [value.name, value.code, value.status, value.message].map((part) => String(part ?? "")).join("|");
+  }
+}
+
+async function assertMatchingRejection(label: string, preview: () => Promise<unknown>, execute: () => Promise<unknown>, expected: string): Promise<void> {
+  const previewRejection = await rejectionSignature(preview);
+  const executeRejection = await rejectionSignature(execute);
+  assert(previewRejection !== "fulfilled" && previewRejection === executeRejection && previewRejection.includes(expected), `REQ-MCP-PREVIEW-02 ${label} preview and execution reject identically`);
+}
+
 async function main() {
   const testRoot = path.join(tmpdir(), `kalender-mcp-domain-test-${randomUUID()}`);
   process.env.KALENDER_DATA_DIR = testRoot;
@@ -131,6 +147,85 @@ async function main() {
     let invalidRelationPreviewRejected = false;
     try { await service.execute("dayline_relation_link", { sourceKind: "note", sourceId: note.id, targetKind: "task", targetId: randomUUID(), preview: true }); } catch (error) { invalidRelationPreviewRejected = (error as { code?: string }).code === "ENTITY_NOT_FOUND"; }
     assert(invalidTaskPreviewRejected && invalidRelationPreviewRejected, "REQ-08 create previews reuse task and relation repository validation");
+    const readonlyCalendarId = randomUUID();
+    const readonlyEventId = randomUUID();
+    await database.query(
+      `INSERT INTO calendars (id, user_id, provider_id, provider_calendar_id, name, read_only, is_primary, time_zone)
+       VALUES ($1,$2,'local-calendar',$3,'Read only',true,false,'Europe/Berlin')`,
+      [readonlyCalendarId, alice.id, `readonly:${readonlyCalendarId}`],
+    );
+    const readonlyEventInsert = await database.query<{ updated_at: string | Date }>(
+      `INSERT INTO calendar_events (id, calendar_id, provider_event_id, title, starts_at, ends_at)
+       VALUES ($1,$2,$1,'Read only event','2026-07-24T09:00:00.000Z','2026-07-24T10:00:00.000Z')
+       RETURNING updated_at`,
+      [readonlyEventId, readonlyCalendarId],
+    );
+    const readonlyEventUpdatedAt = new Date(readonlyEventInsert.rows[0]!.updated_at).toISOString();
+    const invalidDependencyId = randomUUID();
+    await assertMatchingRejection(
+      "plan dependency validation",
+      () => service.execute("dayline_project_plan_item_create", { projectId: project.id, title: "Invalid dependency", dependencyIds: [invalidDependencyId], preview: true }),
+      () => service.execute("dayline_project_plan_item_create", { projectId: project.id, title: "Invalid dependency", dependencyIds: [invalidDependencyId], idempotencyKey: key("invalid-plan-preview-parity") }),
+      "PLAN_DEPENDENCY_INVALID",
+    );
+    const missingProjectId = randomUUID();
+    await assertMatchingRejection(
+      "note project validation",
+      () => service.execute("dayline_note_create", { projectId: missingProjectId, title: "Invalid project", content: "same input", preview: true }),
+      () => service.execute("dayline_note_create", { projectId: missingProjectId, title: "Invalid project", content: "same input", idempotencyKey: key("invalid-note-preview-parity") }),
+      "项目不存在",
+    );
+    await assertMatchingRejection(
+      "task schedule calendar validation",
+      () => service.execute("dayline_task_schedule", { taskId: task.id, calendarId: readonlyCalendarId, start: "2026-07-24T11:00:00.000Z", end: "2026-07-24T12:00:00.000Z", preview: true }),
+      () => service.execute("dayline_task_schedule", { taskId: task.id, calendarId: readonlyCalendarId, start: "2026-07-24T11:00:00.000Z", end: "2026-07-24T12:00:00.000Z", idempotencyKey: key("invalid-schedule-preview-parity") }),
+      "CALENDAR_READ_ONLY",
+    );
+    await assertMatchingRejection(
+      "task time-block ownership validation",
+      () => service.execute("dayline_task_schedule_cancel", { taskId: task.id, eventId: event.id, preview: true }),
+      () => service.execute("dayline_task_schedule_cancel", { taskId: task.id, eventId: event.id, expectedUpdatedAt: event.updatedAt }),
+      "TIME_BLOCK_NOT_FOUND",
+    );
+    await assertMatchingRejection(
+      "task reschedule ownership validation",
+      () => service.execute("dayline_task_reschedule", { taskId: task.id, eventId: event.id, calendarId, start: event.start, end: event.end, preview: true }),
+      () => service.execute("dayline_task_reschedule", { taskId: task.id, eventId: event.id, calendarId, start: event.start, end: event.end, expectedUpdatedAt: event.updatedAt }),
+      "TIME_BLOCK_NOT_FOUND",
+    );
+    const missingLinkId = randomUUID();
+    await assertMatchingRejection(
+      "relation delete validation",
+      () => service.execute("dayline_relation_unlink", { linkId: missingLinkId, preview: true }),
+      () => service.execute("dayline_relation_unlink", { linkId: missingLinkId }),
+      "ENTITY_LINK_NOT_FOUND",
+    );
+    const readonlyEventInput = { eventId: readonlyEventId, calendarId: readonlyCalendarId, title: "Still read only", start: "2026-07-24T09:00:00.000Z", end: "2026-07-24T10:00:00.000Z" };
+    await assertMatchingRejection(
+      "calendar create validation",
+      () => service.execute("dayline_calendar_event_create", { calendarId: readonlyCalendarId, title: "Cannot create", start: "2026-07-24T11:00:00.000Z", end: "2026-07-24T12:00:00.000Z", preview: true }),
+      () => service.execute("dayline_calendar_event_create", { calendarId: readonlyCalendarId, title: "Cannot create", start: "2026-07-24T11:00:00.000Z", end: "2026-07-24T12:00:00.000Z", idempotencyKey: key("invalid-calendar-create-preview-parity") }),
+      "CALENDAR_READ_ONLY",
+    );
+    await assertMatchingRejection(
+      "calendar update validation",
+      () => service.execute("dayline_calendar_event_update", { ...readonlyEventInput, preview: true }),
+      () => service.execute("dayline_calendar_event_update", { ...readonlyEventInput, expectedUpdatedAt: readonlyEventUpdatedAt }),
+      "CALENDAR_READ_ONLY",
+    );
+    await assertMatchingRejection(
+      "calendar delete validation",
+      () => service.execute("dayline_calendar_event_delete", { eventId: readonlyEventId, calendarId: readonlyCalendarId, preview: true }),
+      () => service.execute("dayline_calendar_event_delete", { eventId: readonlyEventId, calendarId: readonlyCalendarId, expectedUpdatedAt: readonlyEventUpdatedAt }),
+      "CALENDAR_READ_ONLY",
+    );
+    const invalidRecurrence = { frequency: "daily" as const, interval: 1000, end: "never" as const };
+    await assertMatchingRejection(
+      "calendar recurrence validation",
+      () => service.execute("dayline_calendar_event_create", { calendarId, title: "Invalid recurrence", start: "2026-07-25T09:00:00.000Z", end: "2026-07-25T10:00:00.000Z", recurrence: invalidRecurrence, preview: true }),
+      () => service.execute("dayline_calendar_event_create", { calendarId, title: "Invalid recurrence", start: "2026-07-25T09:00:00.000Z", end: "2026-07-25T10:00:00.000Z", recurrence: invalidRecurrence, idempotencyKey: key("invalid-recurrence-preview-parity") }),
+      "重复间隔",
+    );
     const eventPreview = await service.execute("dayline_calendar_event_update", { eventId: event.id, calendarId, title: "Preview only", start: event.start, end: event.end, preview: true });
     assert("preview" in eventPreview && (eventPreview as unknown as { currentRevision?: string }).currentRevision === event.updatedAt && (await service.execute("dayline_calendar_events_list", { calendarIds: [calendarId], from: "2026-07-22T00:00:00.000Z", to: "2026-07-23T00:00:00.000Z" })).find((entry) => entry.id === event.id)?.title === "Busy", "REQ-08 update preview has no revision requirement and does not write");
     const replayKey = key("replay");

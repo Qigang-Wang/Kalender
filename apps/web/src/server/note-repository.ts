@@ -310,7 +310,11 @@ export async function getStoredNote(noteId: string): Promise<StoredNote | undefi
   return (await attachLinkedTasks(result.rows))[0];
 }
 
-export async function saveStoredNote(input: SaveNoteInput, options: { readonly expectedUpdatedAt?: string } = {}): Promise<StoredNote> {
+export async function validateStoredNoteInput(input: SaveNoteInput): Promise<void> {
+  await prepareStoredNoteInput(input);
+}
+
+async function prepareStoredNoteInput(input: SaveNoteInput) {
   const database = await getDatabase();
   const scope = await getUserScope();
   const id = input.id ?? randomUUID();
@@ -322,6 +326,11 @@ export async function saveStoredNote(input: SaveNoteInput, options: { readonly e
   if (input.projectId) {
     await ensureProjectAccess(input.projectId, "editor");
   }
+  return { database, scope, id };
+}
+
+export async function saveStoredNote(input: SaveNoteInput, options: { readonly expectedUpdatedAt?: string } = {}): Promise<StoredNote> {
+  const { database, scope, id } = await prepareStoredNoteInput(input);
   await database.transaction(async (transaction) => {
     const written = await transaction.query<{ id: string }>(
       `INSERT INTO notes (id, user_id, project_id, title, content, note_type, pinned, updated_at)

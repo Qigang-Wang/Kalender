@@ -180,7 +180,14 @@ audit metadata for the invocation is still recorded). `warnings` and
 `conflicts` are arrays; the latter contains only safe bounded conflict
 summaries. `preview: true` is evaluated before execution-contract checks, so it
 does not require or consume an idempotency key or `expectedUpdatedAt`, including
-for update and destructive tools.
+for update and destructive tools. Preview and execution use the same
+side-effect-free domain preflight for object existence, actor/project access,
+archived projects, plan phases and dependencies, task time-block ownership,
+calendar writability/provider restrictions, remote-event mutation safety, and
+recurrence rules. The preflight does not call a remote calendar provider.
+Schedule conflicts are the intentional exception: preview returns them as
+`schedule_conflict` warnings, while execution rejects them unless
+`allowConflicts: true` is supplied.
 
 An executing create or schedule operation supplies an `idempotencyKey` of
 16–160 characters. The key is scoped to the authenticated actor and operation

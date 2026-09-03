@@ -48,6 +48,10 @@ export interface CalendarTaskLink {
   readonly href: string;
 }
 
+export interface TaskScheduleValidation {
+  readonly conflicts: readonly TaskScheduleConflict[];
+}
+
 interface TimeBlockRow {
   id: string;
   title: string;
@@ -79,7 +83,72 @@ export function parseTaskScheduleInput(body: TaskScheduleRequestBody | null): Ta
   };
 }
 
+export async function validateStoredTaskSchedule(taskId: string, input: TaskScheduleInput, eventId?: string): Promise<TaskScheduleValidation> {
+  const database = await getDatabase();
+  const scope = await getUserScope();
+  const task = await database.query<{ id: string }>(
+    `SELECT id FROM tasks WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [taskId, scope.userId] : [taskId],
+  );
+  if (!task.rows[0]) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404);
+  if (eventId) {
+    const block = await database.query<{ calendar_event_id: string }>(
+      `SELECT tb.calendar_event_id
+         FROM task_time_blocks tb
+         JOIN calendar_events e ON e.id = tb.calendar_event_id
+         JOIN calendars c ON c.id = e.calendar_id
+        WHERE tb.task_id = $1 AND tb.calendar_event_id = $2${scope.active ? " AND c.user_id = $3" : ""}
+        LIMIT 1`,
+      scope.active ? [taskId, eventId, scope.userId] : [taskId, eventId],
+    );
+    if (!block.rows[0]) throw new TaskRepositoryError("TIME_BLOCK_NOT_FOUND", "任务时间块不存在", 404);
+  }
+  const calendar = await database.query<{ read_only: boolean; provider_id: string }>(
+    `SELECT read_only, provider_id FROM calendars WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [input.calendarId, scope.userId] : [input.calendarId],
+  );
+  const target = calendar.rows[0];
+  if (!target) throw new TaskRepositoryError("CALENDAR_NOT_FOUND", "日历不存在", 404);
+  if (target.read_only) throw new TaskRepositoryError(eventId ? "CALENDAR_NOT_WRITABLE" : "CALENDAR_READ_ONLY", eventId ? "当前阶段只能调整到可写的本地日历" : "该日历为只读", 409);
+  if (target.provider_id !== "local-calendar") throw new TaskRepositoryError(eventId ? "CALENDAR_NOT_WRITABLE" : "CALENDAR_NOT_LOCAL", eventId ? "当前阶段只能调整到可写的本地日历" : "当前阶段只能把任务安排到本地日历", 409);
+  const conflicts = await database.query<TimeBlockRow>(
+    `SELECT e.id, e.title, e.starts_at, e.ends_at
+       FROM calendar_events e
+       JOIN calendars c ON c.id = e.calendar_id
+      WHERE e.calendar_id = $1 AND e.status <> 'cancelled' AND e.availability <> 'free'
+        AND e.starts_at < $3 AND e.ends_at > $2
+        ${eventId ? "AND e.id <> $4" : ""}
+        ${scope.active ? `AND c.user_id = $${eventId ? 5 : 4}` : ""}
+      ORDER BY e.starts_at, e.ends_at`,
+    scope.active
+      ? eventId ? [input.calendarId, input.start, input.end, eventId, scope.userId] : [input.calendarId, input.start, input.end, scope.userId]
+      : eventId ? [input.calendarId, input.start, input.end, eventId] : [input.calendarId, input.start, input.end],
+  );
+  return { conflicts: conflicts.rows.map(mapConflict) };
+}
+
+export async function validateStoredTaskScheduleDelete(taskId: string, eventId: string): Promise<void> {
+  const database = await getDatabase();
+  const scope = await getUserScope();
+  const task = await database.query<{ id: string }>(
+    `SELECT id FROM tasks WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [taskId, scope.userId] : [taskId],
+  );
+  if (!task.rows[0]) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404);
+  const block = await database.query<{ calendar_event_id: string }>(
+    `SELECT tb.calendar_event_id
+       FROM task_time_blocks tb
+       JOIN calendar_events e ON e.id = tb.calendar_event_id
+       JOIN calendars c ON c.id = e.calendar_id
+      WHERE tb.task_id = $1 AND tb.calendar_event_id = $2${scope.active ? " AND c.user_id = $3" : ""}
+      LIMIT 1`,
+    scope.active ? [taskId, eventId, scope.userId] : [taskId, eventId],
+  );
+  if (!block.rows[0]) throw new TaskRepositoryError("TIME_BLOCK_NOT_FOUND", "任务时间块不存在", 404);
+}
+
 export async function scheduleStoredTask(taskId: string, input: TaskScheduleInput): Promise<ScheduledTaskResult> {
+  await validateStoredTaskSchedule(taskId, input);
   const database = await getDatabase();
   const scope = await getUserScope();
   const event = await database.transaction(async (transaction) => {
@@ -157,6 +226,7 @@ export async function scheduleStoredTask(taskId: string, input: TaskScheduleInpu
 }
 
 export async function updateStoredTaskSchedule(taskId: string, eventId: string, input: TaskScheduleInput, expectedUpdatedAt?: string): Promise<ScheduledTaskResult> {
+  await validateStoredTaskSchedule(taskId, input, eventId);
   const database = await getDatabase();
   const scope = await getUserScope();
   const event = await database.transaction(async (transaction) => {
@@ -224,6 +294,7 @@ export async function updateStoredTaskSchedule(taskId: string, eventId: string, 
 }
 
 export async function deleteStoredTaskSchedule(taskId: string, eventId: string, expectedUpdatedAt?: string): Promise<StoredTask> {
+  await validateStoredTaskScheduleDelete(taskId, eventId);
   const database = await getDatabase();
   const scope = await getUserScope();
   await database.transaction(async (transaction) => {

@@ -99,7 +99,7 @@ async function main() {
     await saveExchangeCalendarEvents(calendarId, events, "2026-07-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z");
     const resyncedEvents = await listStoredCalendarEvents({ calendarIds: [calendarId], from: "2026-07-01T00:00:00.000Z", to: "2026-08-01T00:00:00.000Z" });
     assert(resyncedEvents.find((event) => event.id === storedEvents[0]!.id)?.reminderMinutesBefore === 30, "Exchange sync preserves local reminder overrides");
-    const { upsertCalendarEvent, deleteCalendarEvent } = await import("./calendar-event-service");
+    const { upsertCalendarEvent, deleteCalendarEvent, validateCalendarEventDelete, validateCalendarEventUpsert } = await import("./calendar-event-service");
     const originalFetch = globalThis.fetch;
     let soapCallCount = 0;
     const updateResponse = `<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><s:Body><m:UpdateItemResponse><m:ResponseMessages><m:UpdateItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Items><t:CalendarItem><t:ItemId Id="event-1" ChangeKey="event-key-2"/></t:CalendarItem></m:Items></m:UpdateItemResponseMessage></m:ResponseMessages></m:UpdateItemResponse></s:Body></s:Envelope>`;
@@ -115,6 +115,9 @@ async function main() {
       assert(soapCallCount === 2 && updated.providerData?.itemId === "event-1" && updated.providerData?.changeKey === "event-key-2", "REQ-MCP-EXCHANGE-01 successful Exchange update carries old itemId to a new changeKey");
       globalThis.fetch = (async () => { soapCallCount += 1; throw new Error("SOAP must not be reached by a rejected local mutation"); }) as typeof fetch;
       soapCallCount = 0;
+      await validateCalendarEventUpsert({ id: updated.id, calendarId, title: updated.title, start: updated.start, end: updated.end });
+      await validateCalendarEventDelete(calendarId, updated.id);
+      assert(soapCallCount === 0, "REQ-MCP-PREVIEW-02 Exchange preflight validates cached state without a SOAP/network call");
       const rejected = async (operation: () => Promise<unknown>, label: string) => {
         let failed = false;
         try { await operation(); } catch { failed = true; }

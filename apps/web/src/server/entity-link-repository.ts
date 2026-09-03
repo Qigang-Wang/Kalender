@@ -132,6 +132,16 @@ export async function deleteEntityLink(linkId: string): Promise<boolean> {
   return Boolean(result.rows[0]);
 }
 
+export async function validateEntityLinkDelete(linkId: string): Promise<void> {
+  const database = await getDatabase();
+  const scope = await getUserScope();
+  const result = await database.query<{ id: string }>(
+    `SELECT id FROM entity_links WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [linkId, scope.userId] : [linkId],
+  );
+  if (!result.rows[0]) throw new EntityLinkRepositoryError("ENTITY_LINK_NOT_FOUND", "关联不存在", 404);
+}
+
 export async function deleteEntityLinksFor(kind: EntityKind, entityId: string): Promise<void> {
   const database = await getDatabase();
   const scope = await getUserScope();

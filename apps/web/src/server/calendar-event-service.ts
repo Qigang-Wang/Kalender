@@ -4,6 +4,7 @@ import type {
   UpsertCalendarEventInput,
 } from "../../../../src/mail/types";
 
+import { normalizeCalendarRecurrence } from "../lib/calendar-recurrence";
 import { loadExchangeCalendarCredential, saveExchangeCalendarMutation } from "./calendar-account-repository";
 import {
   CalendarRepositoryError,
@@ -18,6 +19,7 @@ import {
   type ExchangeCalendarFolder,
 } from "./exchange-calendar";
 import { localCalendarContext, localCalendarProvider } from "./local-calendar-provider";
+import { getUserScope } from "./user-scope";
 
 interface CalendarWriteTargetRow {
   provider_id: string;
@@ -125,12 +127,47 @@ export async function deleteCalendarEvent(
   }
 }
 
+export async function validateCalendarEventUpsert(input: UpsertCalendarEventInput): Promise<void> {
+  const target = await getCalendarWriteTarget(input.calendarId);
+  if (target.provider_id === "local-calendar") {
+    if (input.recurrence) normalizeCalendarRecurrence(input.recurrence);
+    await validateLocalCalendarEvent(input.calendarId, input.id, input.recurrenceSeriesId);
+    return;
+  }
+  if (input.recurrence || input.recurrenceSeriesId) {
+    throw new CalendarRepositoryError("REMOTE_RECURRENCE_UNSUPPORTED", "当前版本仅支持在个人日历中创建和修改重复日程", 409);
+  }
+  if (target.provider_id !== "exchange" || !target.account_id) {
+    throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "这个远程日历暂不支持写回", 409);
+  }
+  if (input.id) {
+    const existing = await getExchangeEventTarget(input.id, input.calendarId);
+    assertSafeExchangeMutation(existing);
+  }
+  await loadExchangeCalendarCredential(target.account_id);
+}
+
+export async function validateCalendarEventDelete(calendarId: string, eventId: string): Promise<void> {
+  const target = await getCalendarWriteTarget(calendarId);
+  if (target.provider_id === "local-calendar") {
+    await validateLocalCalendarEvent(calendarId, eventId);
+    return;
+  }
+  if (target.provider_id !== "exchange" || !target.account_id) {
+    throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "这个远程日历暂不支持删除", 409);
+  }
+  const existing = await getExchangeEventTarget(eventId, calendarId);
+  assertSafeExchangeMutation(existing);
+  await loadExchangeCalendarCredential(target.account_id);
+}
+
 async function getCalendarWriteTarget(calendarId: string): Promise<CalendarWriteTargetRow> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<CalendarWriteTargetRow>(
     `SELECT provider_id, provider_calendar_id, account_id, read_only
-       FROM calendars WHERE id = $1 LIMIT 1`,
-    [calendarId],
+       FROM calendars WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [calendarId, scope.userId] : [calendarId],
   );
   const target = result.rows[0];
   if (!target) throw new CalendarRepositoryError("CALENDAR_NOT_FOUND", "日历不存在", 404);
@@ -140,16 +177,34 @@ async function getCalendarWriteTarget(calendarId: string): Promise<CalendarWrite
 
 async function getExchangeEventTarget(eventId: string, calendarId: string): Promise<ExchangeEventTargetRow> {
   const database = await getDatabase();
+  const scope = await getUserScope();
   const result = await database.query<ExchangeEventTargetRow>(
-    `SELECT provider_item_id, provider_change_key, is_meeting, is_recurring, availability, updated_at
-       FROM calendar_events
-      WHERE id = $1 AND calendar_id = $2
+    `SELECT e.provider_item_id, e.provider_change_key, e.is_meeting, e.is_recurring, e.availability, e.updated_at
+       FROM calendar_events e JOIN calendars c ON c.id = e.calendar_id
+      WHERE e.id = $1 AND e.calendar_id = $2${scope.active ? " AND c.user_id = $3" : ""}
       LIMIT 1`,
-    [eventId, calendarId],
+    scope.active ? [eventId, calendarId, scope.userId] : [eventId, calendarId],
   );
   const event = result.rows[0];
   if (!event) throw new CalendarRepositoryError("EVENT_NOT_FOUND", "日程不存在", 404);
   return event;
+}
+
+async function validateLocalCalendarEvent(calendarId: string, eventId?: string, recurrenceSeriesId?: string): Promise<void> {
+  if (!eventId && !recurrenceSeriesId) return;
+  const database = await getDatabase();
+  const scope = await getUserScope();
+  const id = recurrenceSeriesId ?? eventId!;
+  const result = await database.query<{ calendar_id: string; recurrence_rule: unknown }>(
+    `SELECT e.calendar_id, e.recurrence_rule
+       FROM calendar_events e JOIN calendars c ON c.id = e.calendar_id
+      WHERE e.id = $1${scope.active ? " AND c.user_id = $2" : ""} LIMIT 1`,
+    scope.active ? [id, scope.userId] : [id],
+  );
+  const event = result.rows[0];
+  if (!event) throw new CalendarRepositoryError(recurrenceSeriesId ? "RECURRENCE_NOT_FOUND" : "EVENT_NOT_FOUND", recurrenceSeriesId ? "重复日程系列不存在" : "日程不存在", 404);
+  if (event.calendar_id !== calendarId) throw new CalendarRepositoryError("EVENT_CALENDAR_MISMATCH", "不能把日程移动到未知日历", 409);
+  if (recurrenceSeriesId && !event.recurrence_rule) throw new CalendarRepositoryError("RECURRENCE_NOT_FOUND", "重复日程系列不存在", 404);
 }
 
 function assertExchangeRevision(event: ExchangeEventTargetRow, expectedUpdatedAt: string | undefined): void {
