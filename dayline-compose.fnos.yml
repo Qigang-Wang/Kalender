@@ -3,6 +3,7 @@ name: dayline
 # 部署前只需修改这里。此文件包含明文密码，填写后不要提交到公开仓库。
 x-dayline-settings:
   database-password: &database-password "CHANGE_ME_DATABASE_PASSWORD"
+  qgw-auth-secret: &qgw-auth-secret "CHANGE_ME_TO_A_LONG_RANDOM_SECRET"
   backup-directory: &backup-directory "/vol3/1000/Docker_App/Dayline/backups"
   timezone: &timezone "Europe/Berlin"
   # 加入 NAS 的局域网 IP 和反向代理域名；浏览器 MCP 客户端还需填写完整 Origin。
@@ -23,6 +24,7 @@ services:
     environment:
       NODE_ENV: production
       TZ: *timezone
+      QGW_AUTH_SECRET: *qgw-auth-secret
       DATABASE_URL: postgresql://kalender@postgres:5432/kalender
       PGPASSWORD: *database-password
       KALENDER_DATA_DIR: /app/.data
