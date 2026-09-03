@@ -62,6 +62,7 @@ interface CalendarEventRow {
   recurrence_series_id: string | null;
   recurrence_id: string | null;
   recurrence_cancelled: boolean;
+  updated_at: string | Date;
 }
 
 export interface CalendarEventConflict {
@@ -75,7 +76,7 @@ const calendarEventColumns = `
   e.id, e.provider_event_id, e.calendar_id, e.title, e.description, e.description_content, e.location,
   e.starts_at, e.ends_at, e.time_zone, e.all_day, e.reminder_minutes_before, e.attendees, e.meeting_url, e.status, e.availability,
   e.provider_item_id, e.provider_change_key, e.is_meeting, e.is_recurring, e.is_organizer,
-  e.recurrence_rule, e.recurrence_series_id, e.recurrence_id, e.recurrence_cancelled
+  e.recurrence_rule, e.recurrence_series_id, e.recurrence_id, e.recurrence_cancelled, e.updated_at
 `;
 
 export async function listStoredCalendars(): Promise<readonly CalendarSummary[]> {
@@ -233,7 +234,7 @@ export async function listStoredCalendarEventConflicts(input: {
     limit: 1_000,
   });
   return events
-    .filter((event) => event.status !== "cancelled" && event.id !== input.excludeEventId)
+    .filter((event) => event.status !== "cancelled" && event.availability !== "free" && event.id !== input.excludeEventId)
     .map((event) => ({ id: event.id, title: event.title, start: event.start, end: event.end }));
 }
 
@@ -281,9 +282,9 @@ export async function upsertStoredCalendarEvent(
   const result = await database.query<CalendarEventRow>(
     `INSERT INTO calendar_events (
        id, calendar_id, provider_event_id, title, description, description_content, location,
-       starts_at, ends_at, time_zone, all_day, attendees, status,
+       starts_at, ends_at, time_zone, all_day, attendees, status, availability,
        idempotency_key, recurrence_rule, is_recurring, reminder_minutes_before, updated_at
-     ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12::jsonb,'confirmed',$13,$14::jsonb,$15,$16,now())
+     ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12::jsonb,'confirmed',$13,$14,$15::jsonb,$16,$17,now())
      ON CONFLICT (id) DO UPDATE SET
        calendar_id = EXCLUDED.calendar_id,
        title = EXCLUDED.title,
@@ -295,14 +296,16 @@ export async function upsertStoredCalendarEvent(
        time_zone = EXCLUDED.time_zone,
        all_day = EXCLUDED.all_day,
        attendees = EXCLUDED.attendees,
+       availability = EXCLUDED.availability,
        recurrence_rule = EXCLUDED.recurrence_rule,
        is_recurring = EXCLUDED.is_recurring,
        reminder_minutes_before = COALESCE(EXCLUDED.reminder_minutes_before, calendar_events.reminder_minutes_before),
-       updated_at = now()
+       updated_at = GREATEST(clock_timestamp(), calendar_events.updated_at + interval '1 millisecond')
+     WHERE ($18::timestamptz IS NULL OR date_trunc('milliseconds', calendar_events.updated_at) = date_trunc('milliseconds', $18::timestamptz))
      RETURNING id, provider_event_id, calendar_id, title, description, description_content, location,
                starts_at, ends_at, time_zone, all_day, reminder_minutes_before, attendees, meeting_url, status, availability,
                provider_item_id, provider_change_key, is_meeting, is_recurring, is_organizer,
-               recurrence_rule, recurrence_series_id, recurrence_id, recurrence_cancelled`,
+               recurrence_rule, recurrence_series_id, recurrence_id, recurrence_cancelled, updated_at`,
     [
       eventId,
       input.calendarId,
@@ -316,14 +319,23 @@ export async function upsertStoredCalendarEvent(
       input.timeZone ?? "Europe/Berlin",
       input.allDay ?? false,
       JSON.stringify(input.attendees ?? []),
+      input.availability ?? "busy",
       input.idempotencyKey ?? null,
       recurrence ? JSON.stringify(recurrence) : null,
       Boolean(recurrence),
       input.reminderMinutesBefore ?? null,
+      input.expectedUpdatedAt ?? null,
     ],
   );
   const row = result.rows[0];
-  if (!row) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "无法保存日程", 500);
+  if (!row) {
+    const exists = await database.query<{ id: string }>(
+      `SELECT e.id FROM calendar_events e JOIN calendars c ON c.id = e.calendar_id WHERE e.id = $1${scope.active ? " AND c.user_id = $2" : ""} LIMIT 1`,
+      scope.active ? [input.id, scope.userId] : [input.id],
+    );
+    if (!exists.rows[0]) throw new CalendarRepositoryError("EVENT_NOT_FOUND", "日程不存在", 404);
+    throw new CalendarRepositoryError("VERSION_CONFLICT", "日程已被更新，请读取最新版本后重试", 409);
+  }
   if (!recurrence) return mapCalendarEvent(row);
   return mapExpandedCalendarEvent(row, row.starts_at, row.ends_at);
 }
@@ -351,8 +363,8 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
       `INSERT INTO calendar_events (
          id, calendar_id, provider_event_id, title, description, description_content, location,
          starts_at, ends_at, time_zone, all_day, attendees, status,
-         is_recurring, recurrence_series_id, recurrence_id, recurrence_cancelled, reminder_minutes_before, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12::jsonb,'confirmed',true,$13,$14,false,$15,now())
+         is_recurring, recurrence_series_id, recurrence_id, recurrence_cancelled, reminder_minutes_before, availability, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12::jsonb,'confirmed',true,$13,$14,false,$15,$16,now())
        ON CONFLICT (recurrence_series_id, recurrence_id)
          WHERE recurrence_series_id IS NOT NULL AND recurrence_id IS NOT NULL
        DO UPDATE SET
@@ -365,13 +377,14 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
          time_zone = EXCLUDED.time_zone,
          all_day = EXCLUDED.all_day,
          attendees = EXCLUDED.attendees,
+         availability = EXCLUDED.availability,
          reminder_minutes_before = COALESCE(EXCLUDED.reminder_minutes_before, calendar_events.reminder_minutes_before),
          recurrence_cancelled = false,
          updated_at = now()
        RETURNING id, provider_event_id, calendar_id, title, description, description_content, location,
                  starts_at, ends_at, time_zone, all_day, reminder_minutes_before, attendees, meeting_url, status, availability,
                  provider_item_id, provider_change_key, is_meeting, is_recurring, is_organizer,
-                 recurrence_rule, recurrence_series_id, recurrence_id, recurrence_cancelled`,
+                 recurrence_rule, recurrence_series_id, recurrence_id, recurrence_cancelled, updated_at`,
       [
         randomUUID(),
         input.calendarId,
@@ -388,6 +401,7 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
         master.id,
         recurrenceId,
         input.reminderMinutesBefore ?? null,
+        input.availability ?? master.availability,
       ],
     );
     const exception = result.rows[0];
@@ -413,13 +427,13 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
          starts_at = $5, ends_at = $6, time_zone = $7, all_day = $8,
          attendees = $9::jsonb, recurrence_rule = $10::jsonb,
          description_content = $11::jsonb,
-         reminder_minutes_before = COALESCE($12, reminder_minutes_before),
+         reminder_minutes_before = COALESCE($12, reminder_minutes_before), availability = COALESCE($13, availability),
          is_recurring = true, updated_at = now()
        WHERE e.id = $1
        RETURNING id, provider_event_id, calendar_id, title, description, description_content, location,
                  starts_at, ends_at, time_zone, all_day, reminder_minutes_before, attendees, meeting_url, status, availability,
                  provider_item_id, provider_change_key, is_meeting, is_recurring, is_organizer,
-                 recurrence_rule, recurrence_series_id, recurrence_id, recurrence_cancelled`,
+                 recurrence_rule, recurrence_series_id, recurrence_id, recurrence_cancelled, updated_at`,
       [
         master.id,
         input.title,
@@ -433,6 +447,7 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
         JSON.stringify(nextRule),
         calendarDescriptionContentJson(input.descriptionContent),
         input.reminderMinutesBefore ?? null,
+        input.availability ?? master.availability,
       ],
     );
     const updated = result.rows[0];
@@ -482,12 +497,12 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
       `INSERT INTO calendar_events (
          id, calendar_id, provider_event_id, title, description, location,
          starts_at, ends_at, time_zone, all_day, attendees, status,
-         is_recurring, recurrence_rule, description_content, reminder_minutes_before, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'confirmed',true,$12::jsonb,$13::jsonb,$14,now())
+         is_recurring, recurrence_rule, description_content, reminder_minutes_before, availability, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,'confirmed',true,$12::jsonb,$13::jsonb,$14,$15,now())
        RETURNING id, provider_event_id, calendar_id, title, description, description_content, location,
                  starts_at, ends_at, time_zone, all_day, reminder_minutes_before, attendees, meeting_url, status, availability,
                  provider_item_id, provider_change_key, is_meeting, is_recurring, is_organizer,
-                 recurrence_rule, recurrence_series_id, recurrence_id, recurrence_cancelled`,
+                 recurrence_rule, recurrence_series_id, recurrence_id, recurrence_cancelled, updated_at`,
       [
         newSeriesId,
         input.calendarId,
@@ -503,6 +518,7 @@ async function upsertRecurringOccurrence(input: UpsertCalendarEventInput): Promi
         JSON.stringify(followingRule),
         calendarDescriptionContentJson(input.descriptionContent),
         input.reminderMinutesBefore ?? null,
+        input.availability ?? master.availability,
       ],
     );
     const newMaster = result.rows[0];
@@ -515,6 +531,7 @@ export interface DeleteStoredCalendarEventOptions {
   readonly recurrenceSeriesId?: string;
   readonly recurrenceId?: string;
   readonly recurrenceScope?: CalendarRecurrenceEditScope;
+  readonly expectedUpdatedAt?: string;
 }
 
 export async function deleteStoredCalendarEvent(
@@ -604,17 +621,23 @@ export async function deleteStoredCalendarEvent(
   }
 
   return database.transaction(async (transaction) => {
+    const result = await transaction.query<{ id: string }>(
+      `DELETE FROM calendar_events
+        WHERE id = $1 AND calendar_id = $2
+          AND ($3::timestamptz IS NULL OR date_trunc('milliseconds', calendar_events.updated_at) = date_trunc('milliseconds', $3::timestamptz))
+        RETURNING id`,
+      [eventId, calendarId, options.expectedUpdatedAt ?? null],
+    );
+    if (!result.rows[0]) {
+      const exists = await transaction.query<{ id: string }>("SELECT id FROM calendar_events WHERE id = $1 AND calendar_id = $2 LIMIT 1", [eventId, calendarId]);
+      if (!exists.rows[0]) throw new CalendarRepositoryError("EVENT_NOT_FOUND", "日程不存在", 404);
+      throw new CalendarRepositoryError("VERSION_CONFLICT", "日程已被更新，请读取最新版本后重试", 409);
+    }
     await transaction.query(
       `DELETE FROM entity_links WHERE ((source_kind = 'calendar' AND source_id = $1) OR (target_kind = 'calendar' AND target_id = $1))${scope.active ? " AND user_id = $2" : ""}`,
       scope.active ? [eventId, scope.userId] : [eventId],
     );
-    const result = await transaction.query<{ id: string }>(
-      `DELETE FROM calendar_events
-        WHERE id = $1 AND calendar_id = $2
-        RETURNING id`,
-      [eventId, calendarId],
-    );
-    return Boolean(result.rows[0]);
+    return true;
   });
 }
 
@@ -676,6 +699,7 @@ function mapCalendarEvent(
       isRecurring: row.is_recurring || Boolean(recurrence),
       isOrganizer: row.is_organizer ?? undefined,
     },
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : new Date(row.updated_at).toISOString(),
   };
 }
 

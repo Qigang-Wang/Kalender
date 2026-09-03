@@ -568,10 +568,11 @@ export async function saveExchangeCalendarMutation(
   localEventId?: string,
   descriptionContent?: string,
   reminderMinutesBefore?: CalendarEvent["reminderMinutesBefore"],
+  expectedUpdatedAt?: string,
 ): Promise<string> {
   const database = await getDatabase();
   const id = localEventId ?? `exchange-event:${randomUUID()}`;
-  await database.query(
+  const saved = await database.query<{ id: string }>(
     `INSERT INTO calendar_events (
        id, calendar_id, provider_event_id, title, description, description_content, location,
        starts_at, ends_at, time_zone, all_day, attendees, meeting_url,
@@ -599,7 +600,9 @@ export async function saveExchangeCalendarMutation(
        is_organizer = EXCLUDED.is_organizer,
        availability = EXCLUDED.availability,
        reminder_minutes_before = COALESCE(EXCLUDED.reminder_minutes_before, calendar_events.reminder_minutes_before),
-       updated_at = now()`,
+       updated_at = GREATEST(clock_timestamp(), calendar_events.updated_at + interval '1 millisecond')
+     WHERE ($23::timestamptz IS NULL OR date_trunc('milliseconds', calendar_events.updated_at) = date_trunc('milliseconds', $23::timestamptz))
+     RETURNING id`,
     [
       id,
       calendarId,
@@ -623,8 +626,10 @@ export async function saveExchangeCalendarMutation(
       event.isOrganizer ?? null,
       event.availability ?? "busy",
       reminderMinutesBefore ?? null,
+      expectedUpdatedAt ?? null,
     ],
   );
+  if (!saved.rows[0]) throw new Error("Exchange event local revision conflict");
   return id;
 }
 

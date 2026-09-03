@@ -328,6 +328,8 @@ export interface CalendarEvent {
   readonly recurrenceId?: ISODateTime;
   readonly recurrenceException?: boolean;
   readonly providerData?: Readonly<Record<string, unknown>>;
+  /** Local version marker used by API/MCP compare-and-swap writes. */
+  readonly updatedAt?: ISODateTime;
 }
 
 export type CalendarRecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly";
@@ -371,6 +373,8 @@ export interface UpsertCalendarEventInput {
   readonly recurrenceSeriesId?: string;
   readonly recurrenceId?: ISODateTime;
   readonly recurrenceScope?: CalendarRecurrenceEditScope;
+  /** Optional local compare-and-swap revision for trusted server-side callers. */
+  readonly expectedUpdatedAt?: ISODateTime;
 }
 
 export interface CalendarProvider {

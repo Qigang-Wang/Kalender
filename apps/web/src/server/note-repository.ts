@@ -310,7 +310,7 @@ export async function getStoredNote(noteId: string): Promise<StoredNote | undefi
   return (await attachLinkedTasks(result.rows))[0];
 }
 
-export async function saveStoredNote(input: SaveNoteInput): Promise<StoredNote> {
+export async function saveStoredNote(input: SaveNoteInput, options: { readonly expectedUpdatedAt?: string } = {}): Promise<StoredNote> {
   const database = await getDatabase();
   const scope = await getUserScope();
   const id = input.id ?? randomUUID();
@@ -323,15 +323,23 @@ export async function saveStoredNote(input: SaveNoteInput): Promise<StoredNote> 
     await ensureProjectAccess(input.projectId, "editor");
   }
   await database.transaction(async (transaction) => {
-    await transaction.query(
+    const written = await transaction.query<{ id: string }>(
       `INSERT INTO notes (id, user_id, project_id, title, content, note_type, pinned, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,now())
        ON CONFLICT (id) DO UPDATE SET
          project_id = EXCLUDED.project_id, title = EXCLUDED.title,
          content = EXCLUDED.content, note_type = EXCLUDED.note_type,
-         pinned = EXCLUDED.pinned, updated_at = now()`,
-      [id, scope.valueOrNull(), input.projectId ?? null, input.title, input.content, input.noteType, input.pinned],
+         pinned = EXCLUDED.pinned,
+         updated_at = GREATEST(clock_timestamp(), notes.updated_at + interval '1 millisecond')
+       WHERE ($8::timestamptz IS NULL OR date_trunc('milliseconds', notes.updated_at) = date_trunc('milliseconds', $8::timestamptz))
+       RETURNING id`,
+      [id, scope.valueOrNull(), input.projectId ?? null, input.title, input.content, input.noteType, input.pinned, options.expectedUpdatedAt ?? null],
     );
+    if (!written.rows[0]) {
+      const exists = await transaction.query<{ id: string }>(`SELECT id FROM notes WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`, scope.active ? [id, scope.userId] : [id]);
+      if (!exists.rows[0]) throw new NoteRepositoryError("NOTE_NOT_FOUND", "笔记不存在", 404);
+      throw new NoteRepositoryError("VERSION_CONFLICT", "笔记已被更新，请读取最新版本后重试", 409);
+    }
     await transaction.query(
       `DELETE FROM entity_links WHERE source_kind = 'project' AND target_kind = 'note' AND target_id = $1 AND relation = 'project-item'${scope.active ? " AND user_id = $2" : ""}`,
       scope.active ? [id, scope.userId] : [id],
@@ -350,10 +358,21 @@ export async function saveStoredNote(input: SaveNoteInput): Promise<StoredNote> 
   return saved;
 }
 
-export async function deleteStoredNote(noteId: string): Promise<boolean> {
+export async function deleteStoredNote(noteId: string, expectedUpdatedAt?: string): Promise<boolean> {
   const database = await getDatabase();
   const scope = await getUserScope();
   return database.transaction(async (transaction) => {
+    const result = await transaction.query<{ id: string }>(
+      `DELETE FROM notes WHERE id = $1
+         AND ($2::timestamptz IS NULL OR date_trunc('milliseconds', notes.updated_at) = date_trunc('milliseconds', $2::timestamptz))${scope.active ? " AND user_id = $3" : ""}
+       RETURNING id`,
+      scope.active ? [noteId, expectedUpdatedAt ?? null, scope.userId] : [noteId, expectedUpdatedAt ?? null],
+    );
+    if (!result.rows[0]) {
+      const exists = await transaction.query<{ id: string }>(`SELECT id FROM notes WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`, scope.active ? [noteId, scope.userId] : [noteId]);
+      if (!exists.rows[0]) throw new NoteRepositoryError("NOTE_NOT_FOUND", "笔记不存在", 404);
+      throw new NoteRepositoryError("VERSION_CONFLICT", "笔记已被更新，请读取最新版本后重试", 409);
+    }
     await transaction.query(
       `DELETE FROM task_source_references r USING tasks t WHERE r.task_id = t.id AND r.source_kind = 'note' AND r.source_id = $1${scope.active ? " AND t.user_id = $2" : ""}`,
       scope.active ? [noteId, scope.userId] : [noteId],
@@ -362,11 +381,7 @@ export async function deleteStoredNote(noteId: string): Promise<boolean> {
       `DELETE FROM entity_links WHERE ((source_kind = 'note' AND source_id = $1) OR (target_kind = 'note' AND target_id = $1))${scope.active ? " AND user_id = $2" : ""}`,
       scope.active ? [noteId, scope.userId] : [noteId],
     );
-    const result = await transaction.query<{ id: string }>(
-      `DELETE FROM notes WHERE id = $1${scope.active ? " AND user_id = $2" : ""} RETURNING id`,
-      scope.active ? [noteId, scope.userId] : [noteId],
-    );
-    return Boolean(result.rows[0]);
+    return true;
   });
 }
 

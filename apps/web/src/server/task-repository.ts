@@ -210,7 +210,7 @@ export async function getStoredTask(taskId: string): Promise<StoredTask | undefi
   return (await attachSources(result.rows))[0];
 }
 
-export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> {
+export async function saveStoredTask(input: SaveTaskInput, options: { readonly expectedUpdatedAt?: string } = {}): Promise<StoredTask> {
   const database = await getDatabase();
   const scope = await getUserScope();
   const id = input.id ?? randomUUID();
@@ -247,7 +247,7 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
   }
 
   await database.transaction(async (transaction) => {
-    await transaction.query(
+    const written = await transaction.query<{ id: string }>(
       `INSERT INTO tasks (
          id, user_id, title, notes, status, important, urgency_mode, due_at,
          estimated_minutes, project_id, project_name, area_name, assignee_user_id, plan_item_id,
@@ -267,7 +267,9 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
          assignee_user_id = EXCLUDED.assignee_user_id,
          plan_item_id = EXCLUDED.plan_item_id,
          completed_at = EXCLUDED.completed_at,
-         updated_at = now()`,
+         updated_at = GREATEST(clock_timestamp(), tasks.updated_at + interval '1 millisecond')
+       WHERE ($16::timestamptz IS NULL OR date_trunc('milliseconds', tasks.updated_at) = date_trunc('milliseconds', $16::timestamptz))
+       RETURNING id`,
       [
         id,
         scope.valueOrNull(),
@@ -284,8 +286,17 @@ export async function saveStoredTask(input: SaveTaskInput): Promise<StoredTask> 
         input.assigneeUserId ?? null,
         planItemId,
         input.status === "done" ? new Date().toISOString() : null,
+        options.expectedUpdatedAt ?? null,
       ],
     );
+    if (!written.rows[0]) {
+      const exists = await transaction.query<{ id: string }>(
+        `SELECT id FROM tasks WHERE id = $1${scope.active ? " AND user_id = $2" : ""} LIMIT 1`,
+        scope.active ? [id, scope.userId] : [id],
+      );
+      if (!exists.rows[0]) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404);
+      throw new TaskRepositoryError("VERSION_CONFLICT", "任务已被更新，请读取最新版本后重试", 409);
+    }
     await transaction.query(
       `DELETE FROM entity_links WHERE source_kind = 'project' AND target_kind = 'task' AND target_id = $1 AND relation = 'project-item'${scope.active ? " AND user_id = $2" : ""}`,
       scope.active ? [id, scope.userId] : [id],

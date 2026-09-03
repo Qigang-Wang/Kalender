@@ -69,6 +69,10 @@ interface PlanScheduleRow {
 }
 
 export async function listStoredProjectPlanItems(projectId: string): Promise<readonly StoredProjectPlanItem[]> {
+  // Authorize before issuing either query: returning an empty list for an
+  // inaccessible project is still an information leak (and used to bypass the
+  // project collaboration boundary altogether).
+  await ensureProjectAccess(projectId, "viewer");
   const database = await getDatabase();
   const [items, dependencies] = await Promise.all([
     database.query<PlanItemRow>(
@@ -96,7 +100,7 @@ export async function listStoredProjectPlanItems(projectId: string): Promise<rea
   return items.rows.map((row) => mapPlanItem(row, dependencyIdsByItem.get(row.id) ?? []));
 }
 
-export async function saveStoredProjectPlanItem(input: SaveProjectPlanItemInput): Promise<StoredProjectPlanItem> {
+export async function saveStoredProjectPlanItem(input: SaveProjectPlanItemInput, options: { readonly expectedUpdatedAt?: string } = {}): Promise<StoredProjectPlanItem> {
   const database = await getDatabase();
   const project = await getStoredProject(input.projectId);
   if (!project) throw new ProjectPlanRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
@@ -181,7 +185,7 @@ export async function saveStoredProjectPlanItem(input: SaveProjectPlanItemInput)
   const autoSchedule = input.autoSchedule ?? current?.auto_schedule ?? false;
 
   await database.transaction(async (transaction) => {
-    await transaction.query(
+    const written = await transaction.query<{ id: string }>(
       `INSERT INTO project_plan_items (
          id, project_id, phase_id, title, status, planned_start, planned_end,
          sort_order, duration_workdays, auto_schedule, updated_at
@@ -195,10 +199,17 @@ export async function saveStoredProjectPlanItem(input: SaveProjectPlanItemInput)
          sort_order = EXCLUDED.sort_order,
          duration_workdays = EXCLUDED.duration_workdays,
          auto_schedule = EXCLUDED.auto_schedule,
-         updated_at = now()
-       WHERE project_plan_items.project_id = EXCLUDED.project_id`,
-      [id, input.projectId, phaseId, title, status, plannedStart ?? null, plannedEnd ?? null, sortOrder, durationWorkdays, autoSchedule],
+         updated_at = GREATEST(clock_timestamp(), project_plan_items.updated_at + interval '1 millisecond')
+       WHERE project_plan_items.project_id = EXCLUDED.project_id
+         AND ($11::timestamptz IS NULL OR date_trunc('milliseconds', project_plan_items.updated_at) = date_trunc('milliseconds', $11::timestamptz))
+       RETURNING id`,
+      [id, input.projectId, phaseId, title, status, plannedStart ?? null, plannedEnd ?? null, sortOrder, durationWorkdays, autoSchedule, options.expectedUpdatedAt ?? null],
     );
+    if (!written.rows[0]) {
+      const exists = await transaction.query<{ id: string }>("SELECT id FROM project_plan_items WHERE id = $1 AND project_id = $2 LIMIT 1", [id, input.projectId]);
+      if (!exists.rows[0]) throw new ProjectPlanRepositoryError("PLAN_ITEM_NOT_FOUND", "项目计划项不存在", 404);
+      throw new ProjectPlanRepositoryError("VERSION_CONFLICT", "计划项已被更新，请读取最新版本后重试", 409);
+    }
     await transaction.query(
       "DELETE FROM project_plan_item_dependencies WHERE project_id = $1 AND successor_plan_item_id = $2",
       [input.projectId, id],
@@ -219,7 +230,7 @@ export async function saveStoredProjectPlanItem(input: SaveProjectPlanItemInput)
   return saved;
 }
 
-export async function deleteStoredProjectPlanItem(projectId: string, planItemId: string): Promise<boolean> {
+export async function deleteStoredProjectPlanItem(projectId: string, planItemId: string, expectedUpdatedAt?: string): Promise<boolean> {
   const database = await getDatabase();
   const project = await getStoredProject(projectId);
   if (!project) throw new ProjectPlanRepositoryError("PROJECT_NOT_FOUND", "项目不存在", 404);
@@ -227,11 +238,18 @@ export async function deleteStoredProjectPlanItem(projectId: string, planItemId:
   if (project.status === "archived") {
     throw new ProjectPlanRepositoryError("PROJECT_ARCHIVED", "已归档项目不能删除计划项", 409);
   }
-  const result = await database.query(
-    "DELETE FROM project_plan_items WHERE id = $1 AND project_id = $2",
-    [planItemId, projectId],
-  );
-  return (result.affectedRows ?? 0) > 0;
+  return database.transaction(async (transaction) => {
+    const result = await transaction.query<{ id: string }>(
+      `DELETE FROM project_plan_items WHERE id = $1 AND project_id = $2
+         AND ($3::timestamptz IS NULL OR date_trunc('milliseconds', project_plan_items.updated_at) = date_trunc('milliseconds', $3::timestamptz))
+       RETURNING id`,
+      [planItemId, projectId, expectedUpdatedAt ?? null],
+    );
+    if (result.rows[0]) return true;
+    const exists = await transaction.query<{ id: string }>("SELECT id FROM project_plan_items WHERE id = $1 AND project_id = $2 LIMIT 1", [planItemId, projectId]);
+    if (!exists.rows[0]) throw new ProjectPlanRepositoryError("PLAN_ITEM_NOT_FOUND", "项目计划项不存在", 404);
+    throw new ProjectPlanRepositoryError("VERSION_CONFLICT", "计划项已被更新，请读取最新版本后重试", 409);
+  });
 }
 
 export async function reorderStoredProjectPlanItem(
@@ -291,7 +309,7 @@ async function autoScheduleProjectPlan(
   const [items, dependencies] = await Promise.all([
     transaction.query<PlanScheduleRow>(
       `SELECT id, planned_start, planned_end, duration_workdays, auto_schedule
-         FROM project_plan_items WHERE project_id = $1`,
+         FROM project_plan_items WHERE project_id = $1 FOR UPDATE`,
       [projectId],
     ),
     transaction.query<PlanDependencyRow>(

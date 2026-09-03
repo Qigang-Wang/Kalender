@@ -32,6 +32,7 @@ interface ExchangeEventTargetRow {
   is_meeting: boolean;
   is_recurring: boolean;
   availability: NonNullable<CalendarEvent["availability"]>;
+  updated_at: string | Date;
 }
 
 export async function upsertCalendarEvent(input: UpsertCalendarEventInput): Promise<CalendarEvent> {
@@ -53,11 +54,12 @@ export async function upsertCalendarEvent(input: UpsertCalendarEventInput): Prom
     let remoteEvent;
     if (input.id) {
       const existing = await getExchangeEventTarget(input.id, input.calendarId);
+      assertExchangeRevision(existing, input.expectedUpdatedAt);
       assertSafeExchangeMutation(existing);
       remoteEvent = await updateExchangeCalendarEvent(credential, {
         itemId: existing.provider_item_id!,
         changeKey: existing.provider_change_key ?? undefined,
-      }, { ...input, availability: existing.availability }, controller.signal);
+      }, { ...input, availability: input.availability ?? existing.availability }, controller.signal);
     } else {
       const folderId = target.provider_calendar_id.startsWith(`${target.account_id}:`)
         ? target.provider_calendar_id.slice(target.account_id.length + 1)
@@ -71,6 +73,7 @@ export async function upsertCalendarEvent(input: UpsertCalendarEventInput): Prom
       input.id,
       input.descriptionContent,
       input.reminderMinutesBefore,
+      input.expectedUpdatedAt,
     );
     const saved = await getStoredCalendarEvent(eventId);
     if (!saved) throw new CalendarRepositoryError("EVENT_SAVE_FAILED", "RWTH 已保存日程，但本地索引更新失败", 500);
@@ -88,20 +91,25 @@ export async function deleteCalendarEvent(
     readonly recurrenceId: string;
     readonly scope: CalendarRecurrenceEditScope;
   },
+  expectedUpdatedAt?: string,
 ): Promise<void> {
   const target = await getCalendarWriteTarget(calendarId);
   if (target.provider_id === "local-calendar") {
-    await deleteStoredCalendarEvent(calendarId, eventId, recurrence ? {
-      recurrenceSeriesId: recurrence.seriesId,
-      recurrenceId: recurrence.recurrenceId,
-      recurrenceScope: recurrence.scope,
-    } : undefined);
+    await deleteStoredCalendarEvent(calendarId, eventId, {
+      ...(recurrence ? {
+        recurrenceSeriesId: recurrence.seriesId,
+        recurrenceId: recurrence.recurrenceId,
+        recurrenceScope: recurrence.scope,
+      } : {}),
+      expectedUpdatedAt,
+    });
     return;
   }
   if (target.provider_id !== "exchange" || !target.account_id) {
     throw new CalendarRepositoryError("CALENDAR_READ_ONLY", "这个远程日历暂不支持删除", 409);
   }
   const existing = await getExchangeEventTarget(eventId, calendarId);
+  assertExchangeRevision(existing, expectedUpdatedAt);
   assertSafeExchangeMutation(existing);
   const credential = await loadExchangeCalendarCredential(target.account_id);
   const controller = new AbortController();
@@ -111,7 +119,7 @@ export async function deleteCalendarEvent(
       itemId: existing.provider_item_id!,
       changeKey: existing.provider_change_key ?? undefined,
     }, controller.signal);
-    await localCalendarProvider.deleteEvent(localCalendarContext, calendarId, eventId);
+    await deleteStoredCalendarEvent(calendarId, eventId, { expectedUpdatedAt });
   } finally {
     clearTimeout(timeout);
   }
@@ -133,7 +141,7 @@ async function getCalendarWriteTarget(calendarId: string): Promise<CalendarWrite
 async function getExchangeEventTarget(eventId: string, calendarId: string): Promise<ExchangeEventTargetRow> {
   const database = await getDatabase();
   const result = await database.query<ExchangeEventTargetRow>(
-    `SELECT provider_item_id, provider_change_key, is_meeting, is_recurring, availability
+    `SELECT provider_item_id, provider_change_key, is_meeting, is_recurring, availability, updated_at
        FROM calendar_events
       WHERE id = $1 AND calendar_id = $2
       LIMIT 1`,
@@ -142,6 +150,13 @@ async function getExchangeEventTarget(eventId: string, calendarId: string): Prom
   const event = result.rows[0];
   if (!event) throw new CalendarRepositoryError("EVENT_NOT_FOUND", "日程不存在", 404);
   return event;
+}
+
+function assertExchangeRevision(event: ExchangeEventTargetRow, expectedUpdatedAt: string | undefined): void {
+  const current = event.updated_at instanceof Date ? event.updated_at.toISOString() : new Date(event.updated_at).toISOString();
+  if (!expectedUpdatedAt || current !== expectedUpdatedAt) {
+    throw new CalendarRepositoryError("VERSION_CONFLICT", "日程已被更新，请读取最新版本后重试", 409);
+  }
 }
 
 function assertSafeExchangeMutation(event: ExchangeEventTargetRow): void {

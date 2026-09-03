@@ -39,10 +39,12 @@ async function main() {
       allDay: false,
       reminderMinutesBefore: 15,
       attendees: [],
+      availability: "working_elsewhere",
       idempotencyKey: "calendar-test-create",
     });
     assert(created.calendarId === calendarId, "created event retains calendar identity");
     assert(created.reminderMinutesBefore === 15, "event reminder lead time is persisted");
+    assert(created.availability === "working_elsewhere", "event availability is persisted on local insert");
     assert(
       created.descriptionContent && noteContentToPlainText(created.descriptionContent) === "会议议程\n准备材料",
       "calendar rich description is persisted as structured content",
@@ -85,9 +87,11 @@ async function main() {
       end: created.end,
       timeZone: "Europe/Berlin",
       reminderMinutesBefore: 30,
+      availability: "free",
     });
     assert(updated.title === "Updated calendar event", "event can be edited");
     assert(updated.reminderMinutesBefore === 30, "event reminder can be changed independently");
+    assert(updated.availability === "free", "event availability is persisted on local update");
 
     const recurring = await localCalendarProvider.upsertEvent(localCalendarContext, {
       calendarId,
@@ -117,11 +121,13 @@ async function main() {
       recurrenceSeriesId: secondOccurrence.recurrenceSeriesId,
       recurrenceId: secondOccurrence.recurrenceId,
       recurrenceScope: "occurrence",
+      availability: "oof",
     });
     assert(
       movedOccurrence.recurrenceException && new Date(movedOccurrence.start).toISOString() === "2026-07-23T09:30:00.000Z",
       "one occurrence can be moved independently",
     );
+    assert(movedOccurrence.availability === "oof", "recurrence occurrence preserves an explicit availability");
 
     const thirdOccurrence = recurringOccurrences[2]!;
     await deleteStoredCalendarEvent(calendarId, thirdOccurrence.id, {
