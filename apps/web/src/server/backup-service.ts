@@ -1401,14 +1401,14 @@ async function inspectBackupFile(filePath: string, password: string | undefined)
 
 async function verifyExtractedBackup(directory: string): Promise<void> {
   for (const file of ["database.dump", "mail-draft-attachments.tgz", "manifest.json", "SHA256SUMS"]) {
-    if (!await pathExists(path.join(directory, file))) throw new BackupError(`备份缺少 ${file}`, 400);
+    if (!await pathExists(path.join(/* turbopackIgnore: true */ directory, file))) throw new BackupError(`备份缺少 ${file}`, 400);
   }
-  const sums = (await readFile(path.join(directory, "SHA256SUMS"), "utf8")).trim().split(/\n+/);
+  const sums = (await readFile(path.join(/* turbopackIgnore: true */ directory, "SHA256SUMS"), "utf8")).trim().split(/\n+/);
   for (const line of sums) {
     const match = line.match(/^([a-f0-9]{64})\s+(.+)$/i);
     if (!match) throw new BackupError("备份校验文件格式无效", 400);
     const [, expected, file] = match;
-    const actual = await sha256File(path.join(directory, file));
+    const actual = await sha256File(path.join(/* turbopackIgnore: true */ directory, file));
     if (actual !== expected) throw new BackupError(`备份校验失败：${file}`, 400);
   }
 }
