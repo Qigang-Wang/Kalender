@@ -1506,7 +1506,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .calendar-reminder-select-trigger:hover, .calendar-reminder-select-trigger:focus-visible, .calendar-reminder-select-trigger[data-state="open"] { color: #fff; background: #29302c; box-shadow: none; }
 .calendar-reminder-select-trigger:focus-visible { outline: 2px solid #76a9d7; outline-offset: -2px; }
 .calendar-reminder-select-trigger > svg { width: 15px; height: 15px; color: #7d8781; }
-.calendar-reminder-select-content { z-index: 110; min-width: var(--radix-select-trigger-width); padding: 5px; color: #e6ebe7; background: #252a27; border: 1px solid #454c47; border-radius: 10px; box-shadow: 0 18px 44px rgb(0 0 0 / 42%); }
+.calendar-reminder-select-content { z-index: 110; min-width: max(172px, var(--radix-select-trigger-width)); padding: 5px; color: #e6ebe7; background: #252a27; border: 1px solid #454c47; border-radius: 10px; box-shadow: 0 18px 44px rgb(0 0 0 / 42%); }
 .calendar-reminder-select-item { min-height: 36px; padding: 0 34px 0 10px; color: #dce3de; cursor: pointer; border-radius: 7px; font-size: 12px; font-weight: 560; }
 .calendar-reminder-select-item[data-highlighted] { color: #f5f8f6; background: #323a35; }
 .calendar-reminder-select-item[data-state="checked"] { color: #d9edff; background: #21384b; }
@@ -5123,6 +5123,38 @@ html[data-qgw-scheme="light"] .calendar-calendar-select-item[data-state="checked
   background: color-mix(in srgb, var(--blue-deep) 74%, white);
 }
 html[data-qgw-scheme="light"] .calendar-calendar-select-item[data-state="checked"][data-highlighted] {
+  background: color-mix(in srgb, var(--blue-deep) 60%, white);
+}
+html[data-qgw-scheme="light"] .calendar-reminder-select-trigger {
+  color: var(--muted);
+}
+html[data-qgw-scheme="light"] .calendar-reminder-select-trigger:hover,
+html[data-qgw-scheme="light"] .calendar-reminder-select-trigger:focus-visible,
+html[data-qgw-scheme="light"] .calendar-reminder-select-trigger[data-state="open"] {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-2) 76%, white);
+}
+html[data-qgw-scheme="light"] .calendar-reminder-select-trigger > svg {
+  color: var(--muted);
+}
+html[data-qgw-scheme="light"] .calendar-reminder-select-content {
+  color: var(--text);
+  background: #ffffff;
+  border-color: color-mix(in srgb, var(--line) 92%, #9eabb5);
+  box-shadow: 0 16px 40px rgb(70 82 92 / 18%);
+}
+html[data-qgw-scheme="light"] .calendar-reminder-select-item {
+  color: var(--text);
+}
+html[data-qgw-scheme="light"] .calendar-reminder-select-item[data-highlighted] {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-2) 72%, white);
+}
+html[data-qgw-scheme="light"] .calendar-reminder-select-item[data-state="checked"] {
+  color: color-mix(in srgb, var(--blue) 54%, #102235);
+  background: color-mix(in srgb, var(--blue-deep) 74%, white);
+}
+html[data-qgw-scheme="light"] .calendar-reminder-select-item[data-state="checked"][data-highlighted] {
   background: color-mix(in srgb, var(--blue-deep) 60%, white);
 }
 html[data-qgw-scheme="light"] .calendar-calendar-select-item-content small {
