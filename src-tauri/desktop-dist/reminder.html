@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kalender 提醒</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+        --surface: rgba(249, 251, 255, .96);
+        --surface-strong: #ffffff;
+        --text: #172033;
+        --muted: #68748a;
+        --line: rgba(38, 61, 96, .13);
+        --accent: #4f82d7;
+        --accent-strong: #376fca;
+        --accent-soft: #e9f1ff;
+        --shadow: 0 18px 48px rgba(25, 44, 75, .23), 0 2px 8px rgba(25, 44, 75, .12);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --surface: rgba(31, 35, 44, .96);
+          --surface-strong: #292e39;
+          --text: #f3f6fb;
+          --muted: #aab4c5;
+          --line: rgba(255, 255, 255, .11);
+          --accent: #78a9f4;
+          --accent-strong: #91b9f6;
+          --accent-soft: rgba(88, 139, 220, .18);
+          --shadow: 0 18px 48px rgba(0, 0, 0, .45), 0 2px 8px rgba(0, 0, 0, .28);
+        }
+      }
+      * { box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+      body { display: grid; padding: 10px; place-items: stretch; }
+      main {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        padding: 16px;
+        color: var(--text);
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(22px) saturate(1.2);
+        opacity: 0;
+        transform: translateY(12px) scale(.985);
+        transition: opacity 180ms ease, transform 220ms cubic-bezier(.2, .8, .2, 1);
+      }
+      main.enter { opacity: 1; transform: none; }
+      header { display: flex; align-items: center; gap: 10px; min-height: 30px; }
+      .logo {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        flex: 0 0 auto;
+        color: #fff;
+        background: linear-gradient(145deg, #77a5e9, #477ccb);
+        border-radius: 8px;
+        box-shadow: inset 0 1px rgba(255,255,255,.32);
+        place-items: center;
+        font-size: 16px;
+      }
+      .brand { font-size: 13px; font-weight: 650; letter-spacing: .01em; }
+      .queue-count { display: none; padding: 3px 7px; color: var(--accent-strong); background: var(--accent-soft); border-radius: 999px; font-size: 11px; }
+      .queue-count.visible { display: inline-flex; }
+      .now { margin-left: auto; color: var(--muted); font-size: 11px; }
+      .close {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        margin-left: 2px;
+        padding: 0;
+        color: var(--muted);
+        background: transparent;
+        border: 0;
+        border-radius: 8px;
+        place-items: center;
+        font: inherit;
+        font-size: 20px;
+        cursor: pointer;
+      }
+      .close:hover { color: var(--text); background: var(--accent-soft); }
+      h1 { margin: 14px 0 6px; overflow: hidden; font-size: 18px; font-weight: 680; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+      .details { display: flex; min-height: 20px; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+      .time { color: var(--accent-strong); font-weight: 650; }
+      .separator { width: 3px; height: 3px; background: currentColor; border-radius: 50%; opacity: .6; }
+      .location { display: flex; min-width: 0; align-items: center; gap: 5px; }
+      .location span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 15px; }
+      button.action { height: 34px; padding: 0 13px; border: 1px solid var(--line); border-radius: 9px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+      button.secondary { color: var(--text); background: var(--surface-strong); }
+      button.primary { color: #fff; background: var(--accent-strong); border-color: transparent; }
+      button.action:hover { filter: brightness(.97); }
+      button.action:focus-visible, .close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      button[hidden] { display: none; }
+      @media (prefers-reduced-motion: reduce) { main { transition: none; } }
+    </style>
+  </head>
+  <body>
+    <main id="card" role="alertdialog" aria-labelledby="title" aria-describedby="details">
+      <header>
+        <span class="logo" aria-hidden="true">✦</span>
+        <span class="brand">Kalender</span>
+        <span id="queue-count" class="queue-count"></span>
+        <span class="now">现在</span>
+        <button id="close" class="close" type="button" aria-label="关闭提醒">×</button>
+      </header>
+      <h1 id="title"></h1>
+      <div id="details" class="details">
+        <span id="time" class="time"></span>
+        <span id="separator" class="separator"></span>
+        <span id="location" class="location"><span aria-hidden="true">⌖</span><span id="location-text"></span></span>
+      </div>
+      <footer>
+        <button id="snooze" class="action secondary" type="button">稍后 10 分钟</button>
+        <button id="open" class="action primary" type="button">打开日程</button>
+      </footer>
+    </main>
+    <script>
+      const invoke = window.__TAURI__.core.invoke;
+      const card = document.querySelector("#card");
+      const title = document.querySelector("#title");
+      const time = document.querySelector("#time");
+      const separator = document.querySelector("#separator");
+      const locationRow = document.querySelector("#location");
+      const locationText = document.querySelector("#location-text");
+      const queueCount = document.querySelector("#queue-count");
+      const snooze = document.querySelector("#snooze");
+      let queue = [];
+      let current;
+      let dismissTimer;
+
+      function key(item) { return `${item.id}:${item.startAt}`; }
+      function add(items) {
+        const known = new Set([current, ...queue].filter(Boolean).map(key));
+        for (const item of Array.isArray(items) ? items : []) {
+          if (item && !known.has(key(item))) {
+            known.add(key(item));
+            queue.push(item);
+          }
+        }
+        if (!current) showNext();
+        updateCount();
+      }
+      function updateCount() {
+        const count = queue.length + (current ? 1 : 0);
+        queueCount.textContent = `${count} 项`;
+        queueCount.classList.toggle("visible", count > 1);
+      }
+      function relativeTime(item) {
+        if (item.allDay) return "全天日程";
+        const minutes = Math.max(0, Math.round((item.startAt - Date.now()) / 60000));
+        if (minutes < 1) return "现在开始";
+        if (minutes < 60) return `${minutes} 分钟后`;
+        const hours = Math.round(minutes / 60);
+        return hours < 24 ? `${hours} 小时后` : `${Math.round(hours / 24)} 天后`;
+      }
+      function clockTime(timestamp) {
+        return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(timestamp);
+      }
+      function showNext() {
+        window.clearTimeout(dismissTimer);
+        current = queue.shift();
+        if (!current) {
+          card.classList.remove("enter");
+          void invoke("close_reminder");
+          return;
+        }
+        title.textContent = current.title;
+        time.textContent = current.message || `${relativeTime(current)} · ${clockTime(current.startAt)}`;
+        const hasLocation = Boolean(current.location);
+        separator.hidden = !hasLocation;
+        locationRow.hidden = !hasLocation;
+        locationText.textContent = current.location || "";
+        snooze.hidden = !current.canSnooze;
+        updateCount();
+        card.classList.remove("enter");
+        requestAnimationFrame(() => requestAnimationFrame(() => card.classList.add("enter")));
+        scheduleDismiss();
+      }
+      function scheduleDismiss() {
+        window.clearTimeout(dismissTimer);
+        dismissTimer = window.setTimeout(showNext, 12000);
+      }
+
+      document.querySelector("#close").addEventListener("click", showNext);
+      document.querySelector("#open").addEventListener("click", () => {
+        if (!current) return;
+        const route = current.route;
+        current = undefined;
+        queue = [];
+        window.clearTimeout(dismissTimer);
+        void invoke("open_reminder", { route });
+      });
+      snooze.addEventListener("click", async () => {
+        if (!current) return;
+        snooze.disabled = true;
+        try {
+          await invoke("snooze_reminder", { id: current.id, startAt: current.startAt });
+          showNext();
+        } catch (error) {
+          time.textContent = String(error);
+          scheduleDismiss();
+        } finally {
+          snooze.disabled = false;
+        }
+      });
+      card.addEventListener("mouseenter", () => window.clearTimeout(dismissTimer));
+      card.addEventListener("mouseleave", scheduleDismiss);
+      window.addEventListener("kalender:reminders", (event) => add(event.detail));
+      add(window.__KALENDER_REMINDERS__ || []);
+    </script>
+  </body>
+</html>

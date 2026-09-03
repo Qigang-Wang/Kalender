@@ -64,6 +64,7 @@ export async function searchWorkspace(rawQuery: string, limitPerKindOrOptions: n
       `SELECT id, title, notes, project_name, status, updated_at FROM tasks
         WHERE (to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(notes, '') || ' ' || coalesce(project_name, '')) @@ plainto_tsquery('simple', $1)
            OR title ILIKE $2 OR notes ILIKE $2 OR project_name ILIKE $2)
+          AND NOT is_plan_item_mirror
           ${scope.active ? "AND user_id = $4" : ""}
           ${options.projectId ? `AND project_id = $${scope.active ? 5 : 4}` : ""}
           ${options.status ? `AND status = $${(scope.active ? 5 : 4) + (options.projectId ? 1 : 0)}` : ""}

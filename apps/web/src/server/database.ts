@@ -1956,6 +1956,15 @@ const MCP_ACTION_EVENT_RETENTION_INDEX_SQL = String.raw`
     WHERE action LIKE 'dayline\_%' ESCAPE '\';
 `;
 
+const LEGACY_PLAN_ITEM_MIRROR_SCHEMA_SQL = String.raw`
+  ALTER TABLE tasks
+    ADD COLUMN IF NOT EXISTS is_plan_item_mirror boolean NOT NULL DEFAULT false;
+
+  UPDATE tasks
+     SET is_plan_item_mirror = true
+   WHERE plan_item_id = id;
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1998,6 +2007,7 @@ export const DATABASE_MIGRATIONS = [
   { version: 39, name: "mcp-api-token-lifecycle", sql: MCP_API_TOKEN_SCHEMA_SQL },
   { version: 40, name: "mcp-token-rate-bucket-cleanup-indexes", sql: MCP_TOKEN_RATE_BUCKET_CLEANUP_INDEX_SQL },
   { version: 41, name: "mcp-action-event-retention-index", sql: MCP_ACTION_EVENT_RETENTION_INDEX_SQL },
+  { version: 42, name: "hide-legacy-plan-item-task-mirrors", sql: LEGACY_PLAN_ITEM_MIRROR_SCHEMA_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

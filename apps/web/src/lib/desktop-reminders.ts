@@ -3,6 +3,7 @@ import type { DesktopReminderSettings } from "./desktop-bridge";
 export interface CalendarReminderEvent {
   readonly id: string;
   readonly title: string;
+  readonly location?: string | null;
   readonly start: string;
   readonly end: string;
   readonly allDay: boolean;
@@ -13,6 +14,7 @@ export interface CalendarReminderEvent {
 export interface NativeReminderInput {
   readonly id: string;
   readonly title: string;
+  readonly location?: string;
   readonly startAt: number;
   readonly remindAt: number;
   readonly allDay: boolean;
@@ -97,6 +99,7 @@ function toNativeReminder(event: CalendarReminderEvent, settings: DesktopReminde
   return {
     id: event.id,
     title: event.title,
+    location: event.location?.trim() || undefined,
     startAt: start.getTime(),
     remindAt,
     allDay: event.allDay,

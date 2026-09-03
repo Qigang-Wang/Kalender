@@ -241,7 +241,7 @@ export async function deleteStoredProject(projectId: string): Promise<boolean> {
   const contents = await database.query<{ note_count: number | string; task_count: number | string }>(
     `SELECT
        (SELECT count(*)::int FROM notes WHERE project_id = $1${scope.active ? " AND user_id = $2" : ""}) AS note_count,
-       (SELECT count(*)::int FROM tasks WHERE project_id = $1${scope.active ? " AND user_id = $2" : ""}) AS task_count`,
+       (SELECT count(*)::int FROM tasks WHERE project_id = $1 AND NOT is_plan_item_mirror${scope.active ? " AND user_id = $2" : ""}) AS task_count`,
     scope.active ? [projectId, scope.userId] : [projectId],
   );
   if (Number(contents.rows[0]?.note_count ?? 0) > 0 || Number(contents.rows[0]?.task_count ?? 0) > 0) {

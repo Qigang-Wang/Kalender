@@ -12,7 +12,7 @@ const events: CalendarReminderEvent[] = [
   { id: "cancelled", title: "已取消", start: at(4, 15), end: at(4, 16), allDay: false, status: "cancelled" },
   { id: "future", title: "后续日程", start: at(5, 9), end: at(5, 10), allDay: false, status: "confirmed" },
   { id: "silent", title: "不提醒", start: at(5, 10), end: at(5, 11), allDay: false, status: "confirmed", reminderMinutesBefore: 0 },
-  { id: "custom", title: "提前一天", start: at(6, 9), end: at(6, 10), allDay: false, status: "confirmed", reminderMinutesBefore: 1440 },
+  { id: "custom", title: "提前一天", location: "Meeting room", start: at(6, 9), end: at(6, 10), allDay: false, status: "confirmed", reminderMinutesBefore: 1440 },
   { id: "invalid", title: "无效日程", start: "invalid", end: at(5, 12), allDay: false, status: "confirmed" },
 ];
 
@@ -32,6 +32,7 @@ assert.equal(
   new Date(at(5, 9)).getTime(),
   "event-specific reminder lead time overrides the desktop default",
 );
+assert.equal(payload.reminders.find((reminder) => reminder.id === "custom")?.location, "Meeting room", "location is available to the custom reminder window");
 assert(!payload.reminders.some((reminder) => reminder.id === "silent"), "events set to no reminder stay out of the native queue");
 
 console.log("Desktop calendar reminder tests passed");

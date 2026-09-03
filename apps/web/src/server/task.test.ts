@@ -33,6 +33,11 @@ async function main() {
     durationWorkdays: 5,
     dependencyIds: [],
   });
+  await database.query(
+    `INSERT INTO tasks (id, title, status, project_id, plan_item_id, is_plan_item_mirror)
+     VALUES ($1, $2, 'next', $3, $1, true)`,
+    [planItem.id, planItem.title, project.id],
+  );
 
   const input = parseTaskInput({
       title: " Confirm delivery time ",
@@ -87,6 +92,8 @@ async function main() {
 
   const listed = await repository.listStoredTasks();
   assert(listed.length === 1 && listed[0]?.id === created.id, "open task is listed");
+  const planWithActions = (await planRepository.listStoredProjectPlanItems(project.id)).find((item) => item.id === planItem.id);
+  assert(planWithActions?.linkedTaskCount === 1, "legacy plan-item mirrors are not counted as linked actions");
 
   const completed = await repository.saveStoredTask({ ...input, id: created.id, status: "done" });
   assert(Boolean(completed.completedAt), "completion timestamp is recorded");
@@ -148,6 +155,7 @@ async function main() {
   const tasks = await repository.listStoredTasks(true);
   assert(tasks[0] && await repository.deleteStoredTask(tasks[0].id), "task can be deleted");
   assert((await repository.listStoredTasks(true)).length === 0, "deleted task is removed");
+  assert(await repository.deleteStoredTask(planItem.id), "hidden legacy plan-item mirror can be cleaned up explicitly");
   assert(await noteRepository.deleteStoredProject(project.id), "an empty project can be deleted after its tasks are removed");
   console.log("Task repository tests passed");
   await database.close();

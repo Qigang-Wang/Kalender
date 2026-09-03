@@ -21,6 +21,7 @@ export function DesktopReminderSettingsPanel() {
   const [draft, setDraft] = useState<DesktopReminderSettings>(DEFAULT_DESKTOP_REMINDER_SETTINGS);
   const [status, setStatus] = useState<DesktopStatus>();
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [feedback, setFeedback] = useState("");
 
   useEffect(() => {
@@ -61,6 +62,19 @@ export function DesktopReminderSettingsPanel() {
     }
   };
 
+  const sendTestNotification = async () => {
+    setTesting(true);
+    setFeedback("");
+    try {
+      await invokeDesktop<void>("send_test_notification");
+      setFeedback("测试通知已发送");
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "无法发送测试通知");
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <section className="desktop-reminder-settings panel" aria-labelledby="desktop-reminder-settings-title">
       <div className="settings-section-heading">
@@ -96,6 +110,7 @@ export function DesktopReminderSettingsPanel() {
 
       <footer className="sync-settings-actions">
         <span>{feedback || desktopStatusText(status, desktopAvailable)}</span>
+        <button type="button" className="secondary-button" disabled={!desktopAvailable || testing} onClick={() => void sendTestNotification()}>{testing ? "发送中…" : "发送测试通知"}</button>
         <button type="button" className="primary-button" disabled={!desktopAvailable || saving} onClick={() => void save()}>{saving ? "保存中…" : "保存设置"}</button>
       </footer>
     </section>

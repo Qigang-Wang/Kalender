@@ -1,4 +1,11 @@
-use std::{collections::HashMap, fs, path::PathBuf, sync::Mutex, thread, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::PathBuf,
+    sync::Mutex,
+    thread,
+    time::Duration,
+};
 
 #[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,7 +32,7 @@ use tauri::{
     image::Image,
     menu::{CheckMenuItem, IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, LogicalSize, Manager, Monitor, State, WebviewUrl, WebviewWindow,
+    AppHandle, LogicalSize, Manager, Monitor, PhysicalPosition, State, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt;
@@ -39,6 +46,11 @@ const SERVER_CONNECTION_TIMEOUT: Duration = Duration::from_secs(3);
 const DESKTOP_WINDOW_GUARD_INTERVAL: Duration = Duration::from_millis(100);
 const DEFAULT_SERVER_URL: &str = "http://localhost:3000/";
 const MAX_SERVER_URL_LENGTH: usize = 2_048;
+const REMINDER_WINDOW_LABEL: &str = "reminder";
+const REMINDER_SNOOZE_MINUTES: i64 = 10;
+
+#[cfg(target_os = "windows")]
+const WINDOWS_APP_ID: &str = "com.kalender.desktop";
 
 #[cfg(target_os = "windows")]
 static NATIVE_DESKTOP_GUARD_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -77,6 +89,7 @@ impl Default for DesktopSettings {
 struct ReminderInput {
     id: String,
     title: String,
+    location: Option<String>,
     start_at: i64,
     remind_at: i64,
     all_day: bool,
@@ -121,6 +134,8 @@ struct PersistedState {
     settings: DesktopSettings,
     #[serde(default)]
     reminders: Vec<ReminderItem>,
+    #[serde(default)]
+    snoozed_until: HashMap<String, i64>,
     pause_until: Option<i64>,
     #[serde(default)]
     summary: DesktopSummary,
@@ -152,6 +167,19 @@ struct ReminderSyncPayload {
     settings: DesktopSettings,
     reminders: Vec<ReminderInput>,
     summary: DesktopSummary,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReminderToast {
+    id: String,
+    title: String,
+    location: Option<String>,
+    start_at: i64,
+    all_day: bool,
+    route: String,
+    message: Option<String>,
+    can_snooze: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -252,6 +280,14 @@ fn sync_reminders(
         })
         .collect();
     state.reminders.sort_by_key(|item| item.reminder.remind_at);
+    let active_reminders = state
+        .reminders
+        .iter()
+        .map(ReminderItem::key)
+        .collect::<HashSet<_>>();
+    state
+        .snoozed_until
+        .retain(|key, _| active_reminders.contains(key));
     save_state(&runtime.state_path, &state)?;
     update_tray_tooltip(&app, &state);
     Ok(status_from_state(&state))
@@ -274,6 +310,70 @@ fn report_sync_error(
     save_state(&runtime.state_path, &state)?;
     update_tray_tooltip(&app, &state);
     Ok(status_from_state(&state))
+}
+
+#[tauri::command]
+fn send_test_notification(
+    app: AppHandle,
+    window: WebviewWindow,
+    runtime: State<'_, DesktopRuntime>,
+) -> Result<(), String> {
+    ensure_main_caller(&window, &runtime)?;
+    show_reminder_window(
+        &app,
+        vec![ReminderToast {
+            id: "kalender-test-notification".into(),
+            title: "Kalender 测试通知".into(),
+            location: None,
+            start_at: Utc::now().timestamp_millis(),
+            all_day: false,
+            route: "/settings?tab=desktop".into(),
+            message: Some("桌面提醒已正常连接。".into()),
+            can_snooze: false,
+        }],
+    )
+}
+
+#[tauri::command]
+fn close_reminder(window: WebviewWindow) -> Result<(), String> {
+    ensure_reminder_caller(&window)?;
+    window
+        .hide()
+        .map_err(|error| format!("无法关闭提醒：{error}"))
+}
+
+#[tauri::command]
+fn open_reminder(app: AppHandle, window: WebviewWindow, route: String) -> Result<(), String> {
+    ensure_reminder_caller(&window)?;
+    if !route.starts_with('/') || route.starts_with("//") {
+        return Err("提醒链接无效".to_string());
+    }
+    window
+        .hide()
+        .map_err(|error| format!("无法关闭提醒：{error}"))?;
+    open_route(&app, &route);
+    Ok(())
+}
+
+#[tauri::command]
+fn snooze_reminder(
+    app: AppHandle,
+    window: WebviewWindow,
+    runtime: State<'_, DesktopRuntime>,
+    id: String,
+    start_at: i64,
+) -> Result<(), String> {
+    ensure_reminder_caller(&window)?;
+    let mut state = runtime
+        .state
+        .lock()
+        .map_err(|_| "桌面提醒状态暂时不可用".to_string())?;
+    if !apply_reminder_snooze(&mut state, &id, start_at, Utc::now().timestamp_millis()) {
+        return Err("日程提醒已经过期或已被删除".to_string());
+    }
+    save_state(&runtime.state_path, &state)?;
+    update_tray_tooltip(&app, &state);
+    Ok(())
 }
 
 #[tauri::command]
@@ -426,6 +526,10 @@ pub fn run() {
             update_desktop_settings,
             sync_reminders,
             report_sync_error,
+            send_test_notification,
+            close_reminder,
+            open_reminder,
+            snooze_reminder,
             get_server_config,
             save_server_config,
             close_server_config,
@@ -1154,8 +1258,7 @@ fn fit_desktop_window(window: &WebviewWindow) -> Result<(), String> {
 }
 
 fn show_desktop_mode_error(message: &str) {
-    let _ = Notification::new()
-        .appname("Kalender")
+    let _ = kalender_notification()
         .summary("无法切换桌面模式")
         .body(message)
         .show();
@@ -1177,19 +1280,29 @@ fn start_reminder_scheduler(app: AppHandle) {
             if state.settings.enabled && !paused {
                 let missed_window = state.settings.missed_reminder_window_minutes * 60_000;
                 let show_event_title = state.settings.show_event_title;
+                let snoozed_until = state.snoozed_until.clone();
+                let mut completed_snoozes = Vec::new();
                 for item in &mut state.reminders {
-                    if item.delivered_at.is_some() || item.reminder.remind_at > now {
+                    let key = item.key();
+                    let remind_at = snoozed_until
+                        .get(&key)
+                        .copied()
+                        .unwrap_or(item.reminder.remind_at);
+                    if item.delivered_at.is_some() || remind_at > now {
                         continue;
                     }
-                    let is_recent_enough =
-                        missed_window > 0 && now - item.reminder.remind_at <= missed_window;
-                    let is_on_time = now - item.reminder.remind_at
-                        <= REMINDER_CHECK_INTERVAL.as_millis() as i64 * 2;
+                    let is_recent_enough = missed_window > 0 && now - remind_at <= missed_window;
+                    let is_on_time =
+                        now - remind_at <= REMINDER_CHECK_INTERVAL.as_millis() as i64 * 2;
                     item.delivered_at = Some(now);
+                    completed_snoozes.push(key);
                     changed = true;
                     if is_on_time || is_recent_enough {
                         due.push((item.reminder.clone(), show_event_title));
                     }
+                }
+                for key in completed_snoozes {
+                    state.snoozed_until.remove(&key);
                 }
             }
             if changed {
@@ -1197,8 +1310,27 @@ fn start_reminder_scheduler(app: AppHandle) {
                 update_tray_tooltip(&app, &state);
             }
         }
-        for (reminder, show_title) in due {
-            show_notification(app.clone(), reminder, show_title);
+        if !due.is_empty() {
+            let failed_keys = due
+                .iter()
+                .map(|(reminder, _)| reminder_key(reminder))
+                .collect::<HashSet<_>>();
+            let toasts = due
+                .into_iter()
+                .map(|(reminder, show_title)| reminder_toast(reminder, show_title))
+                .collect();
+            if let Err(error) = show_reminder_window(&app, toasts) {
+                eprintln!("{error}");
+                let runtime = app.state::<DesktopRuntime>();
+                if let Ok(mut state) = runtime.state.lock() {
+                    for item in &mut state.reminders {
+                        if failed_keys.contains(&item.key()) {
+                            item.delivered_at = None;
+                        }
+                    }
+                    let _ = save_state(&runtime.state_path, &state);
+                };
+            }
         }
     });
 }
@@ -1313,33 +1445,108 @@ fn probe_server_health(server_url: &str) -> bool {
         .is_ok_and(|health| health.ok && health.status.eq_ignore_ascii_case("healthy"))
 }
 
-fn show_notification(app: AppHandle, reminder: ReminderInput, show_title: bool) {
+fn kalender_notification() -> Notification {
+    let mut notification = Notification::new();
+    notification.appname("Kalender");
+    #[cfg(target_os = "windows")]
+    notification.app_id(WINDOWS_APP_ID);
+    notification
+}
+
+fn reminder_toast(reminder: ReminderInput, show_title: bool) -> ReminderToast {
     let title = if show_title && !reminder.title.trim().is_empty() {
         reminder.title.clone()
     } else {
         "日程提醒".to_string()
     };
-    let body = if reminder.all_day {
-        "今天的全天日程".to_string()
-    } else {
-        format!("{} 开始", format_local_time(reminder.start_at))
-    };
-    let mut notification = Notification::new();
-    notification
-        .appname("Kalender")
-        .summary(&title)
-        .body(&body)
-        .action("default", "打开 Kalender");
-    if let Ok(handle) = notification.show() {
-        let route = reminder.route;
-        thread::spawn(move || {
-            handle.wait_for_action(|action| {
-                if action == "default" {
-                    open_route(&app, &route);
-                }
-            });
-        });
+    ReminderToast {
+        id: reminder.id,
+        title,
+        location: reminder.location.filter(|value| !value.trim().is_empty()),
+        start_at: reminder.start_at,
+        all_day: reminder.all_day,
+        route: reminder.route,
+        message: None,
+        can_snooze: true,
     }
+}
+
+fn show_reminder_window(app: &AppHandle, reminders: Vec<ReminderToast>) -> Result<(), String> {
+    let payload =
+        serde_json::to_string(&reminders).map_err(|error| format!("无法生成提醒内容：{error}"))?;
+    if let Some(window) = app.get_webview_window(REMINDER_WINDOW_LABEL) {
+        window
+            .eval(format!(
+                "window.dispatchEvent(new CustomEvent('kalender:reminders', {{ detail: {payload} }}))"
+            ))
+            .map_err(|error| format!("无法更新提醒窗口：{error}"))?;
+        position_reminder_window(&window)?;
+        return window
+            .show()
+            .map_err(|error| format!("无法显示提醒窗口：{error}"));
+    }
+
+    let initialization_script = format!("window.__KALENDER_REMINDERS__ = {payload};");
+    let window = WebviewWindowBuilder::new(
+        app,
+        REMINDER_WINDOW_LABEL,
+        WebviewUrl::App("reminder.html".into()),
+    )
+    .title("Kalender 提醒")
+    .inner_size(420.0, 232.0)
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .visible(false)
+    .initialization_script(initialization_script)
+    .build()
+    .map_err(|error| format!("无法创建提醒窗口：{error}"))?;
+    position_reminder_window(&window)?;
+    window
+        .show()
+        .map_err(|error| format!("无法显示提醒窗口：{error}"))
+}
+
+fn position_reminder_window(window: &WebviewWindow) -> Result<(), String> {
+    let monitor = selected_monitor(window)?;
+    let work_area = monitor.work_area();
+    let window_size = window
+        .outer_size()
+        .map_err(|error| format!("无法读取提醒窗口尺寸：{error}"))?;
+    let margin = (16.0 * monitor.scale_factor()).round() as u32;
+    let x = work_area.position.x
+        + work_area
+            .size
+            .width
+            .saturating_sub(window_size.width.saturating_add(margin)) as i32;
+    let y = work_area.position.y
+        + work_area
+            .size
+            .height
+            .saturating_sub(window_size.height.saturating_add(margin)) as i32;
+    window
+        .set_position(PhysicalPosition::new(x, y))
+        .map_err(|error| format!("无法定位提醒窗口：{error}"))
+}
+
+fn apply_reminder_snooze(state: &mut PersistedState, id: &str, start_at: i64, now: i64) -> bool {
+    let Some(item) = state
+        .reminders
+        .iter_mut()
+        .find(|item| item.reminder.id == id && item.reminder.start_at == start_at)
+    else {
+        return false;
+    };
+    let key = item.key();
+    item.delivered_at = None;
+    state
+        .snoozed_until
+        .insert(key, now + REMINDER_SNOOZE_MINUTES * 60_000);
+    true
 }
 
 fn set_pause(app: &AppHandle, until: Option<i64>) {
@@ -1475,8 +1682,7 @@ fn create_main_window(app: &AppHandle, server_url: &str, visible: bool) -> Resul
 }
 
 fn show_server_unavailable_notification(app: &AppHandle) {
-    let _ = Notification::new()
-        .appname("Kalender")
+    let _ = kalender_notification()
         .summary("Kalender 服务器不可用")
         .body("健康检查失败，主窗口未打开。Kalender 将留在托盘中并自动重试。")
         .show();
@@ -1484,8 +1690,7 @@ fn show_server_unavailable_notification(app: &AppHandle) {
 }
 
 fn show_server_recovered_notification() {
-    let _ = Notification::new()
-        .appname("Kalender")
+    let _ = kalender_notification()
         .summary("Kalender 服务器已恢复")
         .body("后台同步已恢复，可从托盘打开 Kalender。")
         .show();
@@ -1745,6 +1950,14 @@ fn ensure_config_caller(window: &WebviewWindow) -> Result<(), String> {
     }
 }
 
+fn ensure_reminder_caller(window: &WebviewWindow) -> Result<(), String> {
+    if window.label() == REMINDER_WINDOW_LABEL {
+        Ok(())
+    } else {
+        Err("这个窗口不能控制桌面提醒".to_string())
+    }
+}
+
 fn validate_settings(settings: &DesktopSettings) -> Result<(), String> {
     if ![0, 5, 10, 15, 30, 60].contains(&settings.reminder_minutes_before)
         || ![7, 8, 9, 10, 12].contains(&settings.all_day_reminder_hour)
@@ -1806,6 +2019,7 @@ mod tests {
         let first = ReminderInput {
             id: "series".into(),
             title: "One".into(),
+            location: None,
             start_at: 100,
             remind_at: 90,
             all_day: false,
@@ -1816,6 +2030,31 @@ mod tests {
             ..first.clone()
         };
         assert_ne!(reminder_key(&first), reminder_key(&second));
+    }
+
+    #[test]
+    fn snooze_requeues_only_the_matching_reminder() {
+        let reminder = ReminderInput {
+            id: "event".into(),
+            title: "Meeting".into(),
+            location: None,
+            start_at: 200,
+            remind_at: 100,
+            all_day: false,
+            route: "/calendar".into(),
+        };
+        let mut state = PersistedState {
+            reminders: vec![ReminderItem {
+                reminder,
+                delivered_at: Some(110),
+            }],
+            ..PersistedState::default()
+        };
+
+        assert!(apply_reminder_snooze(&mut state, "event", 200, 120));
+        assert_eq!(state.reminders[0].delivered_at, None);
+        assert_eq!(state.snoozed_until.get("event:200"), Some(&600_120));
+        assert!(!apply_reminder_snooze(&mut state, "event", 201, 120));
     }
 
     #[test]

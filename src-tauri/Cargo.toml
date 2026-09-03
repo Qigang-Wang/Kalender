@@ -1,6 +1,6 @@
 [package]
 name = "kalender-desktop"
-version = "0.1.6"
+version = "0.1.7"
 description = "Kalender desktop reminder client"
 authors = ["Kalender"]
 edition = "2021"

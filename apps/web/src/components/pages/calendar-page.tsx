@@ -364,7 +364,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       endLocal: toLocalDateTimeInput(end),
       timeZone,
       allDay: false,
-      reminderMinutesBefore: 0,
+      reminderMinutesBefore: undefined,
       availability: "busy",
       conflicts: [],
     });

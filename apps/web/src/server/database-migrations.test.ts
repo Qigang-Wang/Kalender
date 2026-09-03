@@ -237,18 +237,20 @@ async function verifyLegacyUpgrade(database: TestPostgresDatabase) {
         AND relation = 'project-item'`,
   );
   assert(projectTaskLink.rows[0]?.count === 1, "project migration backfills shared EntityLink membership");
-  const migratedPlans = await database.query<{ id: string; plan_item_id: string | null }>(
-    `SELECT task.id, task.plan_item_id
+  const migratedPlans = await database.query<{ id: string; plan_item_id: string | null; is_plan_item_mirror: boolean }>(
+    `SELECT task.id, task.plan_item_id, task.is_plan_item_mirror
        FROM tasks task
       WHERE task.id IN ('legacy-long-plan', 'legacy-due-action')
       ORDER BY task.id`,
   );
   assert(
-    migratedPlans.rows.find((entry) => entry.id === "legacy-long-plan")?.plan_item_id === "legacy-long-plan",
-    "legacy tasks with an explicit date range become linked plan items",
+    migratedPlans.rows.find((entry) => entry.id === "legacy-long-plan")?.plan_item_id === "legacy-long-plan"
+      && migratedPlans.rows.find((entry) => entry.id === "legacy-long-plan")?.is_plan_item_mirror === true,
+    "legacy tasks with an explicit date range become hidden plan-item mirrors",
   );
   assert(
-    migratedPlans.rows.find((entry) => entry.id === "legacy-due-action")?.plan_item_id === null,
+    migratedPlans.rows.find((entry) => entry.id === "legacy-due-action")?.plan_item_id === null
+      && migratedPlans.rows.find((entry) => entry.id === "legacy-due-action")?.is_plan_item_mirror === false,
     "a due date alone stays an action and does not clutter the gantt chart",
   );
   const migratedLongPlan = await database.query<{ status: string; planned_start: string; planned_end: string }>(

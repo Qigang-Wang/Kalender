@@ -186,7 +186,7 @@ async function queryStoredTasks(
     : { whereClause, parameters };
   const result = await database.query<TaskRow>(
     `${taskSelect}
-     ${scoped.whereClause}
+     ${scoped.whereClause} AND NOT t.is_plan_item_mirror
      GROUP BY t.id, p.id, plan_item.id, assignee.id
      ORDER BY (t.status = 'done'), t.due_at ASC NULLS LAST, t.important DESC, t.updated_at DESC`,
     scoped.parameters,

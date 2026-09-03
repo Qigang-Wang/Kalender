@@ -83,7 +83,7 @@ export async function listStoredProjectPlanItems(projectId: string): Promise<rea
               count(task.id) FILTER (WHERE task.status = 'done')::int AS completed_task_count,
               item.created_at, item.updated_at
          FROM project_plan_items item
-         LEFT JOIN tasks task ON task.plan_item_id = item.id
+         LEFT JOIN tasks task ON task.plan_item_id = item.id AND NOT task.is_plan_item_mirror
         WHERE item.project_id = $1
         GROUP BY item.id
         ORDER BY item.sort_order, item.created_at, item.id`,

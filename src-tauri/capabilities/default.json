@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Access for the bundled Kalender server configuration window.",
-  "windows": ["server-config"],
+  "windows": ["server-config", "reminder"],
   "permissions": []
 }
