@@ -1942,6 +1942,20 @@ const MCP_TOKEN_RATE_BUCKET_CLEANUP_INDEX_SQL = String.raw`
     ON mcp_invalid_token_ip_buckets (minute_started_at);
 `;
 
+const MCP_ACTION_EVENT_RETENTION_INDEX_SQL = String.raw`
+  UPDATE ai_action_events
+     SET status = 'failed',
+         input = '{"redacted":true}'::jsonb,
+         result = '{}'::jsonb,
+         error_message = 'MCP idempotency record redacted during schema upgrade',
+         finished_at = COALESCE(finished_at, now())
+   WHERE action LIKE 'dayline\_%' ESCAPE '\';
+
+  CREATE INDEX IF NOT EXISTS ai_action_events_mcp_created_idx
+    ON ai_action_events (created_at)
+    WHERE action LIKE 'dayline\_%' ESCAPE '\';
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1983,6 +1997,7 @@ export const DATABASE_MIGRATIONS = [
   { version: 38, name: "remove-legacy-task-planning", sql: PROJECT_PLAN_TASK_CLEANUP_SCHEMA_SQL },
   { version: 39, name: "mcp-api-token-lifecycle", sql: MCP_API_TOKEN_SCHEMA_SQL },
   { version: 40, name: "mcp-token-rate-bucket-cleanup-indexes", sql: MCP_TOKEN_RATE_BUCKET_CLEANUP_INDEX_SQL },
+  { version: 41, name: "mcp-action-event-retention-index", sql: MCP_ACTION_EVENT_RETENTION_INDEX_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

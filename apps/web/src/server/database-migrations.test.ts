@@ -308,6 +308,12 @@ async function verifyLegacyUpgrade(database: TestPostgresDatabase) {
         )`,
   );
   assert(mcpRateBucketIndexes.rows[0]?.count === 2, "MCP rate bucket cleanup uses indexed minute windows");
+  const mcpActionRetentionIndex = await database.query<{ count: number }>(
+    `SELECT count(*)::integer AS count
+       FROM pg_indexes
+      WHERE schemaname = 'public' AND indexname = 'ai_action_events_mcp_created_idx'`,
+  );
+  assert(mcpActionRetentionIndex.rows[0]?.count === 1, "MCP action retention cleanup uses an indexed creation window");
   const migratedBody = await database.query<{
     text_body: string | null;
     html_body: string | null;

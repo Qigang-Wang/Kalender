@@ -3,7 +3,7 @@ import type { CalendarEvent, CalendarSummary, UpsertCalendarEventInput } from ".
 import { runWithMcpActor, type AppUser } from "./auth";
 import { deleteCalendarEvent, upsertCalendarEvent } from "./calendar-event-service";
 import { getStoredCalendarEvent, listStoredCalendarEventConflicts, listStoredCalendarEvents, listStoredCalendars } from "./calendar-repository";
-import { deleteEntityLink, listRelatedEntities, saveEntityLink, type EntityKind } from "./entity-link-repository";
+import { deleteEntityLink, listRelatedEntities, saveEntityLink, validateEntityLink, type EntityKind, type SaveEntityLinkInput } from "./entity-link-repository";
 import { listMcpCalendarFreeSlots } from "./mcp-calendar-availability";
 import { listMcpProjectNextActions } from "./mcp-project-actions";
 import { assertExpectedUpdatedAt, executeMcpWrite, type McpWriteOptions } from "./mcp-write-safety";
@@ -11,7 +11,7 @@ import { deleteStoredNote, getStoredNote, listStoredNotes, listStoredProjectNote
 import { deleteStoredProjectPlanItem, listStoredProjectPlanItems, saveStoredProjectPlanItem, type SaveProjectPlanItemInput, type StoredProjectPlanItem } from "./project-plan-repository";
 import { getStoredProjectOverview } from "./project-repository";
 import { deleteStoredTaskSchedule, parseTaskScheduleInput, scheduleStoredTask, updateStoredTaskSchedule, type ScheduledTaskResult } from "./task-schedule";
-import { getStoredTask, listStoredProjectTasks, listStoredTasks, saveStoredTask, TaskRepositoryError, type StoredTask } from "./task-repository";
+import { getStoredTask, listStoredProjectTasks, listStoredTasks, saveStoredTask, TaskRepositoryError, validateStoredTaskInput, type StoredTask } from "./task-repository";
 import { parseTaskInput, type TaskRequestBody } from "./task-validation";
 import { getTodaySnapshot, type TodaySnapshot } from "./today-repository";
 import { searchWorkspace, type WorkspaceSearchKind, type WorkspaceSearchResult } from "./workspace-search";
@@ -30,15 +30,15 @@ export interface McpCalendarEventInput { readonly calendarId: string; readonly t
 export interface McpDomainOperationMap {
   readonly dayline_search: { input: { query: string; kind?: WorkspaceSearchKind; limit?: number }; output: readonly WorkspaceSearchResult[] };
   readonly dayline_today_get: { input: { from: string; to: string }; output: TodaySnapshot };
-  readonly dayline_tasks_list: { input: { includeCompleted?: boolean; projectId?: string }; output: readonly StoredTask[] };
+  readonly dayline_tasks_list: { input: { includeCompleted?: boolean; projectId?: string; limit?: number }; output: readonly StoredTask[] };
   readonly dayline_task_get: { input: { taskId: string }; output: StoredTask | undefined };
   readonly dayline_task_create: { input: TaskRequestBody & WriteInput; output: StoredTask };
   readonly dayline_task_update: { input: TaskRequestBody & { taskId: string } & WriteInput; output: StoredTask };
-  readonly dayline_projects_list: { input: { includeArchived?: boolean }; output: readonly StoredProject[] };
+  readonly dayline_projects_list: { input: { includeArchived?: boolean; limit?: number }; output: readonly StoredProject[] };
   readonly dayline_project_get: { input: { projectId: string }; output: Awaited<ReturnType<typeof getStoredProjectOverview>> };
   readonly dayline_task_schedule: { input: { taskId: string; calendarId: string; start: string; end: string; timeZone?: string; allowConflicts?: boolean } & WriteInput; output: ScheduledTaskResult };
   readonly dayline_notes_search: { input: { query: string; projectId?: string; limit?: number }; output: readonly McpNote[] };
-  readonly dayline_project_plan_items_list: { input: { projectId: string }; output: readonly StoredProjectPlanItem[] };
+  readonly dayline_project_plan_items_list: { input: { projectId: string; limit?: number }; output: readonly StoredProjectPlanItem[] };
   readonly dayline_project_plan_item_get: { input: { projectId: string; planItemId: string }; output: StoredProjectPlanItem | undefined };
   readonly dayline_project_plan_item_create: { input: SaveProjectPlanItemInput & WriteInput; output: StoredProjectPlanItem };
   readonly dayline_project_plan_item_update: { input: Partial<SaveProjectPlanItemInput> & { projectId: string; planItemId: string } & WriteInput; output: StoredProjectPlanItem };
@@ -56,7 +56,7 @@ export interface McpDomainOperationMap {
   readonly dayline_task_reschedule: { input: { taskId: string; eventId: string; calendarId: string; start: string; end: string; timeZone?: string; allowConflicts?: boolean } & WriteInput; output: ScheduledTaskResult };
   readonly dayline_task_schedule_cancel: { input: { taskId: string; eventId: string } & WriteInput; output: StoredTask };
   readonly dayline_project_next_actions: { input: { projectId: string }; output: unknown };
-  readonly dayline_relations_list: { input: { kind: EntityKind; entityId: string }; output: unknown };
+  readonly dayline_relations_list: { input: { kind: EntityKind; entityId: string; limit?: number }; output: unknown };
   readonly dayline_relation_link: { input: { sourceKind: EntityKind; sourceId: string; targetKind: EntityKind; targetId: string; relation?: string } & WriteInput; output: unknown };
   readonly dayline_relation_unlink: { input: { linkId: string } & WriteInput; output: { deleted: true } };
   readonly dayline_calendar_event_create: { input: McpCalendarEventInput & WriteInput; output: CalendarEvent };
@@ -98,19 +98,19 @@ export class McpDomainService {
     switch (name) {
       case "dayline_search": return searchWorkspace(requiredText(raw.query, "搜索关键词"), { kind: raw.kind as WorkspaceSearchKind | undefined, limit: boundedLimit(raw.limit) });
       case "dayline_today_get": { const from = validDate(raw.from, "开始时间"); const to = validDate(raw.to, "结束时间"); if (to <= from || to.getTime() - from.getTime() > 172800000) throw new McpDomainInputError("Today 时间范围无效"); return getTodaySnapshot(from.toISOString(), to.toISOString()); }
-      case "dayline_tasks_list": return raw.projectId ? listStoredProjectTasks(requiredText(raw.projectId, "项目标识"), raw.includeCompleted === true) : listStoredTasks(raw.includeCompleted === true);
+      case "dayline_tasks_list": return (await (raw.projectId ? listStoredProjectTasks(requiredText(raw.projectId, "项目标识"), raw.includeCompleted === true) : listStoredTasks(raw.includeCompleted === true))).slice(0, boundedLimit(raw.limit));
       case "dayline_task_get": return getStoredTask(requiredText(raw.taskId, "任务标识"));
-      case "dayline_projects_list": return listStoredProjects(raw.includeArchived === true);
+      case "dayline_projects_list": return (await listStoredProjects(raw.includeArchived === true)).slice(0, boundedLimit(raw.limit));
       case "dayline_project_get": return getStoredProjectOverview(requiredText(raw.projectId, "项目标识"));
       case "dayline_notes_search": { const notes = raw.projectId ? await listStoredProjectNotes(requiredText(raw.projectId, "项目标识")) : await listStoredNotes(); const query = requiredText(raw.query, "搜索关键词").toLocaleLowerCase(); return notes.filter((note) => `${note.title}\n${noteContentToMarkdown(note.content)}`.toLocaleLowerCase().includes(query)).slice(0, boundedLimit(raw.limit)).map(mapNote); }
-      case "dayline_project_plan_items_list": return listStoredProjectPlanItems(requiredText(raw.projectId, "项目标识"));
+      case "dayline_project_plan_items_list": return (await listStoredProjectPlanItems(requiredText(raw.projectId, "项目标识"))).slice(0, boundedLimit(raw.limit));
       case "dayline_project_plan_item_get": return (await listStoredProjectPlanItems(requiredText(raw.projectId, "项目标识"))).find((item) => item.id === requiredText(raw.planItemId, "计划项标识"));
       case "dayline_calendars_list": return listStoredCalendars();
       case "dayline_calendar_events_list": return listStoredCalendarEvents({ from: validDate(raw.from, "开始时间").toISOString(), to: validDate(raw.to, "结束时间").toISOString(), calendarIds: stringArray(raw.calendarIds, "calendarIds"), limit: raw.limit === undefined ? undefined : boundedCalendarLimit(raw.limit) });
       case "dayline_calendar_free_slots": return listMcpCalendarFreeSlots({ from: requiredText(raw.from, "开始时间"), to: requiredText(raw.to, "结束时间"), calendarIds: stringArray(raw.calendarIds, "calendarIds"), minimumDurationMinutes: numberValue(raw.durationMinutes ?? raw.minimumDurationMinutes), timeZone: optionalText(raw.timeZone) });
       case "dayline_project_next_actions": return listMcpProjectNextActions(requiredText(raw.projectId, "项目标识"));
-      case "dayline_relations_list": return listRelatedEntities(entityKind(raw.kind), requiredText(raw.entityId, "对象标识"));
-      case "dayline_task_create": return this.write(name, raw, () => saveStoredTask(parseTaskInput(raw as TaskRequestBody)), () => preview(null, raw));
+      case "dayline_relations_list": return (await listRelatedEntities(entityKind(raw.kind), requiredText(raw.entityId, "对象标识"))).slice(0, boundedLimit(raw.limit));
+      case "dayline_task_create": { const input = parseTaskInput(raw as TaskRequestBody); return this.write(name, raw, () => saveStoredTask(input), async () => { await validateStoredTaskInput(input); return preview(null, input); }); }
       case "dayline_task_update": return this.taskUpdate(name, raw);
       case "dayline_task_schedule": return this.taskSchedule(name, raw);
       case "dayline_task_reschedule": return this.taskReschedule(name, raw);
@@ -125,7 +125,7 @@ export class McpDomainService {
       case "dayline_note_update": return this.noteUpdate(name, raw);
       case "dayline_note_append": return this.noteAppend(name, raw);
       case "dayline_note_delete": return this.noteDelete(name, raw);
-      case "dayline_relation_link": return this.write(name, raw, () => saveEntityLink({ sourceKind: entityKind(raw.sourceKind), sourceId: requiredText(raw.sourceId, "来源标识"), targetKind: entityKind(raw.targetKind), targetId: requiredText(raw.targetId, "目标标识"), relation: optionalText(raw.relation) ?? "related" }), () => preview(null, raw));
+      case "dayline_relation_link": { const input: SaveEntityLinkInput = { sourceKind: entityKind(raw.sourceKind), sourceId: requiredText(raw.sourceId, "来源标识"), targetKind: entityKind(raw.targetKind), targetId: requiredText(raw.targetId, "目标标识"), relation: optionalText(raw.relation) ?? "related" }; return this.write(name, raw, () => saveEntityLink(input), async () => { await validateEntityLink(input); return preview(null, input); }); }
       case "dayline_relation_unlink": return this.relationUnlink(name, raw);
       case "dayline_calendar_event_create": return this.calendarEventCreate(name, raw);
       case "dayline_calendar_event_update": return this.calendarEventUpdate(name, raw);
@@ -133,7 +133,7 @@ export class McpDomainService {
     }
   }
   private write<T>(operation: string, input: Record<string, unknown>, perform: () => Promise<T>, previewAction: () => McpPreview | Promise<McpPreview>): Promise<T | McpPreview> { return executeMcpWrite(this.actor, operation, input, { ...input, requireIdempotency: isCreateOperation(operation) }, perform, previewAction); }
-  private async taskUpdate(operation: string, raw: Record<string, unknown>) { const current = await getStoredTask(requiredText(raw.taskId, "任务标识")); if (!current) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404); assertRevisionForExecute(current, raw); const next = mergeTaskUpdate(current, raw as TaskRequestBody); return this.write(operation, raw, () => saveStoredTask(parseTaskInput(next, current.id), { expectedUpdatedAt: requiredText(raw.expectedUpdatedAt, "expectedUpdatedAt") }), () => preview(current, next)); }
+  private async taskUpdate(operation: string, raw: Record<string, unknown>) { const current = await getStoredTask(requiredText(raw.taskId, "任务标识")); if (!current) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404); assertRevisionForExecute(current, raw); const next = parseTaskInput(mergeTaskUpdate(current, raw as TaskRequestBody), current.id); return this.write(operation, raw, () => saveStoredTask(next, { expectedUpdatedAt: requiredText(raw.expectedUpdatedAt, "expectedUpdatedAt") }), async () => { await validateStoredTaskInput(next); return preview(current, next); }); }
   private async taskSchedule(operation: string, raw: Record<string, unknown>) { const task = await getStoredTask(requiredText(raw.taskId, "任务标识")); if (!task) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404); const input = parseTaskScheduleInput(raw); return this.write(operation, raw, () => scheduleStoredTask(task.id, input), () => this.schedulePreview(task, undefined, input)); }
   private async taskReschedule(operation: string, raw: Record<string, unknown>) { const task = await getStoredTask(requiredText(raw.taskId, "任务标识")); const event = await getStoredCalendarEvent(requiredText(raw.eventId, "日程标识")); if (!task) throw new TaskRepositoryError("TASK_NOT_FOUND", "任务不存在", 404); if (!event) throw new TaskRepositoryError("TIME_BLOCK_NOT_FOUND", "任务时间块不存在", 404); assertRevisionForExecute(event as { updatedAt: string }, raw); const input = parseTaskScheduleInput(raw); return this.write(operation, raw, () => updateStoredTaskSchedule(task.id, event.id, input, requiredText(raw.expectedUpdatedAt, "expectedUpdatedAt")), () => this.schedulePreview(event, event.id, input)); }
   private async taskCancel(operation: string, raw: Record<string, unknown>) { const event = await getStoredCalendarEvent(requiredText(raw.eventId, "日程标识")); if (!event) throw new TaskRepositoryError("TIME_BLOCK_NOT_FOUND", "任务时间块不存在", 404); assertRevisionForExecute(event as { updatedAt: string }, raw); return this.write(operation, raw, () => deleteStoredTaskSchedule(requiredText(raw.taskId, "任务标识"), event.id, requiredText(raw.expectedUpdatedAt, "expectedUpdatedAt")), () => preview(event, null)); }

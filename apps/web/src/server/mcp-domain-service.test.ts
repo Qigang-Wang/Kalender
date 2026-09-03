@@ -126,15 +126,38 @@ async function main() {
     // REQ-08: previews leave tables untouched, don't require a revision, and expose a current snapshot.
     const previewResult = await service.execute("dayline_note_create", { title: "Preview", content: "No write", preview: true, idempotencyKey: key("preview") });
     assert("preview" in previewResult && (await service.execute("dayline_notes_search", { query: "No write" })).length === 0, "REQ-08 preview is side-effect free");
+    let invalidTaskPreviewRejected = false;
+    try { await service.execute("dayline_task_create", { title: "Invalid preview", projectId: randomUUID(), preview: true }); } catch (error) { invalidTaskPreviewRejected = (error as { code?: string }).code === "PROJECT_NOT_FOUND"; }
+    let invalidRelationPreviewRejected = false;
+    try { await service.execute("dayline_relation_link", { sourceKind: "note", sourceId: note.id, targetKind: "task", targetId: randomUUID(), preview: true }); } catch (error) { invalidRelationPreviewRejected = (error as { code?: string }).code === "ENTITY_NOT_FOUND"; }
+    assert(invalidTaskPreviewRejected && invalidRelationPreviewRejected, "REQ-08 create previews reuse task and relation repository validation");
     const eventPreview = await service.execute("dayline_calendar_event_update", { eventId: event.id, calendarId, title: "Preview only", start: event.start, end: event.end, preview: true });
     assert("preview" in eventPreview && (eventPreview as unknown as { currentRevision?: string }).currentRevision === event.updatedAt && (await service.execute("dayline_calendar_events_list", { calendarIds: [calendarId], from: "2026-07-22T00:00:00.000Z", to: "2026-07-23T00:00:00.000Z" })).find((entry) => entry.id === event.id)?.title === "Busy", "REQ-08 update preview has no revision requirement and does not write");
     const replayKey = key("replay");
     const replayOne = await service.execute("dayline_note_create", { title: "Replay", content: "once", idempotencyKey: replayKey });
     const replayTwo = await service.execute("dayline_note_create", { title: "Replay", content: "once", idempotencyKey: replayKey });
     assert(replayOne.id === replayTwo.id, "REQ-08 same key returns first result");
+    const replayEvent = await database.query<{ input: unknown }>("SELECT input FROM ai_action_events WHERE actor_user_id = $1 AND idempotency_key = $2", [alice.id, replayKey]);
+    assert(!JSON.stringify(replayEvent.rows[0]?.input).includes("Replay") && !JSON.stringify(replayEvent.rows[0]?.input).includes("once"), "REQ-MCP-IDEM-02 idempotency input is retained only as a salted fingerprint");
     let idempotencyConflict = false;
     try { await service.execute("dayline_note_create", { title: "Replay changed", content: "twice", idempotencyKey: replayKey }); } catch (error) { idempotencyConflict = error instanceof Error && /幂等键/.test(error.message); }
     assert(idempotencyConflict, "REQ-08 changed input conflicts");
+    const staleKey = key("stale-running");
+    const staleInput = { title: "Unknown outcome", content: "not duplicated", idempotencyKey: staleKey };
+    await service.execute("dayline_note_create", staleInput);
+    await database.query("UPDATE ai_action_events SET status = 'running', result = '{}'::jsonb, error_message = NULL, finished_at = NULL, created_at = now() - interval '11 minutes' WHERE actor_user_id = $1 AND idempotency_key = $2", [alice.id, staleKey]);
+    let staleOutcomeCode: string | undefined;
+    try { await service.execute("dayline_note_create", staleInput); } catch (error) { staleOutcomeCode = (error as { code?: string }).code; }
+    const staleNotes = await service.execute("dayline_notes_search", { query: "Unknown outcome" });
+    assert(staleOutcomeCode === "operation_outcome_unknown" && staleNotes.length === 1, "REQ-MCP-IDEM-02 stale running records are recovered without replaying a possibly committed write");
+    await database.query("UPDATE ai_action_events SET created_at = now() - interval '25 hours', finished_at = now() - interval '25 hours' WHERE actor_user_id = $1 AND idempotency_key = $2", [alice.id, replayKey]);
+    await service.execute("dayline_note_create", { title: "Retention cleanup", content: "trigger", idempotencyKey: key("cleanup-trigger") });
+    const expiredReplayEvent = await database.query<{ count: string }>("SELECT count(*)::text AS count FROM ai_action_events WHERE actor_user_id = $1 AND idempotency_key = $2", [alice.id, replayKey]);
+    assert(expiredReplayEvent.rows[0]?.count === "0", "REQ-MCP-IDEM-02 completed MCP replay results expire after the retention window");
+    assert((await service.execute("dayline_tasks_list", { limit: 1 })).length <= 1 && (await service.execute("dayline_projects_list", { limit: 1 })).length <= 1 && (await service.execute("dayline_project_plan_items_list", { projectId: project.id, limit: 1 })).length <= 1 && ((await service.execute("dayline_relations_list", { kind: "note", entityId: note.id, limit: 1 })) as unknown[]).length <= 1, "REQ-MCP-LIMIT-01 growing list tools return at most the requested bounded result count");
+    let oversizedListRejected = false;
+    try { await service.execute("dayline_tasks_list", { limit: 101 }); } catch (error) { oversizedListRejected = error instanceof Error && /1–100/.test(error.message); }
+    assert(oversizedListRejected, "REQ-MCP-LIMIT-01 list limits cannot exceed 100");
     const concurrentNote = await service.execute("dayline_note_create", { title: "Concurrent revision", content: "base", idempotencyKey: key("concurrent-note") });
     const concurrent = await Promise.allSettled([
       service.execute("dayline_note_update", { noteId: concurrentNote.id, title: "Concurrent revision A", content: "first", expectedUpdatedAt: concurrentNote.updatedAt }),

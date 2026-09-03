@@ -174,6 +174,10 @@ async function main() {
     assert(tools.filter((tool) => (EXPECTED_WRITE_TOOL_NAMES as readonly string[]).includes(tool.name)).filter((tool) => !["dayline_task_create", "dayline_task_schedule", "dayline_project_plan_item_create", "dayline_relation_link", "dayline_note_create", "dayline_calendar_event_create"].includes(tool.name)).every((tool) => tool.annotations?.idempotentHint === false), "ordinary update tools are explicitly non-idempotent");
     assert(tools.every((tool) => tool.annotations?.openWorldHint === false), "all MCP tools disallow open-world access");
     assert(tools.every((tool) => tool.inputSchema?.additionalProperties === false), "all MCP input schemas reject unknown fields");
+    for (const name of ["dayline_tasks_list", "dayline_projects_list", "dayline_project_plan_items_list", "dayline_relations_list"]) {
+      const schema = tools.find((tool) => tool.name === name)?.inputSchema;
+      assert(schemaProperties(schema).includes("limit"), `${name} exposes a bounded result limit`);
+    }
     const createSchema = tools.find((tool) => tool.name === "dayline_task_create")?.inputSchema;
     const updateSchema = tools.find((tool) => tool.name === "dayline_task_update")?.inputSchema;
     assert(schemaProperties(createSchema).join(",") === ["title", "notes", "status", "important", "urgencyMode", "dueAt", "estimatedMinutes", "projectId", "planItemId", "projectName", "areaName", "assigneeUserId", "sourceReferences", "idempotencyKey", "preview"].join(","), "REQ-FIX-04 task create schema exposes every priority and ownership field");

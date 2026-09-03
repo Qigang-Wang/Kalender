@@ -210,7 +210,11 @@ export async function getStoredTask(taskId: string): Promise<StoredTask | undefi
   return (await attachSources(result.rows))[0];
 }
 
-export async function saveStoredTask(input: SaveTaskInput, options: { readonly expectedUpdatedAt?: string } = {}): Promise<StoredTask> {
+export async function validateStoredTaskInput(input: SaveTaskInput): Promise<void> {
+  await prepareStoredTaskInput(input);
+}
+
+async function prepareStoredTaskInput(input: SaveTaskInput) {
   const database = await getDatabase();
   const scope = await getUserScope();
   const id = input.id ?? randomUUID();
@@ -245,6 +249,11 @@ export async function saveStoredTask(input: SaveTaskInput, options: { readonly e
     );
     if (!assignee.rows[0]) throw new TaskRepositoryError("ASSIGNEE_NOT_FOUND", "指派用户不存在", 404);
   }
+  return { database, scope, id, projectId, projectName, areaName, planItemId };
+}
+
+export async function saveStoredTask(input: SaveTaskInput, options: { readonly expectedUpdatedAt?: string } = {}): Promise<StoredTask> {
+  const { database, scope, id, projectId, projectName, areaName, planItemId } = await prepareStoredTaskInput(input);
 
   await database.transaction(async (transaction) => {
     const written = await transaction.query<{ id: string }>(

@@ -194,6 +194,17 @@ task scheduling. Update/delete/link operations may also supply a key when a
 client wants durable replay protection, but their required safety check is the
 compare-and-set revision described below.
 
+Idempotency input is stored only as a salted SHA-256 fingerprint. The replay
+result is retained for 24 hours and then removed by the hourly cleanup sweep
+(expired rows are also removed before each idempotent write). A
+`running` record older than 10 minutes is changed to an unknown-outcome failure;
+the same key then returns `operation_outcome_unknown` instead of risking a
+duplicate write. Verify the target object before retrying with a new key.
+
+The task, project, project-plan-item, and relation list tools accept `limit`
+from 1 to 100. They default to 20 results so a growing workspace cannot create
+an unbounded MCP response.
+
 Update and delete operations also use compare-and-set revision protection:
 `expectedUpdatedAt` must equal the latest returned `updatedAt`. This applies to
 task/plan updates, task-plan link/unlink, note update/append/delete, task
@@ -225,8 +236,8 @@ shape:
 
 The protocol normalizes domain and repository failures to
 `code`/`message`/`retryable`/optional `details`. In particular, HTTP-409
-version, idempotency, and schedule/calendar conflicts remain observable as
-`version_conflict`, `idempotency_conflict`, and `schedule_conflict`; schedule
+version, idempotency, unknown-outcome, and schedule/calendar conflicts remain observable as
+`version_conflict`, `idempotency_conflict`, `operation_outcome_unknown`, and `schedule_conflict`; schedule
 conflict details may include at most 20 summaries containing only `id`,
 `title`, `start`, and `end`. Unknown failures use the generic `internal_error`
 message and never expose a stack.

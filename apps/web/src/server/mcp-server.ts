@@ -192,6 +192,7 @@ export function createMcpServer(principal: AuthenticatedMcpToken): McpServer {
   registerTool(server, principal, domain, "dayline_tasks_list", "List accessible tasks.", strictObject({
     includeCompleted: z.boolean().optional(),
     projectId: identifier.optional(),
+    limit: z.number().int().min(1).max(100).optional(),
   }), readAnnotations);
   registerTool(server, principal, domain, "dayline_task_get", "Get one accessible task.", strictObject({
     taskId: identifier,
@@ -207,6 +208,7 @@ export function createMcpServer(principal: AuthenticatedMcpToken): McpServer {
   }), updateAnnotations);
   registerTool(server, principal, domain, "dayline_projects_list", "List accessible projects.", strictObject({
     includeArchived: z.boolean().optional(),
+    limit: z.number().int().min(1).max(100).optional(),
   }), readAnnotations);
   registerTool(server, principal, domain, "dayline_project_get", "Get one accessible project.", strictObject({
     projectId: identifier,
@@ -224,6 +226,7 @@ export function createMcpServer(principal: AuthenticatedMcpToken): McpServer {
 
   registerTool(server, principal, domain, "dayline_project_plan_items_list", "List plan items in an accessible project.", strictObject({
     projectId: identifier,
+    limit: z.number().int().min(1).max(100).optional(),
   }), readAnnotations);
   registerTool(server, principal, domain, "dayline_project_plan_item_get", "Get one accessible project plan item.", strictObject({
     projectId: identifier,
@@ -318,6 +321,7 @@ export function createMcpServer(principal: AuthenticatedMcpToken): McpServer {
   registerTool(server, principal, domain, "dayline_relations_list", "List accessible relations for an entity.", strictObject({
     kind: z.enum(entityKinds),
     entityId: identifier,
+    limit: z.number().int().min(1).max(100).optional(),
   }), readAnnotations);
   registerTool(server, principal, domain, "dayline_relation_link", "Create an idempotent relation between accessible entities.", strictObject({
     sourceKind: z.enum(entityKinds),

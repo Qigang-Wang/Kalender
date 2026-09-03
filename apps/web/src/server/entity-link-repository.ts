@@ -53,18 +53,9 @@ interface EntityDetails {
 }
 
 export async function saveEntityLink(input: SaveEntityLinkInput): Promise<StoredEntityLink> {
-  if (input.sourceKind === input.targetKind && input.sourceId === input.targetId) {
-    throw new EntityLinkRepositoryError("ENTITY_LINK_SELF", "不能把对象关联到自身", 400);
-  }
+  await validateEntityLink(input);
   const database = await getDatabase();
   const scope = await getUserScope();
-  const [sourceExists, targetExists] = await Promise.all([
-    entityExists(input.sourceKind, input.sourceId),
-    entityExists(input.targetKind, input.targetId),
-  ]);
-  if (!sourceExists || !targetExists) {
-    throw new EntityLinkRepositoryError("ENTITY_NOT_FOUND", "要关联的对象不存在或已删除", 404);
-  }
   const existing = await database.query<LinkRow>(
     `SELECT id, source_kind, source_id, target_kind, target_id, relation, created_at
        FROM entity_links
@@ -86,6 +77,19 @@ export async function saveEntityLink(input: SaveEntityLinkInput): Promise<Stored
   const saved = result.rows[0];
   if (!saved) throw new EntityLinkRepositoryError("ENTITY_LINK_SAVE_FAILED", "无法保存对象关联", 500);
   return mapLink(saved);
+}
+
+export async function validateEntityLink(input: SaveEntityLinkInput): Promise<void> {
+  if (input.sourceKind === input.targetKind && input.sourceId === input.targetId) {
+    throw new EntityLinkRepositoryError("ENTITY_LINK_SELF", "不能把对象关联到自身", 400);
+  }
+  const [sourceExists, targetExists] = await Promise.all([
+    entityExists(input.sourceKind, input.sourceId),
+    entityExists(input.targetKind, input.targetId),
+  ]);
+  if (!sourceExists || !targetExists) {
+    throw new EntityLinkRepositoryError("ENTITY_NOT_FOUND", "要关联的对象不存在或已删除", 404);
+  }
 }
 
 export async function listRelatedEntities(kind: EntityKind, entityId: string): Promise<readonly RelatedEntity[]> {
