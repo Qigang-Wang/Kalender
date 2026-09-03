@@ -96,6 +96,9 @@ npm run dev
 Docker 部署见 [Docker Deployment](docs/deployment-docker.md)；飞牛 NAS 可使用
 [fnOS Docker 安装说明](docs/deployment-fnos.md)。
 
+远程 Codex/AI 工具接入见 [MCP Server](docs/mcp-server.md)；该端点必须通过 HTTPS
+使用 Bearer 令牌。
+
 ## 数据与安全
 
 - PostgreSQL 保存结构化数据；`.data` 保存草稿附件、开发主密钥等本地文件，两者都不会进入 Git。

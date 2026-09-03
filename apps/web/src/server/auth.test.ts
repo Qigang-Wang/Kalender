@@ -31,6 +31,9 @@ async function main() {
       password: "admin-password",
     });
     assert(admin.role === "admin", "initial user is an admin");
+    const mcpActor = await auth.runWithMcpActor(admin, async () => auth.getCurrentAppUser());
+    assert(mcpActor?.id === admin.id && mcpActor.role === "user", "MCP actor context overrides cookies without retaining admin-wide access");
+    assert(!auth.getMcpActor(), "MCP actor context is cleared after its callback");
     const loggedInAdmin = await auth.authenticateAppUser("admin", "admin-password");
     assert(loggedInAdmin.id === admin.id, "admin can authenticate");
     assert((await auth.listManagedAppUsers(admin)).find((item) => item.id === admin.id)?.lastLoginAt, "successful login records last login time");

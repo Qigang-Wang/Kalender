@@ -37,6 +37,10 @@ WebSocket endpoint at `/api/realtime` both use port `3000`; no additional port i
 If a reverse proxy is placed in front of the container, enable WebSocket `Upgrade` forwarding.
 When WebSocket connectivity is unavailable, visible pages fall back to low-frequency refreshes.
 
+Remote MCP access also requires the reverse proxy hostname in
+`KALENDER_MCP_ALLOWED_HOSTS`. Browser-based MCP clients additionally require their exact origin
+in `KALENDER_MCP_ALLOWED_ORIGINS`; ordinary CLI clients do not send an `Origin` header.
+
 ## 3. Data Persistence
 
 Compose uses three persistent volumes:

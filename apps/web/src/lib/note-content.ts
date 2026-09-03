@@ -47,6 +47,18 @@ export function noteContentToPlainText(value: string): string {
     .trim();
 }
 
+/** Content exposed through automation is intentionally portable Markdown/text,
+ * never the editor's internal plate-json-v1 storage representation. */
+export function noteContentToMarkdown(value: string): string {
+  return noteContentToPlainText(value);
+}
+
+export function normalizeMcpNoteContent(value: unknown): string {
+  if (typeof value !== "string") throw new Error("笔记内容必须是纯文本或 Markdown");
+  if (value.startsWith(PLATE_NOTE_PREFIX)) throw new Error("MCP 不接受 plate-json-v1 内容");
+  return value.replace(/\r\n?/g, "\n");
+}
+
 function plainTextToValue(value: string): PlateNoteValue {
   const normalized = value.replace(/\r\n?/g, "\n");
   if (!normalized) return createEmptyNote();

@@ -5,6 +5,9 @@ x-dayline-settings:
   database-password: &database-password "CHANGE_ME_DATABASE_PASSWORD"
   backup-directory: &backup-directory "/vol3/1000/Docker_App/Dayline/backups"
   timezone: &timezone "Europe/Berlin"
+  # 加入 NAS 的局域网 IP 和反向代理域名；浏览器 MCP 客户端还需填写完整 Origin。
+  mcp-allowed-hosts: &mcp-allowed-hosts "localhost,127.0.0.1,::1,CHANGE_ME_DAYLINE_HOST"
+  mcp-allowed-origins: &mcp-allowed-origins ""
 
 services:
   dayline:
@@ -29,6 +32,11 @@ services:
       KALENDER_CALENDAR_SYNC_INTERVAL_MS: "180000"
       KALENDER_JOB_POLL_INTERVAL_MS: "5000"
       KALENDER_AI_AUTO_EXECUTION: "false"
+      KALENDER_MCP_TOKEN_REQUESTS_PER_MINUTE: "120"
+      KALENDER_MCP_INVALID_TOKEN_REQUESTS_PER_MINUTE: "20"
+      KALENDER_MCP_TRUST_PROXY_IP_HEADERS: "false"
+      KALENDER_MCP_ALLOWED_HOSTS: *mcp-allowed-hosts
+      KALENDER_MCP_ALLOWED_ORIGINS: *mcp-allowed-origins
       KALENDER_MAIL_BODY_CACHE_MAX_AGE_DAYS: "30"
       KALENDER_MAIL_BODY_CACHE_MAX_MB: "128"
     volumes:

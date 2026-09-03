@@ -279,6 +279,35 @@ async function verifyLegacyUpgrade(database: TestPostgresDatabase) {
       WHERE table_schema = 'public' AND table_name = 'task_dependencies'`,
   );
   assert(legacyDependencyTable.rows[0]?.count === 0, "legacy task dependencies are removed after plan-item migration");
+  const mcpTokenColumns = await database.query<{ column_name: string }>(
+    `SELECT column_name
+       FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'mcp_api_tokens'
+      ORDER BY column_name`,
+  );
+  assert(
+    mcpTokenColumns.rows.some((column) => column.column_name === "token_hash")
+      && mcpTokenColumns.rows.some((column) => column.column_name === "name")
+      && !mcpTokenColumns.rows.some((column) => column.column_name === "token" || column.column_name === "secret"),
+    "MCP token migration persists only a hash column and no raw secret column",
+  );
+  const mcpRateTables = await database.query<{ count: number }>(
+    `SELECT count(*)::integer AS count
+       FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name IN ('mcp_token_rate_buckets', 'mcp_invalid_token_ip_buckets')`,
+  );
+  assert(mcpRateTables.rows[0]?.count === 2, "MCP token migration creates durable valid and invalid rate buckets");
+  const mcpRateBucketIndexes = await database.query<{ count: number }>(
+    `SELECT count(*)::integer AS count
+       FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND indexname IN (
+          'mcp_token_rate_buckets_minute_started_idx',
+          'mcp_invalid_token_ip_buckets_minute_started_idx'
+        )`,
+  );
+  assert(mcpRateBucketIndexes.rows[0]?.count === 2, "MCP rate bucket cleanup uses indexed minute windows");
   const migratedBody = await database.query<{
     text_body: string | null;
     html_body: string | null;

@@ -1,4 +1,5 @@
 import { createHash, createHmac, pbkdf2 as pbkdf2Callback, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { promisify } from "node:util";
 
 import { cookies } from "next/headers";
@@ -28,6 +29,24 @@ export interface AppUser {
   readonly role: AppUserRole;
   readonly sessionVersion: number;
   readonly mustChangePassword: boolean;
+}
+
+const mcpActorContext = new AsyncLocalStorage<AppUser>();
+
+/**
+ * Runs an MCP domain operation as its token owner.  This context is deliberately
+ * limited to the callback and is consulted before request cookies so an MCP
+ * request can never inherit a browser session from the hosting process.
+ *
+ * MCP is owner-scoped: an administrator's token is treated as an ordinary user
+ * for domain access and therefore does not grant implicit cross-user access.
+ */
+export function runWithMcpActor<T>(actor: AppUser, callback: () => T): T {
+  return mcpActorContext.run({ ...actor, role: "user" }, callback);
+}
+
+export function getMcpActor(): AppUser | undefined {
+  return mcpActorContext.getStore();
 }
 
 export interface ManagedAppUser extends AppUser {
@@ -650,6 +669,8 @@ export async function updateOwnProfile(actor: AppUser, input: {
 }
 
 export async function getCurrentAppUser(): Promise<AppUser | undefined> {
+  const mcpActor = getMcpActor();
+  if (mcpActor) return mcpActor;
   const store = await cookies();
   const payload = verifySessionToken(store.get(AUTH_COOKIE_NAME)?.value);
   if (!payload) return undefined;

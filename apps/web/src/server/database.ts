@@ -1895,6 +1895,53 @@ const PROJECT_PLAN_TASK_CLEANUP_SCHEMA_SQL = String.raw`
     DROP COLUMN IF EXISTS project_status;
 `;
 
+const MCP_API_TOKEN_SCHEMA_SQL = String.raw`
+  CREATE TABLE IF NOT EXISTS mcp_api_tokens (
+    id text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+    token_hash text NOT NULL UNIQUE CHECK (length(token_hash) = 64),
+    name text NOT NULL CHECK (length(name) BETWEEN 1 AND 80),
+    display_hint text NOT NULL CHECK (length(display_hint) BETWEEN 8 AND 32),
+    scopes text[] NOT NULL CHECK (
+      cardinality(scopes) >= 1
+      AND scopes <@ ARRAY['dayline:read', 'dayline:write']::text[]
+      AND 'dayline:read' = ANY(scopes)
+    ),
+    expires_at timestamptz,
+    revoked_at timestamptz,
+    last_used_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  CREATE INDEX IF NOT EXISTS mcp_api_tokens_user_created_idx
+    ON mcp_api_tokens (user_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS mcp_api_tokens_active_hash_idx
+    ON mcp_api_tokens (token_hash)
+    WHERE revoked_at IS NULL;
+
+  CREATE TABLE IF NOT EXISTS mcp_token_rate_buckets (
+    token_id text NOT NULL REFERENCES mcp_api_tokens(id) ON DELETE CASCADE,
+    minute_started_at timestamptz NOT NULL,
+    request_count integer NOT NULL DEFAULT 0 CHECK (request_count >= 0),
+    PRIMARY KEY (token_id, minute_started_at)
+  );
+
+  CREATE TABLE IF NOT EXISTS mcp_invalid_token_ip_buckets (
+    ip_address text NOT NULL CHECK (length(ip_address) BETWEEN 1 AND 128),
+    minute_started_at timestamptz NOT NULL,
+    request_count integer NOT NULL DEFAULT 0 CHECK (request_count >= 0),
+    PRIMARY KEY (ip_address, minute_started_at)
+  );
+`;
+
+const MCP_TOKEN_RATE_BUCKET_CLEANUP_INDEX_SQL = String.raw`
+  CREATE INDEX IF NOT EXISTS mcp_token_rate_buckets_minute_started_idx
+    ON mcp_token_rate_buckets (minute_started_at);
+  CREATE INDEX IF NOT EXISTS mcp_invalid_token_ip_buckets_minute_started_idx
+    ON mcp_invalid_token_ip_buckets (minute_started_at);
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -1934,6 +1981,8 @@ export const DATABASE_MIGRATIONS = [
   { version: 36, name: "project-task-status", sql: PROJECT_TASK_STATUS_SCHEMA_SQL },
   { version: 37, name: "project-plan-items", sql: PROJECT_PLAN_ITEMS_SCHEMA_SQL },
   { version: 38, name: "remove-legacy-task-planning", sql: PROJECT_PLAN_TASK_CLEANUP_SCHEMA_SQL },
+  { version: 39, name: "mcp-api-token-lifecycle", sql: MCP_API_TOKEN_SCHEMA_SQL },
+  { version: 40, name: "mcp-token-rate-bucket-cleanup-indexes", sql: MCP_TOKEN_RATE_BUCKET_CLEANUP_INDEX_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

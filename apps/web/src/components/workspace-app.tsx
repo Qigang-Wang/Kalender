@@ -28,6 +28,7 @@ import {
   Inbox,
   ImageIcon,
   Keyboard,
+  KeyRound,
   Link2,
   ListChecks,
   LogOut,
@@ -68,6 +69,7 @@ import { ContextMenu } from "./context-menu";
 import { AppSelect } from "./app-select";
 import { BrandLogo } from "./brand-logo";
 import { MailSignatureSettings } from "./mail-signature-settings";
+import { McpTokenSettings } from "./mcp-token-settings";
 import { DesktopReminderBridge } from "./desktop-reminder-bridge";
 import { DesktopReminderSettingsPanel } from "./desktop-reminder-settings";
 import { readThemePreference, saveThemePreference } from "./theme-controller";
@@ -302,7 +304,7 @@ const navigation: ReadonlyArray<{
   { section: "ai", label: "AI Command", icon: WandSparkles },
 ];
 
-type SettingsTab = "appearance" | "profile" | "users" | "diagnostics" | "jobs" | "operations" | "sync" | "desktop" | "mail" | "calendar" | "shortcuts" | "ai" | "backup";
+type SettingsTab = "appearance" | "profile" | "users" | "diagnostics" | "jobs" | "operations" | "sync" | "desktop" | "mail" | "calendar" | "shortcuts" | "ai" | "mcp" | "backup";
 
 const settingsNavigation: ReadonlyArray<{
   tab: SettingsTab;
@@ -322,6 +324,7 @@ const settingsNavigation: ReadonlyArray<{
   { tab: "calendar", label: "日历账户", icon: CalendarDays },
   { tab: "shortcuts", label: "快捷键", icon: Keyboard },
   { tab: "ai", label: "AI 设置", icon: WandSparkles },
+  { tab: "mcp", label: "AI 客户端", icon: KeyRound },
   { tab: "backup", label: "备份", icon: DatabaseBackup },
 ];
 
@@ -2696,6 +2699,7 @@ function SettingsPage({ currentUser, desktopAvailable }: { readonly currentUser:
         {activeTab === "calendar" && <CalendarAccountSettings />}
         {activeTab === "shortcuts" && <ShortcutsSettings />}
         {activeTab === "ai" && <><AiAutomationSettings /><AiProviderSettings /></>}
+        {activeTab === "mcp" && <McpTokenSettings currentUserRole={currentUser.role} />}
         {activeTab === "backup" && <BackupSettings />}
       </div>
     </div>

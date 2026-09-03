@@ -8,6 +8,8 @@ const REMEMBERED_SESSION_REFRESH_INTERVAL_SECONDS = 60 * 60 * 24;
 
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+  // MCP uses its own Bearer authentication and must never inherit qgw_session.
+  if (pathname === "/mcp") return NextResponse.next();
   if (isPublicPath(pathname)) return NextResponse.next();
 
   const session = await verifySessionToken(request.cookies.get(AUTH_COOKIE_NAME)?.value);
