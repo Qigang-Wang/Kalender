@@ -75,7 +75,6 @@ export function TaskEditorDialog({
   editingTask,
   busy,
   scheduleBusy = false,
-  scheduleHref,
   onDraftChange,
   onClose,
   onSave,
@@ -89,7 +88,6 @@ export function TaskEditorDialog({
   readonly editingTask?: EditorTaskDetails;
   readonly busy: boolean;
   readonly scheduleBusy?: boolean;
-  readonly scheduleHref?: string;
   readonly onDraftChange: (draft: SharedTaskEditorDraft) => void;
   readonly onClose: () => void;
   readonly onSave: () => void;
@@ -127,7 +125,7 @@ export function TaskEditorDialog({
             <label className="task-notes-field"><span>备注</span><textarea value={draft.notes} maxLength={10_000} onChange={(event) => update({ notes: event.target.value })} placeholder="补充完成标准、等待事项或下一步…" /></label>
           </div>
         </details>
-        {editingTask && <section className={`task-time-blocks${hasTimeBlockActions ? "" : " project-task-time-blocks"}`}><header><div><CalendarClock size={15} /><span>专注时间</span><em>{editingTask.scheduledBlocks.length}</em></div>{onSchedule ? <button type="button" className="secondary-button" onClick={() => onSchedule()}><Plus size={14} />添加时间</button> : scheduleHref ? <Link className="secondary-button" href={scheduleHref}><Plus size={14} />添加时间</Link> : null}</header>{editingTask.scheduledBlocks.length ? <div>{editingTask.scheduledBlocks.map((block) => <article key={block.eventId}><Link href={block.href}><CalendarClock size={14} /><span><strong>{formatTaskBlockRange(block.start, block.end)}</strong><small>{block.calendarName}</small></span></Link>{onSchedule && <button type="button" aria-label={`调整时间：${formatTaskBlockRange(block.start, block.end)}`} title="调整时间" onClick={() => onSchedule(block)}><Pencil size={14} /></button>}{onDeleteTimeBlock && <button type="button" className="danger-button" aria-label={`删除时间块：${formatTaskBlockRange(block.start, block.end)}`} title="删除时间块" disabled={scheduleBusy} onClick={() => onDeleteTimeBlock(block)}><Trash2 size={14} /></button>}</article>)}</div> : <p>尚未安排专注时间。可以添加多个时间块，也可以稍后拖入日历。</p>}</section>}
+        {editingTask && <section className={`task-time-blocks${hasTimeBlockActions ? "" : " project-task-time-blocks"}`}><header><div><CalendarClock size={15} /><span>专注时间</span><em>{editingTask.scheduledBlocks.length}</em></div>{onSchedule && <button type="button" className="secondary-button" onClick={() => onSchedule()}><Plus size={14} />添加时间</button>}</header>{editingTask.scheduledBlocks.length ? <div>{editingTask.scheduledBlocks.map((block) => <article key={block.eventId}><Link href={block.href}><CalendarClock size={14} /><span><strong>{formatTaskBlockRange(block.start, block.end)}</strong><small>{block.calendarName}</small></span></Link>{onSchedule && <button type="button" aria-label={`调整时间：${formatTaskBlockRange(block.start, block.end)}`} title="调整时间" onClick={() => onSchedule(block)}><Pencil size={14} /></button>}{onDeleteTimeBlock && <button type="button" className="danger-button" aria-label={`删除时间块：${formatTaskBlockRange(block.start, block.end)}`} title="删除时间块" disabled={scheduleBusy} onClick={() => onDeleteTimeBlock(block)}><Trash2 size={14} /></button>}</article>)}</div> : <p>尚未安排专注时间。可以添加多个时间块，也可以稍后拖入日历。</p>}</section>}
         {draft.id && <RelatedContentPanel kind="task" entityId={draft.id} emptyText="这个任务还没有关联来源或时间块。" />}
       </div>
       <footer><div><button className="secondary-button" disabled={busy} onClick={onClose}>取消</button><button className="primary-button" disabled={busy || !draft.title.trim()} onClick={onSave}>{busy && <LoaderCircle className="spin" size={15} />}{draft.id ? "保存修改" : "创建任务"}</button></div></footer>

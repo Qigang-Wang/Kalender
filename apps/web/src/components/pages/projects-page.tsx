@@ -25,7 +25,9 @@ import {
 } from "../context-commands";
 import { DateTimeField } from "../ui/date-time-field";
 import { TransientToast } from "../workspace-shared";
+import { offerToCompleteLinkedPlanItem } from "./project-plan-progress";
 import { TaskEditorDialog } from "./task-editor-dialog";
+import { TaskScheduleDialog } from "./task-schedule-dialog";
 
 const TASKS_CHANGED_EVENT = "kalender:tasks-changed";
 const PROJECTS_CHANGED_EVENT = "kalender:projects-changed";
@@ -320,6 +322,12 @@ interface ProjectTaskEditDraft {
   assigneeUserId: string;
 }
 
+interface ProjectTaskScheduleTarget {
+  readonly task: ClientTask;
+  readonly block?: ClientTaskTimeBlock;
+  readonly returnTaskDraft?: ProjectTaskEditDraft;
+}
+
 interface ProjectTimelineReorderInput {
   readonly kind: "planItem" | "milestone";
   readonly itemId: string;
@@ -413,6 +421,8 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
   const [phaseDraft, setPhaseDraft] = useState<ProjectPhaseDraft>();
   const [planItemCreateDraft, setPlanItemCreateDraft] = useState<ProjectPlanItemCreateDraft>();
   const [taskEditDraft, setTaskEditDraft] = useState<ProjectTaskEditDraft>();
+  const [taskScheduleTarget, setTaskScheduleTarget] = useState<ProjectTaskScheduleTarget>();
+  const [taskScheduleBusy, setTaskScheduleBusy] = useState(false);
   const [taskEditPlanItems, setTaskEditPlanItems] = useState<readonly ClientProjectPlanItem[]>([]);
   const [linkedActionTitle, setLinkedActionTitle] = useState("");
   const [linkActionTaskId, setLinkActionTaskId] = useState("");
@@ -645,6 +655,7 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
 
   const saveProjectTask = async () => {
     if (!overview || !taskEditDraft?.title.trim() || busy) return;
+    const previousTask = overview.tasks.find((task) => task.id === taskEditDraft.id);
     setBusy(true);
     try {
       const response = await fetch(`/api/tasks/${encodeURIComponent(taskEditDraft.id)}`, {
@@ -657,15 +668,62 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
         "无法保存任务",
       );
       if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? "无法保存任务");
+      let completedPlanItem = false;
+      if (previousTask?.status !== "done" && payload.task.status === "done") {
+        try {
+          completedPlanItem = await offerToCompleteLinkedPlanItem(payload.task);
+        } catch (error) {
+          await loadOverview(overview.project.id, 0);
+          setTaskEditDraft(undefined);
+          window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
+          window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
+          setFeedback(`任务已完成，但${error instanceof Error ? error.message : "无法检查计划项进度"}`);
+          return;
+        }
+      }
       await loadOverview(overview.project.id, 0);
       setTaskEditDraft(undefined);
       window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
       window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
-      setFeedback("任务已更新");
+      setFeedback(completedPlanItem ? "任务和关联计划项已完成" : "任务已更新");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法保存任务");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const openProjectTaskSchedule = (task: ClientTask, block?: ClientTaskTimeBlock) => {
+    const returnTaskDraft = taskEditDraft;
+    setTaskEditDraft(undefined);
+    setTaskScheduleTarget({ task, block, returnTaskDraft });
+  };
+
+  const closeProjectTaskSchedule = () => {
+    if (taskScheduleTarget?.returnTaskDraft) setTaskEditDraft(taskScheduleTarget.returnTaskDraft);
+    setTaskScheduleTarget(undefined);
+  };
+
+  const deleteProjectTaskTimeBlock = async (task: ClientTask, block: ClientTaskTimeBlock) => {
+    if (!overview || taskScheduleBusy || !await appConfirm({
+      title: "删除这个时间块？",
+      description: `${formatTaskBlockRange(block.start, block.end)}\n任务本身会保留，并重新回到待安排状态。`,
+      confirmLabel: "删除时间块",
+      tone: "danger",
+    })) return;
+    setTaskScheduleBusy(true);
+    try {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}/schedule/${encodeURIComponent(block.eventId)}`, { method: "DELETE" });
+      const payload = await response.json() as { readonly ok?: boolean; readonly task?: ClientTask; readonly message?: string };
+      if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? "无法删除时间块");
+      await loadOverview(overview.project.id, 0);
+      window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
+      window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
+      setFeedback("时间块已删除，任务仍然保留");
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "无法删除时间块");
+    } finally {
+      setTaskScheduleBusy(false);
     }
   };
 
@@ -1175,10 +1233,29 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
         collaborators={collaborators}
         editingTask={editingProjectTask}
         busy={busy}
-        scheduleHref={`/tasks?schedule=${encodeURIComponent(taskEditDraft.id)}`}
+        scheduleBusy={taskScheduleBusy}
         onDraftChange={(nextDraft) => setTaskEditDraft(nextDraft as ProjectTaskEditDraft)}
         onClose={() => setTaskEditDraft(undefined)}
         onSave={() => void saveProjectTask()}
+        onSchedule={(block) => { if (editingProjectTask) openProjectTaskSchedule(editingProjectTask, block as ClientTaskTimeBlock | undefined); }}
+        onDeleteTimeBlock={(block) => { if (editingProjectTask) void deleteProjectTaskTimeBlock(editingProjectTask, block as ClientTaskTimeBlock); }}
+      />}
+
+      {taskScheduleTarget && <TaskScheduleDialog
+        task={taskScheduleTarget.task}
+        block={taskScheduleTarget.block}
+        onClose={closeProjectTaskSchedule}
+        onSaved={(savedTask) => {
+          if (overview) void loadOverview(overview.project.id, 0);
+          window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
+          window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
+          setTaskScheduleTarget((current) => current ? {
+            ...current,
+            task: savedTask,
+            returnTaskDraft: current.returnTaskDraft ? projectTaskToEditDraft(savedTask) : undefined,
+          } : current);
+        }}
+        onFeedback={setFeedback}
       />}
 
       {projectDraft && <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) { setProjectDialogError(undefined); setProjectDraft(undefined); } }}>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import {
-  AlertCircle, CalendarDays, CalendarClock, Check, CheckCircle2,
+  CalendarDays, CalendarClock, Check, CheckCircle2,
   ChevronRight, Circle, Clock3, Folder, FolderPlus, GripVertical, Inbox, Link2, ListChecks,
   LayoutGrid, LoaderCircle, Mail, MoreHorizontal, Pause, Plus, RefreshCw, Star, X,
 } from "lucide-react";
@@ -14,12 +14,14 @@ import { useRealtimeEvent, useRealtimeRefresh, type RealtimeEvent } from "@/comp
 import { AppSelect } from "../app-select";
 import { ContextMenu } from "../context-menu";
 import { resolveContextCommands, type TaskCommandId } from "../context-commands";
-import { DateTimeField } from "../ui/date-time-field";
 import { TransientToast } from "../workspace-shared";
 import { TaskEditorDialog } from "./task-editor-dialog";
+import { offerToCompleteLinkedPlanItem } from "./project-plan-progress";
+import { TaskScheduleDialog } from "./task-schedule-dialog";
 import { resolveNewTaskDefaults } from "./task-view-model";
 
 const TASKS_CHANGED_EVENT = "kalender:tasks-changed";
+const PROJECTS_CHANGED_EVENT = "kalender:projects-changed";
 
 interface ClientProject {
   readonly id: string;
@@ -31,22 +33,6 @@ interface ClientProject {
   readonly noteCount: number;
   readonly createdAt: string;
   readonly updatedAt: string;
-}
-
-interface CalendarListItem {
-  readonly id: string;
-  readonly name: string;
-  readonly color?: string;
-  readonly readOnly: boolean;
-  readonly primary: boolean;
-  readonly providerData?: { readonly providerId?: string };
-}
-
-function nextCalendarHour(value: Date): Date {
-  const result = new Date(value);
-  result.setMinutes(0, 0, 0);
-  result.setHours(result.getHours() + 1);
-  return result;
 }
 
 function toLocalDateTimeInput(value: Date): string {
@@ -103,22 +89,10 @@ interface ClientTaskTimeBlock {
   readonly href: string;
 }
 
-interface TaskScheduleConflict {
-  readonly id: string;
-  readonly title: string;
-  readonly start: string;
-  readonly end: string;
-}
-
-interface TaskScheduleDraft {
-  readonly taskId: string;
-  readonly taskTitle: string;
-  readonly eventId?: string;
+interface TaskScheduleTarget {
+  readonly task: ClientTask;
+  readonly block?: ClientTaskTimeBlock;
   readonly returnTaskDraft?: TaskDraft;
-  calendarId: string;
-  startLocal: string;
-  endLocal: string;
-  conflicts: readonly TaskScheduleConflict[];
 }
 
 interface TaskDraft {
@@ -190,8 +164,7 @@ export function TasksPage({
   const [draft, setDraft] = useState<TaskDraft>();
   const [feedback, setFeedback] = useState<string>();
   const [menu, setMenu] = useState<TaskContextMenuState>();
-  const [taskCalendars, setTaskCalendars] = useState<readonly CalendarListItem[]>([]);
-  const [scheduleDraft, setScheduleDraft] = useState<TaskScheduleDraft>();
+  const [scheduleTarget, setScheduleTarget] = useState<TaskScheduleTarget>();
   const [scheduleBusy, setScheduleBusy] = useState(false);
   const openedInitialTask = useRef(false);
   const openedInitialScheduleTask = useRef(false);
@@ -296,15 +269,6 @@ export function TasksPage({
     });
   }, [initialCreateTask, initialProjectId, loading, taskProjects]);
   useEffect(() => {
-    void workspaceFetch("/api/calendars")
-      .then(async (response) => {
-        const payload = await response.json() as { readonly calendars?: readonly CalendarListItem[]; readonly message?: string };
-        if (!response.ok || !payload.calendars) throw new Error(payload.message ?? "无法读取日历");
-        setTaskCalendars(payload.calendars.filter((calendar) => !calendar.readOnly && calendar.providerData?.providerId === "local-calendar"));
-      })
-      .catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "无法读取日历"));
-  }, []);
-  useEffect(() => {
     if (!initialTaskId || openedInitialTask.current || loading) return;
     openedInitialTask.current = true;
     const task = tasks.find((entry) => entry.id === initialTaskId);
@@ -318,6 +282,7 @@ export function TasksPage({
   }, [initialTaskId, loading, tasks]);
   const saveDraft = async () => {
     if (!draft?.title.trim()) return;
+    const previousTask = draft.id ? tasks.find((task) => task.id === draft.id) : undefined;
     setBusyTaskId(draft.id ?? "new");
     try {
       const response = await fetch(draft.id ? `/api/tasks/${encodeURIComponent(draft.id)}` : "/api/tasks", {
@@ -330,7 +295,17 @@ export function TasksPage({
       setTasks((current) => [payload.task!, ...current.filter((task) => task.id !== payload.task!.id)]);
       window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
       setDraft(undefined);
-      setFeedback(draft.id ? "任务已更新" : "任务已创建");
+      let completedPlanItem = false;
+      if (previousTask?.status !== "done" && payload.task.status === "done") {
+        try {
+          completedPlanItem = await offerToCompleteLinkedPlanItem(payload.task);
+          if (completedPlanItem) window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
+        } catch (error) {
+          setFeedback(`任务已完成，但${error instanceof Error ? error.message : "无法检查计划项进度"}`);
+          return;
+        }
+      }
+      setFeedback(completedPlanItem ? "任务和关联计划项已完成" : draft.id ? "任务已更新" : "任务已创建");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法保存任务");
     } finally {
@@ -351,7 +326,17 @@ export function TasksPage({
       if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? "无法更新任务");
       setTasks((current) => current.map((entry) => entry.id === task.id ? payload.task! : entry));
       window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
-      setFeedback(changes.status === "done" ? "任务已完成" : "任务已更新");
+      let completedPlanItem = false;
+      if (task.status !== "done" && payload.task.status === "done") {
+        try {
+          completedPlanItem = await offerToCompleteLinkedPlanItem(payload.task);
+          if (completedPlanItem) window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
+        } catch (error) {
+          setFeedback(`任务已完成，但${error instanceof Error ? error.message : "无法检查计划项进度"}`);
+          return;
+        }
+      }
+      setFeedback(completedPlanItem ? "任务和关联计划项已完成" : payload.task.status === "done" ? "任务已完成" : "任务已更新");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法更新任务");
     } finally {
@@ -387,30 +372,16 @@ export function TasksPage({
   const menuTask = menu ? tasks.find((task) => task.id === menu.taskId) : undefined;
   const openSchedule = (task: ClientTask, block?: ClientTaskTimeBlock, returnToTaskDetails = false) => {
     setMenu(undefined);
-    const calendar = block
-      ? taskCalendars.find((entry) => entry.id === block.calendarId)
-      : taskCalendars.find((entry) => entry.primary) ?? taskCalendars[0];
-    if (!calendar) {
-      setFeedback("没有可写的本地日历");
-      return;
-    }
-    const start = block ? new Date(block.start) : nextCalendarHour(new Date());
-    const end = block ? new Date(block.end) : new Date(start.getTime() + (task.estimatedMinutes ?? 60) * 60 * 1000);
     if (returnToTaskDetails) setDraft(undefined);
-    setScheduleDraft({
-      taskId: task.id,
-      taskTitle: task.title,
-      eventId: block?.eventId,
+    setScheduleTarget({
+      task,
+      block,
       returnTaskDraft: returnToTaskDetails ? draft : undefined,
-      calendarId: calendar.id,
-      startLocal: toLocalDateTimeInput(start),
-      endLocal: toLocalDateTimeInput(end),
-      conflicts: [],
     });
   };
 
   useEffect(() => {
-    if (!initialScheduleTaskId || openedInitialScheduleTask.current || loading || taskCalendars.length === 0) return;
+    if (!initialScheduleTaskId || openedInitialScheduleTask.current || loading) return;
     openedInitialScheduleTask.current = true;
     const task = tasks.find((entry) => entry.id === initialScheduleTaskId);
     if (!task || task.status === "done") {
@@ -419,65 +390,7 @@ export function TasksPage({
     }
     setView(task.status === "inbox" ? "inbox" : task.status === "waiting" ? "waiting" : "today");
     openSchedule(task);
-  }, [initialScheduleTaskId, loading, taskCalendars, tasks]);
-
-  const changeScheduleStart = (value: string) => {
-    setScheduleDraft((current) => {
-      if (!current) return current;
-      const previousStart = new Date(current.startLocal);
-      const previousEnd = new Date(current.endLocal);
-      const nextStart = new Date(value);
-      const duration = Math.max(5 * 60 * 1000, previousEnd.getTime() - previousStart.getTime());
-      return {
-        ...current,
-        startLocal: value,
-        endLocal: Number.isNaN(nextStart.getTime()) ? current.endLocal : toLocalDateTimeInput(new Date(nextStart.getTime() + duration)),
-        conflicts: [],
-      };
-    });
-  };
-
-  const saveSchedule = async (allowConflicts = false) => {
-    if (!scheduleDraft || scheduleBusy) return;
-    const start = new Date(scheduleDraft.startLocal);
-    const end = new Date(scheduleDraft.endLocal);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
-      setFeedback("结束时间必须晚于开始时间");
-      return;
-    }
-    setScheduleBusy(true);
-    try {
-      const endpoint = scheduleDraft.eventId
-        ? `/api/tasks/${encodeURIComponent(scheduleDraft.taskId)}/schedule/${encodeURIComponent(scheduleDraft.eventId)}`
-        : `/api/tasks/${encodeURIComponent(scheduleDraft.taskId)}/schedule`;
-      const response = await fetch(endpoint, {
-        method: scheduleDraft.eventId ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          calendarId: scheduleDraft.calendarId,
-          start: start.toISOString(),
-          end: end.toISOString(),
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Berlin",
-          allowConflicts,
-        }),
-      });
-      const payload = await response.json() as { readonly ok?: boolean; readonly task?: ClientTask; readonly conflicts?: readonly TaskScheduleConflict[]; readonly message?: string };
-      if (response.status === 409 && payload.conflicts?.length) {
-        setScheduleDraft({ ...scheduleDraft, conflicts: payload.conflicts });
-        setFeedback("所选时间与现有日程冲突");
-        return;
-      }
-      if (!response.ok || !payload.task) throw new Error(payload.message ?? "无法安排任务");
-      setTasks((current) => current.map((entry) => entry.id === payload.task!.id ? payload.task! : entry));
-      setScheduleDraft(undefined);
-      if (scheduleDraft.returnTaskDraft) setDraft(scheduleDraft.returnTaskDraft);
-      setFeedback(scheduleDraft.eventId ? "任务时间块已更新" : "任务已安排到日历");
-    } catch (error) {
-      setFeedback(error instanceof Error ? error.message : "无法安排任务");
-    } finally {
-      setScheduleBusy(false);
-    }
-  };
+  }, [initialScheduleTaskId, loading, tasks]);
 
   const deleteTaskTimeBlock = async (task: ClientTask, block: ClientTaskTimeBlock) => {
     if (scheduleBusy || !await appConfirm({
@@ -606,21 +519,19 @@ export function TasksPage({
         onDeleteTimeBlock={(block) => { if (editingTask) void deleteTaskTimeBlock(editingTask, block as ClientTaskTimeBlock); }}
       />}
 
-      {scheduleDraft && (
-        <div className="calendar-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !scheduleBusy) setScheduleDraft(undefined); }}>
-          <section className="calendar-dialog task-schedule-dialog panel" role="dialog" aria-modal="true" aria-labelledby="task-schedule-title">
-            <header><div><h2 id="task-schedule-title">{scheduleDraft.eventId ? "调整安排" : "安排到日历"}</h2></div><button aria-label="关闭" onClick={() => { if (scheduleDraft.returnTaskDraft) setDraft(scheduleDraft.returnTaskDraft); setScheduleDraft(undefined); }} disabled={scheduleBusy}><X size={18} /></button></header>
-            <div className="task-schedule-summary"><ListChecks size={17} /><strong>{scheduleDraft.taskTitle}</strong></div>
-            <div className="calendar-form task-schedule-form">
-              <DateTimeField label="开始" value={scheduleDraft.startLocal} onChange={changeScheduleStart} />
-              <DateTimeField label="结束" value={scheduleDraft.endLocal} onChange={(value) => { setScheduleDraft((current) => current ? { ...current, endLocal: value, conflicts: [] } : current); }} />
-              <label className="calendar-title-field"><span>日历</span><AppSelect ariaLabel="安排到日历" value={scheduleDraft.calendarId} onValueChange={(calendarId) => setScheduleDraft((current) => current ? { ...current, calendarId, conflicts: [] } : current)} options={taskCalendars.map((calendar) => ({ value: calendar.id, label: calendar.name }))} /></label>
-            </div>
-            {scheduleDraft.conflicts.length > 0 && <div className="task-schedule-conflicts" role="alert"><header><AlertCircle size={16} /><strong>发现时间冲突</strong></header>{scheduleDraft.conflicts.map((conflict) => <div key={conflict.id}><span>{formatTaskBlockRange(conflict.start, conflict.end)}</span><strong>{conflict.title}</strong></div>)}<p>你可以修改时间，或者确认仍然安排。</p></div>}
-            <footer><div><button className="secondary-button" disabled={scheduleBusy} onClick={() => { if (scheduleDraft.returnTaskDraft) setDraft(scheduleDraft.returnTaskDraft); setScheduleDraft(undefined); }}>取消</button><button className={scheduleDraft.conflicts.length ? "danger-confirm-button" : "primary-button"} disabled={scheduleBusy} onClick={() => void saveSchedule(scheduleDraft.conflicts.length > 0)}>{scheduleBusy && <LoaderCircle className="spin" size={15} />}{scheduleDraft.conflicts.length ? "仍然安排" : scheduleDraft.eventId ? "保存时间" : "创建时间块"}</button></div></footer>
-          </section>
-        </div>
-      )}
+      {scheduleTarget && <TaskScheduleDialog
+        task={scheduleTarget.task}
+        block={scheduleTarget.block}
+        onClose={() => {
+          if (scheduleTarget.returnTaskDraft) setDraft(scheduleTarget.returnTaskDraft);
+          setScheduleTarget(undefined);
+        }}
+        onSaved={(savedTask) => {
+          setTasks((current) => current.map((entry) => entry.id === savedTask.id ? savedTask : entry));
+          window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
+        }}
+        onFeedback={setFeedback}
+      />}
 
       {menu && menuTask && (
         <ContextMenu
