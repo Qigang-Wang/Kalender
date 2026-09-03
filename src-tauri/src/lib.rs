@@ -1100,6 +1100,10 @@ fn apply_window_mode(window: &WebviewWindow, desktop_mode: bool) -> Result<(), S
     window
         .set_decorations(!desktop_mode)
         .map_err(|error| format!("无法更新窗口边框：{error}"))?;
+    #[cfg(target_os = "windows")]
+    window
+        .set_shadow(!desktop_mode)
+        .map_err(|error| format!("无法更新窗口阴影：{error}"))?;
     window
         .set_resizable(!desktop_mode)
         .map_err(|error| format!("无法更新窗口缩放状态：{error}"))?;
