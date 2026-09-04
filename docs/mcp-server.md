@@ -6,6 +6,77 @@ MCP client does not need to retain a session ID. The endpoint is a bounded
 workspace API: tools do not execute arbitrary SQL, call arbitrary URLs, or
 open an external network connection.
 
+## AI client onboarding and discovery
+
+This file is the human-facing protocol reference. It is not automatically sent
+to a model when an MCP client connects. A compatible client learns the callable
+surface by initializing the server and requesting `tools/list`; the returned
+tool descriptions, annotations, and JSON Schemas are the runtime contract.
+
+The server publishes the workflow rules below in the MCP initialization
+response's `instructions` field. It does not currently publish resources or
+prompts. Compatible clients should make the server instructions available to
+the model; clients that ignore them can copy the same block into their own
+system/project instructions. Tool input Schemas remain authoritative if a
+copied instruction ever disagrees with the server.
+
+Configure an MCP-capable client with these values:
+
+```text
+Name: Dayline
+Transport: Streamable HTTP
+URL: https://<host>/mcp
+Authorization: Bearer <dln_... token>
+```
+
+Clients should keep the token in a secret store or environment variable rather
+than embedding it in a prompt, repository, or chat message. After connecting,
+verify that `tools/list` succeeds and includes `dayline_search`. If the client
+does not implement Streamable HTTP MCP, giving it this document alone does not
+make it capable of calling the server.
+
+### Recommended model instructions
+
+The server publishes the following compact block as MCP `instructions`. It can
+also be placed in a client's system or project instructions when the client
+does not forward server instructions to the model:
+
+```text
+Use Dayline tools for tasks, projects, project plans, notes, calendars, and
+relations. Treat tool input Schemas as authoritative.
+
+- Read or search for an object before updating or deleting it; never guess IDs.
+- Use RFC 3339 timestamps with an explicit offset and preserve the user's time zone.
+- Preview consequential or destructive mutations with preview:true when practical.
+- For an executing create/schedule operation, generate one 16-160 character
+  idempotencyKey and reuse that same key only when retrying the identical request.
+- For updates and deletes, pass expectedUpdatedAt from the latest read result.
+- On version_conflict, read the object again and reconsider the requested change.
+- On operation_outcome_unknown, inspect the target before attempting another write.
+- Do not set allowConflicts:true or invoke a destructive tool without explicit
+  confirmation of the conflict or exact target.
+- Do not expose MCP tokens or place them in tool arguments.
+```
+
+### Standard call flows
+
+**Read:** Choose the narrowest list/search/get tool, pass a bounded `limit` where
+available, and present the result without making a follow-up mutation unless the
+user requested one.
+
+**Create or schedule:** Resolve referenced project, calendar, task, or plan-item
+IDs first. Optionally call the mutation with `preview: true`; then execute with a
+new `idempotencyKey`. Reuse the key only for an identical retry.
+
+**Update or delete:** Read the exact target immediately before changing it and
+copy its latest `updatedAt` into `expectedUpdatedAt`. Preview when practical,
+confirm destructive targets, then execute. A `version_conflict` starts this flow
+again from the read; it must not be bypassed with a stale revision.
+
+**Scheduling conflict:** Keep `allowConflicts` false by default. Show the bounded
+conflict summaries to the user and set it to true only after the user explicitly
+accepts the overlap.
+
 ## Authentication and scope
 
 Use HTTPS for every remote MCP client. `/mcp` accepts only

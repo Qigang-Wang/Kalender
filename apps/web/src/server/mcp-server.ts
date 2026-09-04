@@ -16,6 +16,17 @@ export const MCP_PATH = "/mcp";
 const READ_SCOPE = "dayline:read" as const;
 const WRITE_SCOPE = "dayline:write" as const;
 const DEFAULT_ALLOWED_HOSTS = ["localhost", "127.0.0.1", "::1"] as const;
+const MCP_SERVER_INSTRUCTIONS = `Use Dayline tools for tasks, projects, project plans, notes, calendars, and relations. Treat tool input schemas as authoritative.
+
+- Read or search for an object before updating or deleting it; never guess IDs.
+- Use RFC 3339 timestamps with an explicit offset and preserve the user's time zone.
+- Preview consequential or destructive mutations with preview:true when practical.
+- For an executing create or schedule operation, generate one 16-160 character idempotencyKey and reuse it only when retrying the identical request.
+- For updates and deletes, pass expectedUpdatedAt from the latest read result.
+- On version_conflict, read the object again and reconsider the requested change.
+- On operation_outcome_unknown, inspect the target before attempting another write.
+- Do not set allowConflicts:true or invoke a destructive tool without explicit confirmation of the conflict or exact target.
+- Do not expose MCP tokens or place them in tool arguments.`;
 
 /**
  * Keep this list as the protocol registry. The domain service has a matching
@@ -178,7 +189,10 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
 
 export function createMcpServer(principal: AuthenticatedMcpToken): McpServer {
   const domain = new McpDomainService(actorFor(principal));
-  const server = new McpServer({ name: "dayline", version: "0.1.0" });
+  const server = new McpServer(
+    { name: "dayline", version: "0.1.0" },
+    { instructions: MCP_SERVER_INSTRUCTIONS },
+  );
 
   registerTool(server, principal, domain, "dayline_search", "Search workspace content.", strictObject({
     query: z.string().min(1).max(500),

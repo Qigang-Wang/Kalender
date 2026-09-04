@@ -156,6 +156,8 @@ async function main() {
 
     const initialized = await raw(writerToken.secret, initialize());
     assert(initialized.response.status === 200 && initialized.body.result?.serverInfo?.name === "dayline", `raw initialize succeeds over stateless Streamable HTTP (${initialized.response.status}: ${JSON.stringify(initialized.body)})`);
+    const instructions = initialized.body.result?.instructions;
+    assert(typeof instructions === "string" && instructions.includes("idempotencyKey") && instructions.includes("expectedUpdatedAt") && instructions.includes("explicit confirmation"), "initialize publishes model-facing workflow and mutation safety instructions");
     const listed = await raw(writerToken.secret, rpc("tools/list", {}));
     const tools = listed.body.result?.tools as Array<{ name: string; annotations?: Record<string, unknown>; inputSchema?: Record<string, unknown> }>;
     const names = tools.map((tool) => tool.name);
