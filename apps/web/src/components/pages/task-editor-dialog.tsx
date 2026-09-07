@@ -127,7 +127,7 @@ export function TaskEditorDialog({
             <textarea ref={notesRef} aria-labelledby="task-notes-label" value={draft.notes} maxLength={10_000} onChange={(event) => update({ notes: event.target.value })} placeholder="补充完成标准、等待事项或下一步…" />
           </div>
         </section>
-        {draft.id && <RelatedContentPanel kind="task" entityId={draft.id} emptyText="这个任务还没有关联内容。" />}
+        {draft.id && <RelatedContentPanel kind="task" entityId={draft.id} flat hideWhenEmpty excludeRelations={["project-item"]} />}
       </div>
       <footer><div><button className="secondary-button" disabled={busy} onClick={onClose}>取消</button><button className="primary-button" disabled={busy || !draft.title.trim()} onClick={onSave}>{busy && <LoaderCircle className="spin" size={15} />}{draft.id ? "保存修改" : "创建任务"}</button></div></footer>
     </section>

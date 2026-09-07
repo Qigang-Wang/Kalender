@@ -95,6 +95,11 @@ interface ClientTask {
   readonly isUrgent: boolean;
   readonly dueAt?: string;
   readonly estimatedMinutes?: number;
+  readonly projectId?: string;
+  readonly planItemId?: string;
+  readonly projectName?: string;
+  readonly areaName?: string;
+  readonly assigneeUserId?: string;
   readonly sourceReferences: readonly ClientTaskSource[];
   readonly scheduledBlocks: readonly ClientTaskTimeBlock[];
 }
@@ -203,7 +208,6 @@ type CalendarViewMode = "week" | "month";
 type CalendarDialogMode = "view" | "edit";
 
 function calendarEventWriteDisabledReason(event?: CalendarViewEvent, calendar?: CalendarListItem): string | undefined {
-  if (event?.derivedFromTask) return "请在任务中修改开始时间或预计时长";
   if (calendar?.readOnly) return "这个日历当前为只读";
   if (event?.providerData?.providerId !== "exchange") return undefined;
   if (!event.providerData.itemId) return "请先立即同步 RWTH 日历，再尝试修改";
@@ -818,7 +822,54 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     await updateTaskTimeBlock(event, start, new Date(Math.max(start.getTime() + 5 * 60_000, end.getTime())), "调整时长");
   };
 
+  const updateDerivedTaskTime = async (
+    event: CalendarViewEvent,
+    dueAt: string,
+    estimatedMinutes: number,
+    action: "移动" | "调整时长",
+  ) => {
+    const task = event.linkedTask ? calendarTasks.find((item) => item.id === event.linkedTask!.id) : undefined;
+    if (!task || taskDropBusy) return;
+    if (task.dueAt === dueAt && task.estimatedMinutes === estimatedMinutes) return;
+    setTaskDropBusy(true);
+    setEventPreview(undefined);
+    try {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: task.title,
+          notes: task.notes,
+          status: task.status,
+          important: task.important,
+          urgencyMode: task.urgencyMode,
+          dueAt,
+          estimatedMinutes,
+          projectId: task.projectId,
+          planItemId: task.planItemId,
+          projectName: task.projectName,
+          areaName: task.areaName,
+          assigneeUserId: task.assigneeUserId,
+          sourceReferences: task.sourceReferences.map(({ kind, sourceId, label, href }) => ({ kind, sourceId, label, href })),
+        }),
+      });
+      const payload = await response.json() as { readonly ok?: boolean; readonly task?: ClientTask; readonly message?: string };
+      if (!response.ok || !payload.ok || !payload.task) throw new Error(payload.message ?? `无法${action}任务`);
+      setCalendarTasks((current) => current.map((item) => item.id === payload.task!.id ? payload.task! : item));
+      setFeedback(action === "移动" ? `已移动“${task.title}”` : `已调整“${task.title}”的预计时长`);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : `无法${action}任务`);
+    } finally {
+      setTaskDropBusy(false);
+    }
+  };
+
   const moveCalendarEvent = async (event: CalendarViewEvent, start: Date) => {
+    if (event.derivedFromTask) {
+      const durationMinutes = Math.max(5, Math.round((new Date(event.end).getTime() - new Date(event.start).getTime()) / 60_000));
+      await updateDerivedTaskTime(event, start.toISOString(), durationMinutes, "移动");
+      return;
+    }
     if (event.linkedTask) {
       await moveTaskTimeBlock(event, start);
       return;
@@ -892,6 +943,12 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   };
 
   const resizeCalendarEvent = async (event: CalendarViewEvent, end: Date) => {
+    if (event.derivedFromTask) {
+      const start = new Date(event.start);
+      const durationMinutes = Math.max(5, Math.min(1440, Math.round((end.getTime() - start.getTime()) / 60_000)));
+      await updateDerivedTaskTime(event, start.toISOString(), durationMinutes, "调整时长");
+      return;
+    }
     if (event.linkedTask) {
       await resizeTaskTimeBlock(event, end);
       return;

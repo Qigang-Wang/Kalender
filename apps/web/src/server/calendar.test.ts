@@ -20,8 +20,9 @@ async function main() {
   const database = await getDatabase();
 
   try {
+    const taskRange = taskCalendarRange("2026-07-20T10:00:00.000Z", 45);
     assert(
-      taskCalendarRange("2026-07-20T10:00:00.000Z", 45)?.end === "2026-07-20T10:45:00.000Z",
+      taskRange?.start === "2026-07-20T10:00:00.000Z" && taskRange.end === "2026-07-20T10:45:00.000Z",
       "task calendar range starts at the task time and lasts for the estimate",
     );
     assert(!taskCalendarRange("2026-07-20T10:00:00.000Z", undefined), "task calendar range requires an estimate");

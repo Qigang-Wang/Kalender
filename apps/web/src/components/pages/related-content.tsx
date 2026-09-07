@@ -30,6 +30,7 @@ export function RelatedContentPanel({
   refreshKey = 0,
   hideHeading = false,
   hideWhenEmpty = false,
+  flat = false,
   emptyText = "还没有相关内容。",
   excludeRelations = [],
 }: {
@@ -38,6 +39,7 @@ export function RelatedContentPanel({
   readonly refreshKey?: number;
   readonly hideHeading?: boolean;
   readonly hideWhenEmpty?: boolean;
+  readonly flat?: boolean;
   readonly emptyText?: string;
   readonly excludeRelations?: readonly string[];
 }) {
@@ -67,7 +69,7 @@ export function RelatedContentPanel({
   if (hideWhenEmpty && (state === "loading" || (state === "ready" && visibleItems.length === 0))) return null;
 
   return (
-    <section className={`related-content ${hideHeading ? "related-content-embedded" : ""}`} aria-label="相关内容">
+    <section className={`related-content${hideHeading ? " related-content-embedded" : ""}${flat ? " related-content-flat" : ""}`} aria-label="相关内容">
       {!hideHeading && <header><span><Link2 size={14} />相关内容</span>{state === "ready" && visibleItems.length > 0 && <small>{visibleItems.length}</small>}</header>}
       {state === "loading" ? <p><LoaderCircle className="spin" size={13} />正在读取关联…</p>
         : state === "error" ? <p className="related-content-error"><AlertCircle size={13} />暂时无法读取相关内容</p>
