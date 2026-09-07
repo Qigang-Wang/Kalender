@@ -118,12 +118,6 @@ interface ClientTaskPlanItem {
   readonly status: "planned" | "in_progress" | "paused" | "done" | "cancelled";
 }
 
-interface ClientCollaborator {
-  readonly id: string;
-  readonly displayName: string;
-  readonly email: string;
-}
-
 interface TaskContextMenuState {
   readonly taskId: string;
   readonly x: number;
@@ -157,7 +151,6 @@ export function TasksPage({
   const [tasks, setTasks] = useState<readonly ClientTask[]>([]);
   const [taskProjects, setTaskProjects] = useState<readonly ClientProject[]>([]);
   const [taskPlanItems, setTaskPlanItems] = useState<readonly ClientTaskPlanItem[]>([]);
-  const [collaborators, setCollaborators] = useState<readonly ClientCollaborator[]>([]);
   const [view, setView] = useState<TaskView>(initialTaskView ?? "today");
   const [loading, setLoading] = useState(true);
   const [busyTaskId, setBusyTaskId] = useState<string>();
@@ -173,19 +166,16 @@ export function TasksPage({
   const loadTasks = useCallback(async ({ background = false }: { readonly background?: boolean } = {}) => {
     if (!background) setLoading(true);
     try {
-      const [tasksResponse, projectsResponse, collaboratorsResponse] = await Promise.all([
+      const [tasksResponse, projectsResponse] = await Promise.all([
         workspaceFetch("/api/tasks?includeCompleted=true"),
         workspaceFetch("/api/projects?includeArchived=true"),
-        workspaceFetch("/api/collaborators"),
       ]);
       const tasksPayload = await tasksResponse.json() as { ok: boolean; tasks?: readonly ClientTask[]; message?: string };
       const projectsPayload = await projectsResponse.json() as { ok: boolean; projects?: readonly ClientProject[]; message?: string };
-      const collaboratorsPayload = await collaboratorsResponse.json() as { ok: boolean; users?: readonly ClientCollaborator[]; message?: string };
       if (!tasksResponse.ok || !tasksPayload.ok) throw new Error(tasksPayload.message ?? "无法读取任务");
       if (!projectsResponse.ok || !projectsPayload.ok) throw new Error(projectsPayload.message ?? "无法读取项目");
       setTasks(tasksPayload.tasks ?? []);
       setTaskProjects(projectsPayload.projects ?? []);
-      if (collaboratorsResponse.ok && collaboratorsPayload.ok) setCollaborators(collaboratorsPayload.users ?? []);
       if (!background) setFeedback(undefined);
     } catch (error) {
       if (!background) setFeedback(error instanceof Error ? error.message : "无法读取任务");
@@ -498,8 +488,8 @@ export function TasksPage({
       ) : (
         <section className="panel task-empty-state">
           <div><CheckCircle2 size={22} /></div>
-          <h3>{view === "inbox" ? "任务收集箱是空的" : view === "completed" ? "还没有已完成任务" : view === "waiting" ? "没有等待事项" : view === "upcoming" ? "没有后续截止任务" : "今天没有紧急任务"}</h3>
-          <p>{view === "inbox" ? "先快速记下来，稍后再设置项目、截止时间和优先级。" : view === "completed" ? "完成任务后会在这里保留记录，也可以重新打开。" : view === "waiting" ? "将依赖他人的任务设为等待中，方便集中跟进。" : view === "upcoming" ? "给任务设置今天之后的截止时间，就会出现在这里。" : "可以从四象限里挑一项重要但不紧急的任务安排时间。"}</p>
+          <h3>{view === "inbox" ? "任务收集箱是空的" : view === "completed" ? "还没有已完成任务" : view === "waiting" ? "没有等待事项" : view === "upcoming" ? "没有后续开始的任务" : "今天没有紧急任务"}</h3>
+          <p>{view === "inbox" ? "先快速记下来，稍后再设置项目、开始时间和优先级。" : view === "completed" ? "完成任务后会在这里保留记录，也可以重新打开。" : view === "waiting" ? "将依赖他人的任务设为等待中，方便集中跟进。" : view === "upcoming" ? "给任务设置今天之后的开始时间，就会出现在这里。" : "可以从四象限里挑一项重要但不紧急的任务安排时间。"}</p>
           <button className="primary-button" onClick={() => setDraft(createEmptyTaskDraft(view === "inbox" ? "inbox" : "next"))}><Plus size={15} />新建任务</button>
         </section>
       )}
@@ -508,7 +498,6 @@ export function TasksPage({
         draft={draft}
         projects={taskProjects}
         planItems={taskPlanItems}
-        collaborators={collaborators}
         editingTask={editingTask}
         busy={Boolean(busyTaskId)}
         scheduleBusy={scheduleBusy}

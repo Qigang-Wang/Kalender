@@ -375,7 +375,7 @@ export function TodayPage() {
           <section className="panel compact-panel">
             <h2><ListChecks size={19} />需要推进 <small>{snapshot.totals.tasks}</small></h2>
             {snapshot.tasks.length ? snapshot.tasks.map((task) => <TaskRow task={task} busy={busyTaskId === task.id} onComplete={() => void completeTask(task)} onOpenMenu={(x, y, returnFocus) => openContextMenu("task", task.id, x, y, returnFocus)} key={task.id} />)
-              : <TodayEmpty icon={<CheckCircle2 size={20} />} text="今天没有到期或紧急任务" />}
+              : <TodayEmpty icon={<CheckCircle2 size={20} />} text="今天没有开始或紧急任务" />}
           </section>
           <section className="panel reply-panel">
             <h2><Mail size={18} />未读邮件 <small>{snapshot.totals.unreadMail}</small></h2>
@@ -803,7 +803,7 @@ function TaskRow({
       </header>
       <strong>{task.title}</strong>
       <div className="today-event-hover-meta">
-        {task.dueAt && <span><Clock3 size={14} />截止：{formatTodayTaskDueDetail(task.dueAt)}</span>}
+        {task.dueAt && <span><Clock3 size={14} />开始：{formatTodayTaskDueDetail(task.dueAt)}</span>}
         {task.estimatedMinutes && <span><Clock3 size={14} />预计：{formatTodayTaskEstimate(task.estimatedMinutes)}</span>}
         {(task.projectName || task.areaName) && <span><Link2 size={14} />{[task.areaName, task.projectName].filter(Boolean).join(" · ")}</span>}
       </div>
@@ -924,13 +924,13 @@ function formatTodayMeetingHost(value: string): string {
 }
 
 function todayTaskAttentionLabel(task: TodayTaskItem): string {
-  return task.attention === "overdue" ? "已逾期" : task.attention === "today" ? "今天到期" : "需要立即推进";
+  return task.attention === "overdue" ? "已到开始时间" : task.attention === "today" ? "今天开始" : "需要立即推进";
 }
 
 function formatTodayTaskDue(value: string): string {
   const date = new Date(value);
   const now = new Date();
-  if (date < now) return "逾期";
+  if (date < now) return "已开始";
   return formatTodayClock(value);
 }
 

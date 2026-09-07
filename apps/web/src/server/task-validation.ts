@@ -34,9 +34,9 @@ export function parseTaskInput(body: TaskRequestBody | null, id?: string): SaveT
     : "auto";
   let dueAt: string | undefined;
   if (body.dueAt !== undefined && body.dueAt !== null && body.dueAt !== "") {
-    if (typeof body.dueAt !== "string") throw new TaskValidationError("截止时间无效");
+    if (typeof body.dueAt !== "string") throw new TaskValidationError("开始时间无效");
     const date = new Date(body.dueAt);
-    if (Number.isNaN(date.getTime())) throw new TaskValidationError("截止时间无效");
+    if (Number.isNaN(date.getTime())) throw new TaskValidationError("开始时间无效");
     dueAt = date.toISOString();
   }
   let estimatedMinutes: number | undefined;

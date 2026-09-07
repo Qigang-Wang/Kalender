@@ -1230,7 +1230,6 @@ export function ProjectsPage({ initialProjectId }: { readonly initialProjectId?:
         draft={taskEditDraft}
         projects={projects}
         planItems={taskEditPlanItems}
-        collaborators={collaborators}
         editingTask={editingProjectTask}
         busy={busy}
         scheduleBusy={taskScheduleBusy}

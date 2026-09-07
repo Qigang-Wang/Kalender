@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 
+import { formatTaskNotesList } from "../../lib/task-notes";
 import { resolveNewTaskDefaults } from "./task-view-model";
+
+assert.equal(formatTaskNotesList("第一项\n第二项", 0, 7, "ordered").value, "1. 第一项\n2. 第二项");
+assert.equal(formatTaskNotesList("- 第一项", 0, 5, "task").value, "- [ ] 第一项");
 
 const projects = [
   { id: "active-project", name: "AGW", areaName: "AMT", status: "active" as const },

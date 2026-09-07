@@ -11,6 +11,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
+import { taskCalendarRange } from "@/lib/task-calendar";
 import { appConfirm } from "@/components/app-dialog-provider";
 import { useRealtimeRefresh } from "@/components/realtime-context";
 import { useVisiblePageRefresh } from "@/hooks/use-visible-page-refresh";
@@ -159,6 +160,7 @@ interface CalendarViewEvent {
   readonly recurrenceException?: boolean;
   readonly availability?: "free" | "tentative" | "busy" | "oof" | "working_elsewhere";
   readonly linkedTask?: { readonly id: string; readonly title: string; readonly href: string };
+  readonly derivedFromTask?: boolean;
 }
 
 interface CalendarEventDraft {
@@ -201,6 +203,7 @@ type CalendarViewMode = "week" | "month";
 type CalendarDialogMode = "view" | "edit";
 
 function calendarEventWriteDisabledReason(event?: CalendarViewEvent, calendar?: CalendarListItem): string | undefined {
+  if (event?.derivedFromTask) return "请在任务中修改开始时间或预计时长";
   if (calendar?.readOnly) return "这个日历当前为只读";
   if (event?.providerData?.providerId !== "exchange") return undefined;
   if (!event.providerData.itemId) return "请先立即同步 RWTH 日历，再尝试修改";
@@ -250,6 +253,32 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     const start = startOfCalendarWeek(monthStart);
     return { start, end: addCalendarDays(start, 42) };
   }, [anchorDate, viewMode]);
+  const deadlineTaskEvents = useMemo<readonly CalendarViewEvent[]>(() => {
+    if (!writableLocalCalendar) return [];
+    return calendarTasks.flatMap((task) => {
+      if (task.status === "done" || task.scheduledBlocks.length) return [];
+      const range = taskCalendarRange(task.dueAt, task.estimatedMinutes);
+      if (!range || range.end <= visibleRange.start.toISOString() || range.start >= visibleRange.end.toISOString()) return [];
+      return [{
+        id: `task-deadline:${task.id}`,
+        calendarId: writableLocalCalendar.id,
+        title: task.title,
+        description: "根据任务的开始时间和预计时长自动显示",
+        start: range.start,
+        end: range.end,
+        timeZone,
+        allDay: false,
+        status: "confirmed" as const,
+        availability: "busy" as const,
+        linkedTask: { id: task.id, title: task.title, href: `/tasks?task=${encodeURIComponent(task.id)}` },
+        derivedFromTask: true,
+      }];
+    });
+  }, [calendarTasks, timeZone, visibleRange, writableLocalCalendar]);
+  const displayedEvents = useMemo(
+    () => [...events, ...deadlineTaskEvents].sort((left, right) => left.start.localeCompare(right.start)),
+    [deadlineTaskEvents, events],
+  );
 
   const requestRecurrenceScope = useCallback((
     action: RecurrenceScopePrompt["action"],
@@ -398,6 +427,14 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       conflicts: [],
     });
   }, [timeZone]);
+
+  const openCalendarItem = useCallback((event: CalendarViewEvent) => {
+    if (event.derivedFromTask && event.linkedTask) {
+      router.push(event.linkedTask.href);
+      return;
+    }
+    openEditDraft(event);
+  }, [openEditDraft, router]);
 
   const updateCalendarDraft = (changes: Partial<CalendarEventDraft>) => {
     setDraft((current) => current ? { ...current, ...changes, conflicts: [] } : current);
@@ -662,10 +699,10 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     }
   };
 
-  const contextEvent = menu?.kind === "event" ? events.find((event) => event.id === menu.eventId) : undefined;
+  const contextEvent = menu?.kind === "event" ? displayedEvents.find((event) => event.id === menu.eventId) : undefined;
   const contextCalendar = contextEvent ? calendars.find((calendar) => calendar.id === contextEvent.calendarId) : undefined;
   const contextWriteDisabledReason = calendarEventWriteDisabledReason(contextEvent, contextCalendar);
-  const contextCommands = menu?.kind === "event" && contextEvent
+  const availableContextCommands = menu?.kind === "event" && contextEvent
     ? resolveContextCommands({
         kind: "calendar-event",
         id: contextEvent.id,
@@ -679,11 +716,14 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     : menu?.kind === "slot"
       ? resolveContextCommands({ kind: "calendar-slot", startsAt: menu.startsAt, busy })
       : [];
+  const contextCommands = contextEvent?.derivedFromTask
+    ? availableContextCommands.filter((command) => command.id === "calendar.open-task")
+    : availableContextCommands;
 
   const handleContextCommand = (commandId: ContextCommandId) => {
     if (menu?.kind === "event" && contextEvent) {
       const eventCommand = commandId as CalendarEventCommandId;
-      if (eventCommand === "calendar.open") openEditDraft(contextEvent, "view");
+      if (eventCommand === "calendar.open") openCalendarItem(contextEvent);
       if (eventCommand === "calendar.edit") openEditDraft(contextEvent, "edit");
       if (eventCommand === "calendar.open-task" && contextEvent.linkedTask) window.location.assign(contextEvent.linkedTask.href);
       if (eventCommand === "calendar.duplicate") duplicateEvent(contextEvent);
@@ -921,7 +961,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     }
   };
 
-  const previewEvent = eventPreview ? events.find((event) => event.id === eventPreview.eventId) : undefined;
+  const previewEvent = eventPreview ? displayedEvents.find((event) => event.id === eventPreview.eventId) : undefined;
   const previewCalendar = previewEvent ? calendars.find((calendar) => calendar.id === previewEvent.calendarId) : undefined;
   const draftCalendar = draft ? calendars.find((calendar) => calendar.id === draft.calendarId) : undefined;
   const draftEvent = draft?.id ? events.find((event) => event.id === draft.id) : undefined;
@@ -961,11 +1001,11 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
         {viewMode === "week" ? (
           <CalendarWeekView
             calendars={calendars}
-            events={events}
+            events={displayedEvents}
             loading={loading}
             weekStart={visibleRange.start}
             onCreate={openCreateDraft}
-            onEdit={openEditDraft}
+            onEdit={openCalendarItem}
             previewEventId={eventPreview?.eventId}
             onPreviewEvent={showEventPreview}
             onClearEventPreview={() => setEventPreview(undefined)}
@@ -987,12 +1027,12 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
           <CalendarMonthView
             anchorDate={anchorDate}
             calendars={calendars}
-            events={events}
+            events={displayedEvents}
             loading={loading}
             rangeStart={visibleRange.start}
             onOpenWeek={openWeekForDate}
             onCreate={openCreateDraft}
-            onEdit={openEditDraft}
+            onEdit={openCalendarItem}
             previewEventId={eventPreview?.eventId}
             onPreviewEvent={showEventPreview}
             onClearEventPreview={() => setEventPreview(undefined)}

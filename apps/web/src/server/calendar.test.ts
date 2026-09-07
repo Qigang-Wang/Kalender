@@ -15,10 +15,16 @@ async function main() {
   const { deleteStoredCalendarEvent, listStoredCalendarEventConflicts } = await import("./calendar-repository");
   const { parseCalendarEventInput, parseCalendarRange, CalendarValidationError } = await import("./calendar-validation");
   const { expandCalendarRecurrenceStarts } = await import("../lib/calendar-recurrence");
+  const { taskCalendarRange } = await import("../lib/task-calendar");
   const { encodeNoteContent, noteContentToPlainText } = await import("../lib/note-content");
   const database = await getDatabase();
 
   try {
+    assert(
+      taskCalendarRange("2026-07-20T10:00:00.000Z", 45)?.end === "2026-07-20T10:45:00.000Z",
+      "task calendar range starts at the task time and lasts for the estimate",
+    );
+    assert(!taskCalendarRange("2026-07-20T10:00:00.000Z", undefined), "task calendar range requires an estimate");
     const calendars = await localCalendarProvider.listCalendars(localCalendarContext);
     assert(calendars.length === 1, "default local calendar is created");
     assert(calendars[0]?.primary && !calendars[0].readOnly, "default calendar is primary and writable");
