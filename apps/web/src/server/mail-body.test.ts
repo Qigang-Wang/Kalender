@@ -3,8 +3,10 @@ import {
   resolveCidImages,
   resolveExchangeInlineImages,
   sanitizeEmailHtml,
+  sanitizeEmailIframeHtml,
   shouldUseMailBodyCache,
 } from "./mail-body-service";
+import { buildMailIframeDocument } from "../lib/mail-html-document";
 import { MAIL_BODY_CACHE_VERSION } from "./mail-repository";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -41,6 +43,43 @@ assert(!sanitized.includes("position"), "email CSS cannot escape its container")
 assert(!sanitized.includes("onerror"), "image event handlers are removed");
 assert(!sanitized.includes("javascript:"), "dangerous URL schemes are removed");
 assert(!sanitized.includes("<form"), "interactive forms are removed");
+
+const styledDocument = sanitizeEmailHtml(`
+  <!doctype html><html><head><title>不能进入正文的主题</title><style>
+    .card { border: 1px solid #dddddd; padding: 16px; }
+    .button { display: inline-block; padding: 8px 16px; background: #16883d; color: white; border-radius: 6px; }
+    .tracked { background-image: url(https://tracker.example/background.png); position: fixed; }
+  </style></head><body><table class="card"><tr><td><a class="button tracked" href="https://example.test">打开</a></td></tr></table></body></html>
+`);
+assert(!styledDocument.includes("不能进入正文的主题"), "document head content does not leak into the message body");
+assert(styledDocument.includes("border:1px solid #dddddd"), "safe class-based borders are inlined");
+assert(styledDocument.includes("padding:8px 16px"), "safe class-based spacing is inlined");
+assert(styledDocument.includes("background:#16883d"), "safe class-based backgrounds are inlined");
+assert(!styledDocument.includes("background-image"), "inlined CSS cannot load tracking backgrounds");
+assert(!styledDocument.includes("position"), "inlined CSS cannot escape the mail surface");
+
+const iframeDocument = sanitizeEmailIframeHtml(`
+  <!doctype html><html><head><title>不能进入 iframe 的主题</title><style>
+    .card { border: 1px solid #dddddd; } @media (max-width: 600px) { .card { width: 100%; } }
+  </style></head><body><table class="card"><tr><td onclick="steal()">正文</td></tr></table>
+  <script>steal()</script><form action="https://evil.example"><input name="password"></form>
+  <img src="https://tracker.example/pixel.gif" onerror="steal()"></body></html>
+`);
+assert(iframeDocument.includes("<style>"), "iframe HTML preserves embedded email styles");
+assert(iframeDocument.includes("@media"), "iframe HTML preserves responsive email rules");
+assert(iframeDocument.includes('class="card"'), "iframe HTML preserves CSS class names");
+assert(!iframeDocument.includes("不能进入 iframe 的主题"), "iframe HTML excludes document titles");
+assert(!iframeDocument.includes("<script"), "iframe HTML removes scripts");
+assert(!iframeDocument.includes("onclick"), "iframe HTML removes event handlers");
+assert(!iframeDocument.includes("<form"), "iframe HTML removes forms");
+assert(iframeDocument.includes('data-remote-src="https://tracker.example/pixel.gif"'), "iframe HTML blocks remote images before permission");
+
+const blockedFrame = buildMailIframeDocument(styledDocument, false);
+const enabledFrame = buildMailIframeDocument(styledDocument, true);
+assert(blockedFrame.includes("script-src 'none'"), "iframe documents disable scripts");
+assert(blockedFrame.includes("img-src 'self' data:"), "iframe documents block remote images by default");
+assert(!blockedFrame.includes("img-src 'self' data: http: https:"), "remote image origins are absent by default");
+assert(enabledFrame.includes("img-src 'self' data: http: https:"), "remote image origins require explicit permission");
 
 const cidResolved = resolveCidImages('<p>Logo</p><img src="cid:logo@example.test">', [{
   filename: "logo.png",

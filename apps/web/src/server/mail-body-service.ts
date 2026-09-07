@@ -1,4 +1,5 @@
 import { ImapFlow } from "imapflow";
+import juice from "juice";
 import PostalMime, { type Attachment } from "postal-mime";
 import sanitizeHtml from "sanitize-html";
 
@@ -28,6 +29,7 @@ const SAFE_LOCAL_INLINE_IMAGE_URL = /^\/api\/messages\/[a-z0-9%._~-]+\/attachmen
 const SAFE_CSS_COLOR = /^(?:#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|hsla?\([\d\s.,%]+\)|[a-z]{3,24})$/i;
 const SAFE_CSS_LENGTH = /^(?:auto|0|\d+(?:\.\d+)?(?:px|pt|pc|em|rem|ex|ch|vw|vh|vmin|vmax|%))$/i;
 const SAFE_CSS_BOX = /^(?:auto|0|\d+(?:\.\d+)?(?:px|pt|em|rem|%))(?:\s+(?:auto|0|\d+(?:\.\d+)?(?:px|pt|em|rem|%))){0,3}$/i;
+const SAFE_CSS_BORDER = /^(?:0|none|\d+(?:\.\d+)?(?:px|pt|em|rem)\s+(?:none|solid|dashed|dotted|double)\s+(?:#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{3,24}))$/i;
 
 declare global {
   var kalenderActiveBodyLoads: Map<string, Promise<MailBodyResult>> | undefined;
@@ -36,6 +38,7 @@ declare global {
 export interface MailBodyResult {
   readonly text?: string;
   readonly html?: string;
+  readonly iframeHtml?: string;
   readonly snippet: string;
   readonly loadedAt: string;
   readonly cached: boolean;
@@ -124,7 +127,17 @@ export async function getMailAttachment(messageId: string, attachmentIndex: numb
 }
 
 export function sanitizeEmailHtml(input: string): string {
-  return sanitizeHtml(input, {
+  let inlined = input;
+  try {
+    inlined = juice(input, {
+      applyStyleTags: true,
+      removeStyleTags: true,
+      preserveMediaQueries: false,
+    });
+  } catch {
+    // Malformed email CSS must not prevent the readable HTML fallback.
+  }
+  return sanitizeHtml(inlined, {
     allowedTags: [
       "a", "b", "blockquote", "br", "code", "div", "em", "h1", "h2", "h3", "h4",
       "hr", "i", "img", "li", "ol", "p", "pre", "span", "strong", "table", "tbody", "td",
@@ -135,6 +148,7 @@ export function sanitizeEmailHtml(input: string): string {
     allowProtocolRelative: false,
     disallowedTagsMode: "discard",
     enforceHtmlBoundary: true,
+    nonTextTags: ["script", "style", "textarea", "option", "title", "head"],
     transformTags: {
       a: (_tagName, attributes) => ({
         tagName: "a",
@@ -153,7 +167,16 @@ export function sanitizeEmailHtml(input: string): string {
     allowedStyles: {
       "*": {
         color: [SAFE_CSS_COLOR],
+        background: [SAFE_CSS_COLOR],
         "background-color": [SAFE_CSS_COLOR],
+        border: [SAFE_CSS_BORDER],
+        "border-top": [SAFE_CSS_BORDER],
+        "border-right": [SAFE_CSS_BORDER],
+        "border-bottom": [SAFE_CSS_BORDER],
+        "border-left": [SAFE_CSS_BORDER],
+        "border-color": [SAFE_CSS_COLOR],
+        "border-style": [/^(?:none|solid|dashed|dotted|double)$/i],
+        "border-width": [SAFE_CSS_LENGTH],
         display: [/^(?:none|block|inline|inline-block|table|table-row|table-cell)$/i],
         "font-family": [/^[\w\s,'".-]{1,160}$/],
         "font-size": [SAFE_CSS_LENGTH],
@@ -187,6 +210,41 @@ export function sanitizeEmailHtml(input: string): string {
         "word-break": [/^(?:normal|break-all|keep-all|break-word)$/i],
         overflow: [/^(?:visible|hidden|auto|scroll)$/i],
       },
+    },
+  });
+}
+
+export function sanitizeEmailIframeHtml(input: string): string {
+  return sanitizeHtml(input, {
+    // Embedded CSS is rendered only inside the scriptless, CSP-restricted mail iframe.
+    allowVulnerableTags: true,
+    allowedTags: [
+      "a", "article", "b", "blockquote", "br", "code", "dd", "div", "dl", "dt", "em",
+      "figcaption", "figure", "footer", "h1", "h2", "h3", "h4", "header", "hr", "i", "img",
+      "li", "main", "mark", "ol", "p", "pre", "s", "section", "small", "span", "strong",
+      "style", "sub", "sup", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "u", "ul",
+    ],
+    allowedSchemes: ["http", "https", "mailto"],
+    allowedSchemesByTag: { img: ["data"] },
+    allowProtocolRelative: false,
+    disallowedTagsMode: "discard",
+    enforceHtmlBoundary: true,
+    nonTextTags: ["script", "textarea", "option", "title", "noscript"],
+    transformTags: {
+      a: (_tagName, attributes) => ({
+        tagName: "a",
+        attribs: { ...attributes, target: "_blank", rel: "noopener noreferrer" },
+      }),
+      img: (_tagName, attributes) => sanitizeImageTag(attributes),
+    },
+    allowedAttributes: {
+      "*": ["style", "class", "id", "align", "dir", "title"],
+      a: ["href", "title", "target", "rel", "style", "class", "id"],
+      img: ["src", "data-remote-src", "alt", "title", "width", "height", "style", "class", "id", "loading", "referrerpolicy"],
+      style: ["media", "type"],
+      table: ["width", "height", "align", "cellpadding", "cellspacing", "border", "bgcolor", "role", "style", "class", "id"],
+      td: ["width", "height", "align", "valign", "colspan", "rowspan", "bgcolor", "style", "class", "id"],
+      th: ["width", "height", "align", "valign", "colspan", "rowspan", "bgcolor", "style", "class", "id"],
     },
   });
 }
@@ -233,9 +291,11 @@ async function fetchAndCacheBody(stored: StoredMessageBody): Promise<MailBodyRes
   if (account?.providerId === "exchange-ews") return fetchAndCacheExchangeBody(stored);
   const parsed = await fetchParsedMessage(stored);
   const text = cleanText(parsed.text);
-  const html = parsed.html ? sanitizeEmailHtml(resolveCidImages(parsed.html, parsed.attachments)) : undefined;
+  const resolvedHtml = parsed.html ? resolveCidImages(parsed.html, parsed.attachments) : undefined;
+  const html = resolvedHtml ? sanitizeEmailHtml(resolvedHtml) : undefined;
+  const iframeHtml = resolvedHtml ? sanitizeEmailIframeHtml(resolvedHtml) : undefined;
   const snippet = createSnippet(text || htmlToText(html) || "（邮件正文为空）");
-  const saved = await saveMessageBody(stored.id, text || undefined, html || undefined, snippet);
+  const saved = await saveMessageBody(stored.id, text || undefined, html || undefined, snippet, iframeHtml);
   if (!saved?.loadedAt) throw new Error("无法缓存邮件正文");
   return toResult(saved, false);
 }
@@ -280,8 +340,9 @@ async function fetchAndCacheExchangeBody(stored: StoredMessageBody): Promise<Mai
     }
   }
   const html = resolvedHtml ? sanitizeEmailHtml(resolvedHtml) : undefined;
+  const iframeHtml = resolvedHtml ? sanitizeEmailIframeHtml(resolvedHtml) : undefined;
   const snippet = createSnippet(text || htmlToText(html) || "（邮件正文为空）");
-  const saved = await saveMessageBody(stored.id, text || undefined, html || undefined, snippet);
+  const saved = await saveMessageBody(stored.id, text || undefined, html || undefined, snippet, iframeHtml);
   if (!saved?.loadedAt) throw new Error("无法缓存 Exchange 邮件正文");
   return toResult(saved, false);
 }
@@ -402,9 +463,10 @@ function toResult(stored: StoredMessageBody, cached: boolean): MailBodyResult {
   return {
     text: stored.textBody,
     html: stored.htmlBody,
+    iframeHtml: stored.iframeHtmlBody,
     snippet: stored.snippet,
     loadedAt: stored.loadedAt!,
     cached,
-    hasBlockedRemoteImages: Boolean(stored.htmlBody?.includes("data-remote-src=")),
+    hasBlockedRemoteImages: Boolean(stored.iframeHtmlBody?.includes("data-remote-src=") || stored.htmlBody?.includes("data-remote-src=")),
   };
 }

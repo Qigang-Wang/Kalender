@@ -1,4 +1,4 @@
-import { resolveExchangeInlineImages, sanitizeEmailHtml } from "./mail-body-service";
+import { resolveExchangeInlineImages, sanitizeEmailHtml, sanitizeEmailIframeHtml } from "./mail-body-service";
 import {
   exchangeFolderLocalId,
   exchangeMessageLocalId,
@@ -173,11 +173,11 @@ async function storeMessages(accountId: string, folderId: string, messages: read
   await upsertMessages(accountId, records);
   const bodies = messages.flatMap((message, index) => {
     const id = records[index]!.id;
-    const html = message.htmlBody
-      ? sanitizeEmailHtml(resolveExchangeInlineImages(message.htmlBody, message.attachments, id))
-      : undefined;
+    const resolvedHtml = message.htmlBody ? resolveExchangeInlineImages(message.htmlBody, message.attachments, id) : undefined;
+    const html = resolvedHtml ? sanitizeEmailHtml(resolvedHtml) : undefined;
+    const iframeHtmlBody = resolvedHtml ? sanitizeEmailIframeHtml(resolvedHtml) : undefined;
     return message.textBody || html
-      ? [{ id, textBody: message.textBody, htmlBody: html, snippet: message.snippet }]
+      ? [{ id, textBody: message.textBody, htmlBody: html, iframeHtmlBody, snippet: message.snippet }]
       : [];
   });
   await saveMessageBodies(bodies);

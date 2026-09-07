@@ -20,6 +20,7 @@ import { fetchWithTimeout, readApiJson } from "@/lib/fetch-with-timeout";
 import { replaceMailSignatureContent, type MailSignatureVariant } from "@/lib/mail-signature-content";
 import { decodeNoteContent, EMPTY_PLATE_NOTE_CONTENT, encodeNoteContent, noteContentToPlainText } from "@/lib/note-content";
 import { groupMailByDate, type MailDateGroupId } from "@/lib/mail-date-groups";
+import { buildMailIframeDocument } from "@/lib/mail-html-document";
 import { resolveReplyRecipients } from "@/lib/mail-reply-recipients";
 import { isSmimeSignatureAttachment } from "@/lib/mail-smime";
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
@@ -76,30 +77,6 @@ function mailFolderLabel(folder: { readonly role: string; readonly name: string 
 
 function mailMessageHref(messageId: string): string {
   return `/inbox?message=${encodeURIComponent(messageId)}`;
-}
-
-function clampEmailBodyFontSizes(html?: string): string | undefined {
-  if (!html || typeof DOMParser === "undefined") return html;
-  const document = new DOMParser().parseFromString(html, "text/html");
-  for (const element of document.body.querySelectorAll<HTMLElement>("[style*='font-size'], font[size]")) {
-    const hasOwnText = Array.from(element.childNodes).some((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim());
-    if (!hasOwnText) continue;
-    const rawSize = element.style.fontSize.trim().toLowerCase();
-    const match = rawSize.match(/^([\d.]+)(px|pt|em|rem|%)$/);
-    const value = match ? Number.parseFloat(match[1]!) : Number.NaN;
-    const unit = match?.[2];
-    const pixels = unit === "px" ? value
-      : unit === "pt" ? value * 4 / 3
-        : unit === "em" || unit === "rem" ? value * 16
-          : unit === "%" ? value * 0.16
-            : element.tagName === "FONT" && element.getAttribute("size") === "1" ? 10
-              : Number.NaN;
-    if (Number.isFinite(pixels) && pixels < 12) {
-      element.style.fontSize = "12px";
-      if (element.tagName === "FONT") element.removeAttribute("size");
-    }
-  }
-  return document.body.innerHTML;
 }
 
 function EditorLoading({ label }: { readonly label: string }) {
@@ -246,6 +223,7 @@ type InboxBodyState =
       readonly status: "ready";
       readonly text?: string;
       readonly html?: string;
+      readonly iframeHtml?: string;
       readonly cached: boolean;
       readonly hasBlockedRemoteImages: boolean;
     };
@@ -1165,13 +1143,13 @@ export function InboxPage({
         .then(async (response) => {
           const result = await readApiJson<{
             readonly message?: string;
-            readonly body?: { readonly text?: string; readonly html?: string; readonly snippet: string; readonly cached: boolean; readonly hasBlockedRemoteImages: boolean };
+            readonly body?: { readonly text?: string; readonly html?: string; readonly iframeHtml?: string; readonly snippet: string; readonly cached: boolean; readonly hasBlockedRemoteImages: boolean };
           }>(response, "无法读取邮件正文");
           if (!response.ok || !result.body) throw new Error(result.message || "无法读取邮件正文");
           return result.body;
         })
         .then((body) => {
-          setBodies((current) => ({ ...current, [messageId]: { status: "ready", text: body.text, html: clampEmailBodyFontSizes(body.html), cached: body.cached, hasBlockedRemoteImages: body.hasBlockedRemoteImages } }));
+          setBodies((current) => ({ ...current, [messageId]: { status: "ready", text: body.text, html: body.html, iframeHtml: body.iframeHtml, cached: body.cached, hasBlockedRemoteImages: body.hasBlockedRemoteImages } }));
           setRemoteItems((current) => current?.map((item) => item.id === messageId ? { ...item, preview: body.snippet } : item) ?? current);
         })
         .catch((error: unknown) => {
@@ -1191,6 +1169,7 @@ export function InboxPage({
         readonly body?: {
           readonly text?: string;
           readonly html?: string;
+          readonly iframeHtml?: string;
           readonly snippet: string;
           readonly cached: boolean;
           readonly hasBlockedRemoteImages: boolean;
@@ -1203,7 +1182,8 @@ export function InboxPage({
         [messageId]: {
           status: "ready",
           text: body.text,
-          html: clampEmailBodyFontSizes(body.html),
+          html: body.html,
+          iframeHtml: body.iframeHtml,
           cached: body.cached,
           hasBlockedRemoteImages: body.hasBlockedRemoteImages,
         },
@@ -2120,9 +2100,8 @@ export function InboxPage({
               const body = bodies[threadMessage.id];
               const senderDomain = emailAddressDomain(threadMessage.senderAddress);
               const remoteImagesEnabled = remoteImagesAllowed.has(threadMessage.id) || Boolean(senderDomain && remoteImageDomainsAllowed.has(senderDomain));
-              const html = body?.status === "ready" && body.html
-                ? remoteImagesEnabled ? enableRemoteEmailImages(body.html) : body.html
-                : undefined;
+              const storedHtml = body?.status === "ready" ? body.iframeHtml ?? body.html : undefined;
+              const iframeHtml = storedHtml && remoteImagesEnabled ? enableRemoteEmailImages(storedHtml) : storedHtml;
               const digitallySigned = threadMessage.attachments.some(isSmimeSignatureAttachment);
               const visibleAttachments = threadMessage.attachments.filter((attachment) => !attachment.inline && !isSmimeSignatureAttachment(attachment));
               return <section className={`thread-message ${expanded ? "expanded" : "collapsed"}`} key={threadMessage.id}>
@@ -2151,7 +2130,9 @@ export function InboxPage({
                   {(!body || body.status === "loading") && <div className="body-status" data-testid="mail-body-loading"><LoaderCircle className="spin" size={17} />正在安全读取正文…</div>}
                   {body?.status === "error" && <div className="body-error" data-testid="mail-body-error"><p>{body.message}</p><button className="secondary-button" onClick={() => setBodyRetry((value) => value + 1)}>重试</button></div>}
                   {body?.status === "ready" && <div data-testid={index === 0 ? "mail-body-content" : undefined}>
-                    {html ? <div className="mail-body-html" dangerouslySetInnerHTML={{ __html: html }} /> : <div className="mail-body-text">{body.text || "（邮件正文为空）"}</div>}
+                    {iframeHtml
+                      ? <MailBodyFrame html={iframeHtml} allowRemoteImages={remoteImagesEnabled} />
+                      : <div className="mail-body-text">{body.text || "（邮件正文为空）"}</div>}
                   </div>}
                   {visibleAttachments.length > 0 && <section className="incoming-attachments" aria-label="邮件附件"><header><Paperclip size={14} /><strong>附件</strong><span>{visibleAttachments.length}</span></header><div>{threadMessage.attachments.map((attachment, attachmentIndex) => attachment.inline || isSmimeSignatureAttachment(attachment) ? null : <a href={`/api/messages/${encodeURIComponent(threadMessage.id)}/attachments/${attachmentIndex}`} key={`${attachment.filename}:${attachmentIndex}`}><FileText size={16} /><span><strong>{attachment.filename}</strong><small>{attachment.contentType} · {formatFileSize(attachment.sizeBytes)}</small></span><em>下载</em></a>)}</div></section>}
                 </div>}
@@ -2328,6 +2309,31 @@ export function InboxPage({
   );
 }
 
+function MailBodyFrame({ html, allowRemoteImages }: { readonly html: string; readonly allowRemoteImages: boolean }) {
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const resize = useCallback(() => {
+    const frame = frameRef.current;
+    const document = frame?.contentDocument;
+    if (!frame || !document) return;
+    frame.style.height = `${Math.max(120, document.documentElement.scrollHeight)}px`;
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, [resize]);
+
+  return <iframe
+    ref={frameRef}
+    className="mail-body-frame"
+    title="HTML 邮件正文"
+    sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+    referrerPolicy="no-referrer"
+    srcDoc={buildMailIframeDocument(html, allowRemoteImages)}
+    onLoad={resize}
+  />;
+}
+
 function enableRemoteEmailImages(html: string): string {
   if (typeof DOMParser === "undefined") return html;
   const document = new DOMParser().parseFromString(html, "text/html");
@@ -2337,7 +2343,8 @@ function enableRemoteEmailImages(html: string): string {
     image.src = source;
     image.removeAttribute("data-remote-src");
   });
-  return document.body.innerHTML;
+  const styles = Array.from(document.head.querySelectorAll("style"), (style) => style.outerHTML).join("");
+  return styles + document.body.innerHTML;
 }
 
 function RemoteImagePermissionButton({

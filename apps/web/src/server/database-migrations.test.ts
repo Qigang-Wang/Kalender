@@ -319,13 +319,15 @@ async function verifyLegacyUpgrade(database: TestPostgresDatabase) {
   const migratedBody = await database.query<{
     text_body: string | null;
     html_body: string | null;
+    iframe_html_body: string | null;
     cache_version: number;
   }>(
-    "SELECT text_body, html_body, cache_version FROM mail_message_bodies WHERE message_id = 'legacy-message'",
+    "SELECT text_body, html_body, iframe_html_body, cache_version FROM mail_message_bodies WHERE message_id = 'legacy-message'",
   );
   assert(
     migratedBody.rows[0]?.text_body === "Cached text"
       && migratedBody.rows[0]?.html_body === "<p>Cached HTML</p>"
+      && migratedBody.rows[0]?.iframe_html_body === null
       && migratedBody.rows[0]?.cache_version === 3,
     "mail body migration preserves cached content in the dedicated cache table",
   );

@@ -1086,9 +1086,7 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .thread-message-content { padding: 0 8px 17px 48px; }
 .thread-message-content .body-status { min-height: 80px; }
 .thread-message-content .body-security-bar { margin: 2px 0 13px; }
-.thread-message-content .mail-body-html { padding: 2px 0 8px; color: #e7ebe8; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
-.thread-message-content .mail-body-html :where(div, p, span, table, tbody, tfoot, thead, tr, td, th, ul, ol, li, blockquote, h1, h2, h3, h4, b, strong, em, i, u) { color: inherit !important; background-color: transparent !important; }
-.thread-message-content .mail-body-html a { color: var(--blue) !important; }
+.mail-body-frame { display: block; width: 100%; min-height: 120px; background: #fff; border: 0; border-radius: 9px; }
 .message-related-content { padding: 0 0 15px 45px; }
 .message-related-content:empty { display: none; }
 .message-detail-more { width: 32px; padding: 0 !important; justify-content: center; }
@@ -1121,14 +1119,6 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
 .remote-image-permission-menu > button > svg { width: 13px; height: 13px; flex: 0 0 auto; margin-top: 1px; color: var(--blue); }
 .remote-image-permission-menu strong { display: block; min-width: 0; font-size: 11px; font-weight: 650; line-height: 1.25; }
 .mail-body-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-.mail-body-html { max-width: 100%; overflow-x: auto; padding: 18px; color: #202124; background: #fff; border-radius: 9px; overflow-wrap: anywhere; }
-.mail-body-html > :first-child { margin-top: 0; }
-.mail-body-html > :last-child { margin-bottom: 0; }
-.mail-body-html a { color: #1769aa; text-decoration: underline; text-underline-offset: 2px; }
-.mail-body-html table { max-width: 100%; }
-.mail-body-html img { max-width: 100%; }
-.mail-body-html img[data-remote-src] { display: inline-block; min-width: 48px; min-height: 24px; color: #747a80; background: #eef1f3; border: 1px dashed #c7ccd1; }
-.mail-body-html pre { max-width: 100%; overflow-x: auto; padding: 10px; color: #eef1ef; background: #151816; border-radius: 7px; white-space: pre-wrap; }
 .incoming-attachments { margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--line); }
 .incoming-attachments > header { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
 .incoming-attachments > header span { display: grid; min-width: 19px; height: 19px; place-items: center; background: #303431; border-radius: 99px; font-size: 12px; }
@@ -3106,7 +3096,6 @@ kbd { color: var(--muted-2); font-family: inherit; font-size: 12px; white-space:
   .thread-message-meta { min-width: 0; grid-column: 3; grid-row: 1; align-self: center; justify-content: flex-end; gap: 4px; margin-left: 5px; }
   .mail-ai-result { margin-left: 0; }
   .body-security-bar { align-items: flex-start; flex-direction: column; }
-  .mail-body-html { padding: 12px; }
   .mail-filter-bar button { min-height: 36px; }
   .mail-filter-bar > label { height: 40px; }
   .message-menu-trigger, .note-menu-trigger { width: 40px; height: 40px; opacity: 1; }
@@ -4536,17 +4525,12 @@ html[data-qgw-scheme="light"] :is(
   background: #fff7e7;
   border-color: #ead4a4;
 }
-html[data-qgw-scheme="light"] :is(
-  .mail-body-html pre,
-  .job-row code
-) {
+html[data-qgw-scheme="light"] .job-row code {
   color: #33414c;
   background: #f3f6f8;
   border: 1px solid var(--line);
 }
 html[data-qgw-scheme="light"] :is(
-  .mail-body-html,
-  .thread-message-content .mail-body-html,
   .mail-ai-result > div,
   .note-plate-content,
   .operation-preview p

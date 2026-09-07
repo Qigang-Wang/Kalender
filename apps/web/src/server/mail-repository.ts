@@ -141,6 +141,7 @@ export interface MessageBodyRecord {
   readonly id: string;
   readonly textBody?: string;
   readonly htmlBody?: string;
+  readonly iframeHtmlBody?: string;
   readonly snippet: string;
 }
 
@@ -257,6 +258,7 @@ export interface StoredMessageBody {
   readonly providerUid: number;
   readonly textBody?: string;
   readonly htmlBody?: string;
+  readonly iframeHtmlBody?: string;
   readonly snippet: string;
   readonly loadedAt?: string;
   readonly cacheVersion: number;
@@ -275,7 +277,7 @@ export interface StoredMessageRemote {
   }[];
 }
 
-export const MAIL_BODY_CACHE_VERSION = 4;
+export const MAIL_BODY_CACHE_VERSION = 6;
 export const DEFAULT_MAIL_BODY_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const DEFAULT_MAIL_BODY_CACHE_MAX_BYTES = 128 * 1024 * 1024;
 
@@ -1724,12 +1726,13 @@ export async function getStoredMessageBody(messageId: string): Promise<StoredMes
     provider_uid: number;
     text_body: string | null;
     html_body: string | null;
+    iframe_html_body: string | null;
     snippet: string;
     body_loaded_at: string | null;
     body_cache_version: number;
   }>(
     `SELECT m.id, m.account_id, m.thread_id, m.provider_folder_id, m.provider_uid,
-            body.text_body, body.html_body, m.snippet,
+            body.text_body, body.html_body, body.iframe_html_body, m.snippet,
             body.loaded_at AS body_loaded_at,
             COALESCE(body.cache_version, 0) AS body_cache_version
        FROM mail_messages m
@@ -1748,6 +1751,7 @@ export async function getStoredMessageBody(messageId: string): Promise<StoredMes
     providerUid: row.provider_uid,
     textBody: row.text_body ?? undefined,
     htmlBody: row.html_body ?? undefined,
+    iframeHtmlBody: row.iframe_html_body ?? undefined,
     snippet: row.snippet,
     loadedAt: row.body_loaded_at ?? undefined,
     cacheVersion: row.body_cache_version,
@@ -1815,8 +1819,9 @@ export async function saveMessageBody(
   textBody: string | undefined,
   htmlBody: string | undefined,
   snippet: string,
+  iframeHtmlBody?: string,
 ): Promise<StoredMessageBody | undefined> {
-  await saveMessageBodies([{ id: messageId, textBody, htmlBody, snippet }]);
+  await saveMessageBodies([{ id: messageId, textBody, htmlBody, iframeHtmlBody, snippet }]);
   return getStoredMessageBody(messageId);
 }
 
@@ -1828,6 +1833,7 @@ export async function saveMessageBodies(messages: readonly MessageBodyRecord[]):
       id: message.id,
       text_body: message.textBody ?? null,
       html_body: message.htmlBody ?? null,
+      iframe_html_body: message.iframeHtmlBody ?? null,
       snippet: message.snippet,
     })));
     const result = await transaction.query<{ thread_id: string }>(
@@ -1837,6 +1843,7 @@ export async function saveMessageBodies(messages: readonly MessageBodyRecord[]):
              id text,
              text_body text,
              html_body text,
+             iframe_html_body text,
              snippet text
            )
        )
@@ -1855,18 +1862,20 @@ export async function saveMessageBodies(messages: readonly MessageBodyRecord[]):
              id text,
              text_body text,
              html_body text,
+             iframe_html_body text,
              snippet text
            )
        )
        INSERT INTO mail_message_bodies (
-         message_id, text_body, html_body, loaded_at, cache_version, updated_at
+         message_id, text_body, html_body, iframe_html_body, loaded_at, cache_version, updated_at
        )
-       SELECT body.id, body.text_body, body.html_body, now(), $2, now()
+       SELECT body.id, body.text_body, body.html_body, body.iframe_html_body, now(), $2, now()
          FROM body_batch body
          JOIN mail_messages message ON message.id = body.id
        ON CONFLICT (message_id) DO UPDATE SET
          text_body = EXCLUDED.text_body,
          html_body = EXCLUDED.html_body,
+         iframe_html_body = EXCLUDED.iframe_html_body,
          loaded_at = EXCLUDED.loaded_at,
          cache_version = EXCLUDED.cache_version,
          updated_at = EXCLUDED.updated_at`,
@@ -1909,7 +1918,7 @@ export async function cleanupMailBodyCache(
     size_bytes: number;
   }>(
     `SELECT message_id AS id, loaded_at AS body_loaded_at,
-            (COALESCE(octet_length(text_body), 0) + COALESCE(octet_length(html_body), 0))::integer AS size_bytes
+            (COALESCE(octet_length(text_body), 0) + COALESCE(octet_length(html_body), 0) + COALESCE(octet_length(iframe_html_body), 0))::integer AS size_bytes
        FROM mail_message_bodies
       ORDER BY loaded_at, message_id`,
   );

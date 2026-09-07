@@ -192,9 +192,11 @@ async function main() {
     "Safe text body",
     "<p>Safe HTML body</p>",
     "Safe text body",
+    "<style>.safe{color:green}</style><p class=\"safe\">Safe iframe body</p>",
   );
   assert(cachedBody?.textBody === "Safe text body", "text body is cached");
   assert(cachedBody?.htmlBody === "<p>Safe HTML body</p>", "HTML body is cached");
+  assert(cachedBody?.iframeHtmlBody?.includes("Safe iframe body"), "iframe HTML body is cached separately");
   assert(Boolean(cachedBody?.loadedAt), "body cache records its load time");
   assert(cachedBody?.cacheVersion === repository.MAIL_BODY_CACHE_VERSION, "body cache records the current sanitizer version");
   assert((await repository.listInbox())[0]?.snippet === "Safe text body", "body preview updates the inbox");
