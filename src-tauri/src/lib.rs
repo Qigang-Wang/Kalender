@@ -7,15 +7,25 @@ use std::{
     time::Duration,
 };
 
+#[cfg(not(target_os = "windows"))]
+use std::process::Command;
+
 #[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(target_os = "windows")]
-use windows::Win32::{
-    Foundation::{HWND, LPARAM, LRESULT, WPARAM},
-    UI::WindowsAndMessaging::{
-        CallWindowProcW, DefWindowProcW, SetWindowLongPtrW, GWLP_WNDPROC, SC_MINIMIZE, SWP_NOMOVE,
-        SWP_NOSIZE, WINDOWPOS, WM_SYSCOMMAND, WM_WINDOWPOSCHANGING, WNDPROC,
+use windows::{
+    core::HSTRING,
+    Win32::{
+        Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+        UI::{
+            Shell::ShellExecuteW,
+            WindowsAndMessaging::{
+                CallWindowProcW, DefWindowProcW, SetWindowLongPtrW, GWLP_WNDPROC, SC_MINIMIZE,
+                SWP_NOMOVE, SWP_NOSIZE, SW_SHOWNORMAL, WINDOWPOS, WM_SYSCOMMAND,
+                WM_WINDOWPOSCHANGING, WNDPROC,
+            },
+        },
     },
 };
 
@@ -32,6 +42,7 @@ use tauri::{
     image::Image,
     menu::{CheckMenuItem, IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    webview::NewWindowResponse,
     AppHandle, LogicalSize, Manager, Monitor, PhysicalPosition, State, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
 };
@@ -1661,6 +1672,14 @@ fn create_main_window(app: &AppHandle, server_url: &str, visible: bool) -> Resul
         .unwrap_or(false);
     let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         .title("Kalender")
+        .on_new_window(|url, _features| {
+            if is_external_browser_url(&url) {
+                if let Err(error) = open_in_default_browser(&url) {
+                    eprintln!("{error}");
+                }
+            }
+            NewWindowResponse::Deny
+        })
         .disable_drag_drop_handler()
         .decorations(!desktop_mode)
         .resizable(!desktop_mode)
@@ -1679,6 +1698,39 @@ fn create_main_window(app: &AppHandle, server_url: &str, visible: bool) -> Resul
         apply_window_mode(&window, true)?;
     }
     Ok(())
+}
+
+fn is_external_browser_url(url: &Url) -> bool {
+    matches!(url.scheme(), "http" | "https" | "mailto")
+}
+
+#[cfg(target_os = "windows")]
+fn open_in_default_browser(url: &Url) -> Result<(), String> {
+    let target = HSTRING::from(url.as_str());
+    let result = unsafe { ShellExecuteW(None, None, &target, None, None, SW_SHOWNORMAL) };
+    if result.0 as isize <= 32 {
+        Err("无法使用系统默认浏览器打开邮件链接".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn open_in_default_browser(url: &Url) -> Result<(), String> {
+    Command::new("open")
+        .arg(url.as_str())
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法使用系统默认浏览器打开邮件链接：{error}"))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_in_default_browser(url: &Url) -> Result<(), String> {
+    Command::new("xdg-open")
+        .arg(url.as_str())
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法使用系统默认浏览器打开邮件链接：{error}"))
 }
 
 fn show_server_unavailable_notification(app: &AppHandle) {
@@ -2111,6 +2163,20 @@ mod tests {
         assert!(normalize_server_url("file:///tmp/kalender").is_err());
         assert!(normalize_server_url("javascript:alert(1)").is_err());
         assert!(normalize_server_url("https://user:secret@example.com").is_err());
+    }
+
+    #[test]
+    fn external_browser_links_only_allow_safe_mail_schemes() {
+        for value in [
+            "https://example.com/path",
+            "http://example.com/path",
+            "mailto:user@example.com",
+        ] {
+            assert!(is_external_browser_url(&Url::parse(value).unwrap()));
+        }
+        for value in ["file:///tmp/message", "javascript:alert(1)"] {
+            assert!(!is_external_browser_url(&Url::parse(value).unwrap()));
+        }
     }
 
     #[test]
