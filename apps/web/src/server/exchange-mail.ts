@@ -13,6 +13,16 @@ import {
   type ExchangeCredential,
 } from "./exchange-ews-client";
 
+const DAYLINE_DRAFT_PROPERTY = '<t:ExtendedFieldURI PropertySetId="d672a86d-8b6b-4b4d-9ca8-0bc9fe919f63" PropertyName="DaylineDraftId" PropertyType="String"/>';
+
+export async function findExchangeDraftByLocalId(credential: ExchangeCredential, localId: string): Promise<{ itemId: string; changeKey: string } | undefined> {
+  const xml = await exchangeSoapRequest(credential, "FindItem", `<m:FindItem Traversal="Shallow"><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape><m:IndexedPageItemView MaxEntriesReturned="2" Offset="0" BasePoint="Beginning"/><m:Restriction><t:IsEqualTo>${DAYLINE_DRAFT_PROPERTY}<t:FieldURIOrConstant><t:Constant Value="${escapeXml(localId)}"/></t:FieldURIOrConstant></t:IsEqualTo></m:Restriction><m:ParentFolderIds><t:DistinguishedFolderId Id="drafts"/></m:ParentFolderIds></m:FindItem>`, AbortSignal.timeout(30000));
+  const matches = parseMessageIdentities(xml);
+  if (matches.length > 1) throw new ExchangeEwsError("REMOTE_CONFLICT", "Exchange 中存在多个关联草稿，请先在邮箱中核对", 409);
+  const match = matches[0];
+  return match?.changeKey ? { itemId: match.itemId, changeKey: match.changeKey } : undefined;
+}
+
 export interface ExchangeMailFolder {
   readonly folderId: string;
   readonly changeKey?: string;
@@ -42,6 +52,9 @@ export interface ExchangeMailMessage {
   readonly from: { readonly address: string; readonly name?: string };
   readonly to: readonly { readonly address: string; readonly name?: string }[];
   readonly cc: readonly { readonly address: string; readonly name?: string }[];
+  readonly bcc?: readonly { readonly address: string; readonly name?: string }[];
+  readonly isDraft?: boolean;
+  readonly localDraftId?: string;
   readonly sentAt: string;
   readonly receivedAt: string;
   readonly isRead: boolean;
@@ -200,6 +213,7 @@ export async function fetchExchangeMailMessageDetails(
         <m:ItemShape>
           <t:BaseShape>AllProperties</t:BaseShape>
           <t:BodyType>HTML</t:BodyType>
+          <t:AdditionalProperties>${DAYLINE_DRAFT_PROPERTY}</t:AdditionalProperties>
         </m:ItemShape>
         <m:ItemIds>${batch.map((item) => `<t:ItemId Id="${escapeXml(item.itemId)}"${item.changeKey ? ` ChangeKey="${escapeXml(item.changeKey)}"` : ""}/>`).join("")}</m:ItemIds>
       </m:GetItem>`, signal);
@@ -398,87 +412,75 @@ export async function deleteExchangeMailFolder(
     </m:DeleteFolder>`, signal);
 }
 
-export async function sendExchangeMessage(
+export interface ExchangeDraftInput {
+  readonly localDraftId?: string;
+  readonly to: readonly string[];
+  readonly cc: readonly string[];
+  readonly bcc: readonly string[];
+  readonly subject: string;
+  readonly textBody: string;
+  readonly htmlBody?: string;
+  readonly attachments: readonly ExchangeSendAttachment[];
+  readonly replyToItemId?: string;
+}
+
+export async function saveExchangeMailDraft(
   credential: ExchangeCredential,
-  input: {
-    readonly to: readonly string[];
-    readonly cc: readonly string[];
-    readonly bcc: readonly string[];
-    readonly subject: string;
-    readonly textBody: string;
-    readonly htmlBody?: string;
-    readonly attachments: readonly ExchangeSendAttachment[];
-    readonly replyToItemId?: string;
-  },
+  input: ExchangeDraftInput,
+  identity?: { itemId: string; changeKey: string },
   signal?: AbortSignal,
-): Promise<string> {
-  let replyInternetMessageId: string | undefined;
+  onCreated?: (identity: { itemId: string; changeKey: string }) => Promise<void>,
+): Promise<{ itemId: string; changeKey: string }> {
+  const current = identity ? (await fetchExchangeMailMessageDetails(credential, [{ itemId: identity.itemId }], signal))[0] : undefined;
+  if (identity && (!current?.isDraft || current.changeKey !== identity.changeKey)) throw new ExchangeEwsError("REMOTE_CONFLICT", "Exchange 草稿已被修改或发送，请先解决版本冲突", 409);
+  let replyId: string | undefined;
   if (input.replyToItemId) {
-    const identityXml = await exchangeSoapRequest(credential, "GetItem", `
-      <m:GetItem>
-        <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties><t:FieldURI FieldURI="message:InternetMessageId"/></t:AdditionalProperties></m:ItemShape>
-        <m:ItemIds><t:ItemId Id="${escapeXml(input.replyToItemId)}"/></m:ItemIds>
-      </m:GetItem>`, signal);
-    const referenceTag = openingTag(elementContent(identityXml, "Message") ?? identityXml, "ItemId");
-    const referenceChangeKey = referenceTag ? attributeValue(referenceTag, "ChangeKey") : undefined;
-    if (!referenceChangeKey) throw new Error("Exchange 没有返回回复邮件的最新 ChangeKey");
-    replyInternetMessageId = elementText(identityXml, "InternetMessageId") || undefined;
-    if (input.attachments.length === 0) {
-      try {
-        await exchangeSoapRequest(credential, "CreateItem", `
-          <m:CreateItem MessageDisposition="SendAndSaveCopy">
-            <m:SavedItemFolderId><t:DistinguishedFolderId Id="sentitems"/></m:SavedItemFolderId>
-            <m:Items><t:ReplyToItem>
-              <t:ReferenceItemId Id="${escapeXml(input.replyToItemId)}" ChangeKey="${escapeXml(referenceChangeKey)}"/>
-              <t:NewBodyContent BodyType="${input.htmlBody ? "HTML" : "Text"}">${escapeXml(input.htmlBody || input.textBody)}</t:NewBodyContent>
-            </t:ReplyToItem></m:Items>
-          </m:CreateItem>`, signal);
-        return `reply:${input.replyToItemId}`;
-      } catch (error) {
-        // Some on-premise Exchange installations reject smart replies to messages
-        // sent by the same mailbox. Preserve RFC threading with In-Reply-To instead.
-        if (!(error instanceof ExchangeEwsError) || error.code !== "ErrorInvalidOperation") throw error;
-      }
-    }
+    const xml = await exchangeSoapRequest(credential, "GetItem", `<m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties><t:FieldURI FieldURI="message:InternetMessageId"/></t:AdditionalProperties></m:ItemShape><m:ItemIds><t:ItemId Id="${escapeXml(input.replyToItemId)}"/></m:ItemIds></m:GetItem>`, signal);
+    replyId = elementText(xml, "InternetMessageId") || undefined;
   }
-  const createXml = await exchangeSoapRequest(credential, "CreateItem", `
-    <m:CreateItem MessageDisposition="SaveOnly">
-      <m:SavedItemFolderId><t:DistinguishedFolderId Id="drafts"/></m:SavedItemFolderId>
-      <m:Items><t:Message>
-        <t:Subject>${escapeXml(input.subject)}</t:Subject>
-        <t:Body BodyType="${input.htmlBody ? "HTML" : "Text"}">${escapeXml(input.htmlBody || input.textBody)}</t:Body>
-        ${replyInternetMessageId ? `<t:InReplyTo>${escapeXml(replyInternetMessageId)}</t:InReplyTo><t:References>${escapeXml(replyInternetMessageId)}</t:References>` : ""}
-        ${recipientXml("ToRecipients", input.to)}
-        ${recipientXml("CcRecipients", input.cc)}
-        ${recipientXml("BccRecipients", input.bcc)}
-      </t:Message></m:Items>
-    </m:CreateItem>`, signal);
-  const message = elementContent(createXml, "Message") ?? createXml;
-  const itemTag = openingTag(message, "ItemId");
-  const itemId = itemTag ? attributeValue(itemTag, "Id") : undefined;
+  const fields: Array<[string, string]> = [
+    ["item:Subject", `<t:Subject>${escapeXml(input.subject)}</t:Subject>`],
+    ["item:Body", `<t:Body BodyType="${input.htmlBody ? "HTML" : "Text"}">${escapeXml(input.htmlBody ?? input.textBody)}</t:Body>`],
+    ...(replyId ? [["item:InReplyTo", `<t:InReplyTo>${escapeXml(replyId)}</t:InReplyTo>`]] as Array<[string, string]> : []),
+    ...(!identity && input.localDraftId ? [["", `<t:ExtendedProperty>${DAYLINE_DRAFT_PROPERTY}<t:Value>${escapeXml(input.localDraftId)}</t:Value></t:ExtendedProperty>`]] as Array<[string, string]> : []),
+    ["message:ToRecipients", recipientXml("ToRecipients", input.to)],
+    ["message:CcRecipients", recipientXml("CcRecipients", input.cc)],
+    ["message:BccRecipients", recipientXml("BccRecipients", input.bcc)],
+    ...(replyId ? [["message:References", `<t:References>${escapeXml(replyId)}</t:References>`]] as Array<[string, string]> : []),
+  ];
+  const xml = identity
+    ? await exchangeSoapRequest(credential, "UpdateItem", `<m:UpdateItem ConflictResolution="NeverOverwrite" MessageDisposition="SaveOnly"><m:ItemChanges><t:ItemChange><t:ItemId Id="${escapeXml(identity.itemId)}" ChangeKey="${escapeXml(identity.changeKey)}"/><t:Updates>${fields.map(([uri, value]) => value ? `<t:SetItemField><t:FieldURI FieldURI="${uri}"/><t:Message>${value}</t:Message></t:SetItemField>` : `<t:DeleteItemField><t:FieldURI FieldURI="${uri}"/></t:DeleteItemField>`).join("")}</t:Updates></t:ItemChange></m:ItemChanges></m:UpdateItem>`, signal)
+    : await exchangeSoapRequest(credential, "CreateItem", `<m:CreateItem MessageDisposition="SaveOnly"><m:SavedItemFolderId><t:DistinguishedFolderId Id="drafts"/></m:SavedItemFolderId><m:Items><t:Message>${fields.map(([, value]) => value).join("")}</t:Message></m:Items></m:CreateItem>`, signal);
+  const itemTag = openingTag(elementContent(xml, "Message") ?? xml, "ItemId");
+  const itemId = itemTag ? attributeValue(itemTag, "Id") : identity?.itemId;
   let changeKey = itemTag ? attributeValue(itemTag, "ChangeKey") : undefined;
-  if (!itemId) throw new Error("Exchange 创建草稿后没有返回邮件标识");
-  if (input.attachments.length) {
-    const attachmentXml = await exchangeSoapRequest(credential, "CreateAttachment", `
-      <m:CreateAttachment>
-        <m:ParentItemId Id="${escapeXml(itemId)}"${changeKey ? ` ChangeKey="${escapeXml(changeKey)}"` : ""}/>
-        <m:Attachments>${input.attachments.map((attachment) => `<t:FileAttachment>
-          <t:Name>${escapeXml(attachment.filename)}</t:Name>
-          <t:ContentType>${escapeXml(attachment.contentType)}</t:ContentType>
-          ${attachment.inline ? "<t:IsInline>true</t:IsInline>" : ""}
-          ${attachment.inline && attachment.contentId ? `<t:ContentId>${escapeXml(attachment.contentId)}</t:ContentId>` : ""}
-          <t:Content>${Buffer.from(attachment.content).toString("base64")}</t:Content>
-        </t:FileAttachment>`).join("")}</m:Attachments>
-      </m:CreateAttachment>`, signal);
-    const rootTag = openingTag(attachmentXml, "RootItemId");
-    changeKey = rootTag ? attributeValue(rootTag, "RootItemChangeKey") ?? changeKey : changeKey;
+  if (!itemId || !changeKey) throw new Error("Exchange 草稿缺少版本标识");
+  if (!identity) await onCreated?.({ itemId, changeKey });
+  if (current?.attachments.length) {
+    const deleted = await exchangeSoapRequest(credential, "DeleteAttachment", `<m:DeleteAttachment><m:AttachmentIds>${current.attachments.map((attachment) => `<t:AttachmentId Id="${escapeXml(attachment.id)}"/>`).join("")}</m:AttachmentIds></m:DeleteAttachment>`, signal);
+    changeKey = attributeValue(deleted.match(/<(?:[\w-]+:)?RootItemId\b[^>]*>/g)?.at(-1) ?? "", "RootItemChangeKey") ?? changeKey;
   }
-  await exchangeSoapRequest(credential, "SendItem", `
-    <m:SendItem SaveItemToFolder="true">
-      <m:ItemIds><t:ItemId Id="${escapeXml(itemId)}"${changeKey ? ` ChangeKey="${escapeXml(changeKey)}"` : ""}/></m:ItemIds>
-      <m:SavedItemFolderId><t:DistinguishedFolderId Id="sentitems"/></m:SavedItemFolderId>
-    </m:SendItem>`, signal);
-  return itemId;
+  if (input.attachments.length) {
+    const attached = await exchangeSoapRequest(credential, "CreateAttachment", `<m:CreateAttachment><m:ParentItemId Id="${escapeXml(itemId)}" ChangeKey="${escapeXml(changeKey)}"/><m:Attachments>${input.attachments.map((attachment) => `<t:FileAttachment><t:Name>${escapeXml(attachment.filename)}</t:Name><t:ContentType>${escapeXml(attachment.contentType)}</t:ContentType>${attachment.contentId ? `<t:ContentId>${escapeXml(attachment.contentId)}</t:ContentId>` : ""}<t:IsInline>${Boolean(attachment.inline)}</t:IsInline><t:Content>${Buffer.from(attachment.content).toString("base64")}</t:Content></t:FileAttachment>`).join("")}</m:Attachments></m:CreateAttachment>`, signal);
+    changeKey = attributeValue(attached.match(/<(?:[\w-]+:)?AttachmentId\b[^>]*>/g)?.at(-1) ?? "", "RootItemChangeKey") ?? changeKey;
+  }
+  return { itemId, changeKey };
+}
+
+export async function sendExchangeMessage(credential: ExchangeCredential, input: ExchangeDraftInput, signal?: AbortSignal, identity?: { itemId: string; changeKey: string }): Promise<string> {
+  const draft = await saveExchangeMailDraft(credential, input, identity, signal);
+  await sendExchangeSavedDraft(credential, draft, signal);
+  return draft.itemId;
+}
+
+export async function sendExchangeSavedDraft(credential: ExchangeCredential, identity: { itemId: string; changeKey: string }, signal?: AbortSignal) {
+  await exchangeSoapRequest(credential, "SendItem", `<m:SendItem SaveItemToFolder="true"><m:ItemIds><t:ItemId Id="${escapeXml(identity.itemId)}" ChangeKey="${escapeXml(identity.changeKey)}"/></m:ItemIds><m:SavedItemFolderId><t:DistinguishedFolderId Id="sentitems"/></m:SavedItemFolderId></m:SendItem>`, signal);
+}
+
+export async function deleteExchangeDraft(credential: ExchangeCredential, identity: { itemId: string; changeKey: string }) {
+  const current = (await fetchExchangeMailMessageDetails(credential, [{ itemId: identity.itemId }], AbortSignal.timeout(30000)))[0];
+  if (!current?.isDraft || current.changeKey !== identity.changeKey) throw new ExchangeEwsError("REMOTE_CONFLICT", "Exchange 草稿已变化，请先同步", 409);
+  await exchangeSoapRequest(credential, "DeleteItem", `<m:DeleteItem DeleteType="MoveToDeletedItems"><m:ItemIds><t:ItemId Id="${escapeXml(identity.itemId)}" ChangeKey="${escapeXml(identity.changeKey)}"/></m:ItemIds></m:DeleteItem>`, AbortSignal.timeout(30000));
 }
 
 export async function getExchangeAttachment(
@@ -491,13 +493,14 @@ export async function getExchangeAttachment(
       <m:AttachmentShape><t:IncludeMimeContent>true</t:IncludeMimeContent></m:AttachmentShape>
       <m:AttachmentIds><t:AttachmentId Id="${escapeXml(attachmentId)}"/></m:AttachmentIds>
     </m:GetAttachment>`, signal);
-  const attachment = elementContent(xml, "FileAttachment");
+  const itemAttachment = elementContent(xml, "ItemAttachment");
+  const attachment = elementContent(xml, "FileAttachment") ?? itemAttachment;
   if (!attachment) throw new Error("Exchange 没有返回附件");
-  const content = elementText(attachment, "Content");
+  const content = elementText(attachment, itemAttachment ? "MimeContent" : "Content");
   if (!content) throw new Error("Exchange 附件内容为空");
   return {
-    filename: elementText(attachment, "Name") || "attachment",
-    contentType: elementText(attachment, "ContentType") || "application/octet-stream",
+    filename: itemAttachment ? `${(elementText(attachment, "Name") || "message").replace(/\.eml$/i, "")}.eml` : elementText(attachment, "Name") || "attachment",
+    contentType: itemAttachment ? "message/rfc822" : elementText(attachment, "ContentType") || "application/octet-stream",
     content: new Uint8Array(Buffer.from(content, "base64")),
   };
 }
@@ -540,6 +543,9 @@ export function parseExchangeMessages(xml: string): readonly ExchangeMailMessage
       from: sender,
       to: parseMailboxes(elementContent(message, "ToRecipients")),
       cc: parseMailboxes(elementContent(message, "CcRecipients")),
+      bcc: parseMailboxes(elementContent(message, "BccRecipients")),
+      isDraft: elementText(message, "IsDraft") === "true",
+      localDraftId: elementText(elementContents(message, "ExtendedProperty").find((property) => attributeValue(openingTag(property, "ExtendedFieldURI") ?? "", "PropertyName") === "DaylineDraftId" && attributeValue(openingTag(property, "ExtendedFieldURI") ?? "", "PropertySetId")?.toLowerCase() === "d672a86d-8b6b-4b4d-9ca8-0bc9fe919f63") ?? "", "Value") || undefined,
       sentAt,
       receivedAt,
       isRead: elementText(message, "IsRead").toLocaleLowerCase() === "true",

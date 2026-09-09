@@ -15,6 +15,7 @@ export interface ProjectAreaRenameRequestBody {
 }
 
 export interface NoteRequestBody {
+  readonly expectedUpdatedAt?: unknown;
   readonly projectId?: unknown;
   readonly title?: unknown;
   readonly content?: unknown;
@@ -107,4 +108,9 @@ function optionalSortOrder(value: unknown): number | undefined {
     throw new NoteValidationError("项目顺序无效");
   }
   return sortOrder;
+}
+
+export function parseNoteRevision(value: unknown): string {
+  if (typeof value !== "string" || !value.trim() || !Number.isFinite(Date.parse(value))) throw new NoteValidationError("缺少有效的笔记版本，请刷新后重试");
+  return value;
 }

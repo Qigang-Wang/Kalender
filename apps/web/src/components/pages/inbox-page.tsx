@@ -25,6 +25,7 @@ import { isSmimeSignatureAttachment } from "@/lib/mail-smime";
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
 import { useVisiblePageRefresh } from "@/hooks/use-visible-page-refresh";
 import { useRealtimeRefresh } from "@/components/realtime-context";
+import { appConfirm } from "../app-dialog-provider";
 import { AppSelect } from "../app-select";
 import { ContextMenu } from "../context-menu";
 import { resolveContextCommands, type ContextCommandId, type MailMessageCommandId } from "../context-commands";
@@ -234,6 +235,7 @@ interface ClientMailDraft {
   readonly localOnly?: boolean;
   readonly accountId: string;
   readonly replyToMessageId?: string;
+  readonly forwardMessageId?: string;
   readonly to: readonly string[];
   readonly cc: readonly string[];
   readonly bcc: readonly string[];
@@ -278,6 +280,7 @@ function mailDraftPayload(draft: ClientMailDraft) {
   return {
     accountId: draft.accountId,
     replyToMessageId: draft.replyToMessageId,
+    forwardMessageId: draft.localOnly ? draft.forwardMessageId : undefined,
     to: draft.to,
     cc: draft.cc,
     bcc: draft.bcc,
@@ -612,19 +615,17 @@ export function InboxPage({
       const payload = await response.json() as { readonly draft?: ClientMailDraft; readonly message?: string };
       if (!response.ok || !payload.draft) throw new Error(payload.message || "草稿保存失败");
       setMailDrafts((current) => [payload.draft!, ...current.filter((item) => item.id !== payload.draft!.id)]);
-      if (draft.localOnly) {
-        setComposer((current) => {
-          if (!current || current.id !== draft.id) return current;
-          const unchanged = JSON.stringify(mailDraftPayload(current)) === JSON.stringify(mailDraftPayload(draft));
-          if (unchanged) return payload.draft;
-          return {
-            ...current,
-            id: payload.draft!.id,
-            localOnly: false,
-            updatedAt: payload.draft!.updatedAt,
-          };
-        });
-      }
+      setComposer((current) => {
+        if (!current || current.id !== draft.id) return current;
+        const unchanged = JSON.stringify(mailDraftPayload(current)) === JSON.stringify(mailDraftPayload(draft));
+        if (unchanged) return payload.draft;
+        if (draft.localOnly && draft.forwardMessageId) {
+          const original = decodeNoteContent(payload.draft!.bodyContent).slice(decodeNoteContent(draft.bodyContent).length);
+          const bodyContent = encodeNoteContent([...decodeNoteContent(current.bodyContent), ...original]);
+          return { ...current, id: payload.draft!.id, localOnly: false, forwardMessageId: undefined, updatedAt: payload.draft!.updatedAt, errorMessage: payload.draft!.errorMessage, attachments: payload.draft!.attachments, bodyContent, textBody: noteContentToPlainText(bodyContent) };
+        }
+        return { ...current, id: payload.draft!.id, localOnly: false, updatedAt: payload.draft!.updatedAt, errorMessage: payload.draft!.errorMessage, attachments: draft.localOnly ? payload.draft!.attachments : current.attachments };
+      });
       setComposerSaveState("saved");
       return payload.draft;
     } catch (error) {
@@ -728,6 +729,7 @@ export function InboxPage({
     return () => window.removeEventListener(MAIL_MESSAGE_MOVED_EVENT, handleMovedMessage);
   }, [remoteItems]);
 
+  const composerAutosaveKey = composer ? JSON.stringify(mailDraftPayload(composer)) : "";
   useEffect(() => {
     if (!composer || composer.status === "sending" || composer.status === "sent") return;
     if (!mailDraftHasContent(composer)) {
@@ -739,7 +741,7 @@ export function InboxPage({
       void persistComposer(composer).catch(() => undefined);
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [composer?.accountId, composer?.attachments.length, composer?.bcc, composer?.bodyContent, composer?.cc, composer?.localOnly, composer?.signatureId, composer?.signatureVariant, composer?.subject, composer?.textBody, composer?.to, persistComposer]);
+  }, [composerAutosaveKey, composer?.attachments.length, persistComposer]);
 
   useEffect(() => {
     setInlineCopyFieldsOpen(Boolean(composer?.cc.length || composer?.bcc.length));
@@ -747,7 +749,7 @@ export function InboxPage({
 
   const openComposer = async (
     message?: InboxDisplayItem,
-    mode: "reply" | "forward" = "reply",
+    mode: "reply" | "reply-all" | "forward" = "reply",
     initialText = "",
     recipient?: { readonly address: string; readonly accountId?: string },
   ) => {
@@ -762,12 +764,11 @@ export function InboxPage({
       setMailNotice("找不到这封邮件对应的发件账户，请检查账户连接");
       return;
     }
-    const currentBody = message ? bodies[message.id] : undefined;
     const forwardText = message && mode === "forward"
-      ? `\n\n--- 转发邮件 ---\n发件人：${message.sender} <${message.senderAddress}>\n主题：${message.subject}\n\n${currentBody?.status === "ready" ? currentBody.text || message.preview : message.preview}`
+      ? `\n\n--- 转发邮件 ---\n发件人：${message.sender} <${message.senderAddress}>\n主题：${message.subject}\n`
       : initialText;
     const bodyContent = encodeNoteContent(decodeNoteContent(forwardText));
-    const replySource = message && mode === "reply"
+    const replySource = message && mode !== "forward"
       ? threadMessages.find((threadMessage) => threadMessage.id === message.id)
       : undefined;
     const selfAddresses = [
@@ -777,7 +778,7 @@ export function InboxPage({
         .filter((threadMessage) => threadMessage.accountId === account.id && threadMessage.folderRole === "sent")
         .map((threadMessage) => threadMessage.senderAddress),
     ];
-    const replyRecipients = replySource
+    let replyRecipients = replySource
       ? resolveReplyRecipients({
         senderAddress: replySource.senderAddress,
         to: replySource.to,
@@ -785,13 +786,16 @@ export function InboxPage({
         selfAddresses,
       })
       : {
-          to: message && mode === "reply"
+          to: message && mode !== "forward"
             ? [message.senderAddress]
             : recipient?.address ? [recipient.address] : [],
           cc: [],
         };
+    if (mode === "reply" && message) {
+      replyRecipients = { to: selfAddresses.some((address) => address.toLowerCase() === message.senderAddress.toLowerCase()) ? replyRecipients.to : [message.senderAddress], cc: [] };
+    }
     const signature = mailSignatures.find((item) => item.accountId === account.id && item.isDefault);
-    const hasSentInThread = Boolean(message && mode === "reply" && threadMessages.some((threadMessage) =>
+    const hasSentInThread = Boolean(message && mode !== "forward" && threadMessages.some((threadMessage) =>
       threadMessage.threadId === message.threadId
       && threadMessage.accountId === account.id
       && threadMessage.folderRole === "sent",
@@ -808,15 +812,16 @@ export function InboxPage({
       id: `local:${crypto.randomUUID()}`,
       localOnly: true,
       accountId: account.id,
-      replyToMessageId: message && mode === "reply" ? message.id : undefined,
-      to: replyRecipients.to.length || mode !== "reply" ? replyRecipients.to : message ? [message.senderAddress] : [],
+      replyToMessageId: message && mode !== "forward" ? message.id : undefined,
+      to: replyRecipients.to.length || mode === "forward" ? replyRecipients.to : message ? [message.senderAddress] : [],
       cc: replyRecipients.cc,
       bcc: [],
-      subject: message ? prefixedMailSubject(message.subject, mode === "reply" ? "Re" : "Fwd") : "",
+      subject: message ? prefixedMailSubject(message.subject, mode !== "forward" ? "Re" : "Fwd") : "",
       textBody: noteContentToPlainText(signedBodyContent),
       bodyContent: signedBodyContent,
       signatureId: signature?.id,
       signatureVariant: signature ? signatureVariant : undefined,
+      forwardMessageId: message && mode === "forward" ? message.id : undefined,
       attachments: [],
       status: "draft",
       updatedAt: new Date().toISOString(),
@@ -832,6 +837,20 @@ export function InboxPage({
     initialComposerRecipientRef.current = recipient;
     void openComposer(undefined, "reply", "", { address: recipient });
   }, [initialComposeTo, mailAccounts.length]);
+
+  const resolveDraftSync = async (resolution: "local" | "remote") => {
+    if (!composer || composer.localOnly || !await appConfirm({ title: resolution === "local" ? "用本地草稿覆盖 Exchange 版本？" : "用 Exchange 草稿替换本地版本？", description: "未选中的版本将被替换。", confirmLabel: "确认保留此版本" })) return;
+    setComposerSaveState("saving");
+    try {
+      if (resolution === "local") await persistComposer(composer, true);
+      const response = await fetch(`/api/mail-drafts/${encodeURIComponent(composer.id)}/sync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resolution }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message ?? "无法同步草稿");
+      setComposer(payload.draft);
+      setMailDrafts((current) => current.map((draft) => draft.id === payload.draft.id ? payload.draft : draft));
+      setComposerSaveState("saved");
+    } catch (error) { setComposerSaveState("error"); setMailNotice(error instanceof Error ? error.message : "无法同步草稿"); }
+  };
 
   const closeComposer = async () => {
     if (!composer || sendBusy || attachmentBusy) return;
@@ -2003,6 +2022,7 @@ export function InboxPage({
               void openComposer(replyTarget, "reply");
             }}
           ><Pencil size={15} />回复</button>
+          <button className="secondary-button" disabled={!hasAccounts} onClick={() => void openComposer(selected, "reply-all")}>全部回复</button>
           <button className="secondary-button" disabled={!hasAccounts} onClick={() => void openComposer(selected, "forward")}><Send size={15} />转发</button>
           <button className="secondary-button danger-button" disabled={!hasAccounts || messageActionBusy} onClick={() => void runMessageAction(selected, "delete")}><Trash2 size={15} />删除</button>
           <button className="secondary-button" disabled={messageActionBusy} onClick={() => void createTaskFromMessage(selected)}><CheckCircle2 size={15} />创建任务</button>
@@ -2057,7 +2077,9 @@ export function InboxPage({
                   textBody: noteContentToPlainText(bodyContent),
                 } : current)}
               />
-              {composer.errorMessage && <div className="composer-error"><AlertCircle size={14} />上次发送失败：{composer.errorMessage}</div>}
+              {composer.errorMessage && <div className="composer-error"><AlertCircle size={14} />{composer.errorMessage}
+              {mailAccounts.find((account) => account.id === composer.accountId)?.providerId === "exchange-ews" && <><button className="secondary-button" disabled={sendBusy || composerSaveState === "saving"} onClick={() => void resolveDraftSync("local")}>保留本地版本</button><button className="secondary-button" disabled={sendBusy || composerSaveState === "saving"} onClick={() => void resolveDraftSync("remote")}>使用 Exchange 版本</button></>}
+            </div>}
             </div>
             <footer>
               <div className="inline-reply-secondary">
@@ -2234,7 +2256,9 @@ export function InboxPage({
                 textBody: noteContentToPlainText(bodyContent),
               } : current)}
             />
-            {composer.errorMessage && <div className="composer-error"><AlertCircle size={14} />上次发送失败：{composer.errorMessage}</div>}
+            {composer.errorMessage && <div className="composer-error"><AlertCircle size={14} />{composer.errorMessage}
+              {mailAccounts.find((account) => account.id === composer.accountId)?.providerId === "exchange-ews" && <><button className="secondary-button" disabled={sendBusy || composerSaveState === "saving"} onClick={() => void resolveDraftSync("local")}>保留本地版本</button><button className="secondary-button" disabled={sendBusy || composerSaveState === "saving"} onClick={() => void resolveDraftSync("remote")}>使用 Exchange 版本</button></>}
+            </div>}
           </div>
           <footer>
             <div className="mail-compose-secondary-actions">

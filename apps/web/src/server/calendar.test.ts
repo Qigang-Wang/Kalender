@@ -219,12 +219,12 @@ async function main() {
         title: "Invalid reminder",
         start: "2026-07-20T09:00:00Z",
         end: "2026-07-20T10:00:00Z",
-        reminderMinutesBefore: 10,
+        reminderMinutesBefore: -1,
       });
     } catch (error) {
       invalidReminderRejected = error instanceof CalendarValidationError;
     }
-    assert(invalidReminderRejected, "unsupported reminder lead times are rejected");
+    assert(invalidReminderRejected, "negative reminder lead times are rejected");
 
     await localCalendarProvider.deleteEvent(localCalendarContext, calendarId, created.id);
     await deleteStoredCalendarEvent(calendarId, recurring.id, {

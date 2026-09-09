@@ -30,6 +30,7 @@ async function main() {
   loadLocalEnvFile();
   await withTemporaryDatabase(verifyAtomicMigrations);
   await withTemporaryDatabase(verifyLegacyUpgrade);
+  await withTemporaryDatabase(verifyOperationReceiptUpgrade);
   await withTemporaryDatabase(verifyApplicationDatabaseStartup);
   await withTemporaryDatabase(verifyRealtimeNotifications);
   console.log("Database migration tests passed");
@@ -159,6 +160,24 @@ async function verifyAtomicMigrations(database: TestPostgresDatabase) {
     gapFailure instanceof DatabaseMigrationError && gapFailure.version === 2,
     "a gap in recorded migration history is rejected",
   );
+}
+
+async function verifyOperationReceiptUpgrade(database: TestPostgresDatabase) {
+  await runDatabaseMigrations(database, DATABASE_MIGRATIONS.filter((migration) => migration.version < 48));
+  await database.exec(`
+    INSERT INTO app_users (id, display_name, email) VALUES ('receipt-owner', 'Test', 'receipt@example.test');
+    INSERT INTO calendar_operation_receipts (user_id, operation_id, request_hash, response_status, response_body) VALUES
+      ('receipt-owner', 'conflict', 'hash', 409, '{"conflicts":[]}'),
+      ('receipt-owner', 'uncertain', 'hash', 502, '{"message":"lost response"}'),
+      ('receipt-owner', 'pending', 'hash', NULL, NULL),
+      ('receipt-owner', 'success', 'hash', 201, '{"ok":true}');
+  `);
+  await runDatabaseMigrations(database, DATABASE_MIGRATIONS);
+  const rows = (await database.query<{ operation_id: string; write_started: boolean }>("SELECT operation_id, write_started FROM calendar_operation_receipts")).rows;
+  assert(rows.find((row) => row.operation_id === "conflict")?.write_started === false, "legacy preflight conflict receipts become retryable");
+  assert(rows.filter((row) => row.operation_id !== "conflict").every((row) => row.write_started), "unknown and committed legacy operations remain protected");
+  await database.exec("INSERT INTO calendar_operation_receipts (user_id, operation_id, request_hash) VALUES ('receipt-owner', 'new', 'hash')");
+  assert((await database.query<{ write_started: boolean }>("SELECT write_started FROM calendar_operation_receipts WHERE operation_id='new'")).rows[0]?.write_started === false, "new operations start before the write boundary");
 }
 
 async function verifyLegacyUpgrade(database: TestPostgresDatabase) {

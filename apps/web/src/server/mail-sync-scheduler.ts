@@ -1,3 +1,4 @@
+import { runWithSystemScope } from "./user-scope";
 import { isMailAccountSyncing, MailSyncAlreadyRunningError } from "./imap-sync";
 import { runMailSync } from "./mail-sync";
 import { cleanupMailBodyCache, listAccounts } from "./mail-repository";
@@ -53,6 +54,7 @@ export async function ensureMailSyncScheduler(
 }
 
 export async function stopMailSyncScheduler(): Promise<void> {
+  stopExchangeNotifications();
   clearMailSyncTimers();
   globalThis.kalenderMailSyncEnabled = false;
   globalThis.kalenderMailSyncIntervalMs = undefined;
@@ -65,13 +67,18 @@ export async function stopMailSyncScheduler(): Promise<void> {
   globalThis.kalenderMailBodyMaintenanceAt = undefined;
 }
 
-export async function runScheduledMailSync(): Promise<void> {
+export function runScheduledMailSync(): Promise<void> {
+  return runWithSystemScope(() => runScheduledMailSyncAsSystem());
+}
+
+async function runScheduledMailSyncAsSystem(): Promise<void> {
   if (!globalThis.kalenderMailSyncEnabled || globalThis.kalenderMailSyncTickRunning) return;
   globalThis.kalenderMailSyncTickRunning = true;
   const backoff = globalThis.kalenderMailSyncBackoff ??= new Map();
   try {
     const now = Date.now();
     const accounts = await listAccounts();
+    await ensureExchangeNotifications();
     for (const account of accounts) {
       if (account.syncStatus === "paused" || isMailAccountSyncing(account.id)) continue;
       const retry = backoff.get(account.id);
@@ -117,3 +124,4 @@ function clearMailSyncTimers(): void {
   globalThis.kalenderMailSyncTimer = undefined;
   globalThis.kalenderMailSyncInitialTimer = undefined;
 }
+import { ensureExchangeNotifications, stopExchangeNotifications } from "./exchange-notifications";

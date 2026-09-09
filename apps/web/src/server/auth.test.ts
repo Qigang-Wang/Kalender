@@ -63,7 +63,13 @@ async function main() {
     }
     assert(duplicateRejected, "duplicate usernames are rejected case-insensitively");
 
+    const { NextResponse } = await import("next/server");
+    const loginResponse = NextResponse.json({ ok: true });
+    auth.setAuthCookie(loginResponse, await auth.authenticateAppUser("normal-user", "user-password"), new Request("http://localhost/login"));
+    const token = loginResponse.cookies.get("qgw_session")!.value;
+    assert((await auth.getAppUserFromSessionToken(token))?.id === user.id, "valid sessions resolve their owner");
     const disabled = await auth.updateManagedAppUser(admin, user.id, { disabled: true });
+    assert(!await auth.getAppUserFromSessionToken(token), "disabled user's existing session is rejected");
     assert(Boolean(disabled.disabledAt), "admin can disable a user");
     let disabledCannotLogin = false;
     try {
@@ -75,6 +81,7 @@ async function main() {
 
     const enabled = await auth.updateManagedAppUser(admin, user.id, { disabled: false, role: "admin" });
     assert(!enabled.disabledAt && enabled.role === "admin", "admin can enable and promote a user");
+    assert(!await auth.getAppUserFromSessionToken(token), "re-enabling an account does not resurrect its revoked sessions");
 
     const viewer = await auth.createManagedAppUser(admin, {
       displayName: "Viewer User",

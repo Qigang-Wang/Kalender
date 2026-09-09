@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getAppUserFromSessionToken } from "./server/auth";
 
 const AUTH_COOKIE_NAME = "qgw_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
@@ -12,7 +13,16 @@ export async function proxy(request: NextRequest) {
   if (pathname === "/mcp") return NextResponse.next();
   if (isPublicPath(pathname)) return NextResponse.next();
 
-  const session = await verifySessionToken(request.cookies.get(AUTH_COOKIE_NAME)?.value);
+  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
+  let session = await verifySessionToken(token);
+  if (session) {
+    try {
+      const user = await getAppUserFromSessionToken(token);
+      session = user ? { ...session, role: user.role, mustChangePassword: user.mustChangePassword } : undefined;
+    } catch {
+      return NextResponse.json({ ok: false, message: "暂时无法验证登录状态，请稍后重试" }, { status: 503 });
+    }
+  }
   if (session) {
     if (session.mustChangePassword && pathname !== "/change-password" && !pathname.startsWith("/api/users/me") && !pathname.startsWith("/api/auth/logout")) {
       if (pathname.startsWith("/api/")) {

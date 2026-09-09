@@ -134,6 +134,11 @@ export interface Page<T> {
   readonly nextCursor?: string;
 }
 
+export interface CalendarAttendee extends MailAddress {
+  readonly role?: "required" | "optional" | "resource";
+  readonly response?: string;
+}
+
 export interface MailAddress {
   readonly address: string;
   readonly name?: string;
@@ -303,7 +308,7 @@ export interface CalendarSummary {
 }
 
 export type CalendarAvailability = "free" | "tentative" | "busy" | "oof" | "working_elsewhere";
-export type CalendarEventReminderMinutes = 0 | 5 | 15 | 30 | 60 | 1440;
+export type CalendarEventReminderMinutes = number;
 
 export interface CalendarEvent {
   readonly id: string;
@@ -319,7 +324,7 @@ export interface CalendarEvent {
   readonly allDay: boolean;
   /** Undefined uses the desktop default; 0 explicitly disables reminders for this event. */
   readonly reminderMinutesBefore?: CalendarEventReminderMinutes;
-  readonly attendees: readonly MailAddress[];
+  readonly attendees: readonly CalendarAttendee[];
   readonly meetingUrl?: string;
   readonly status: "confirmed" | "tentative" | "cancelled";
   readonly availability?: CalendarAvailability;
@@ -366,7 +371,7 @@ export interface UpsertCalendarEventInput {
   readonly timeZone?: string;
   readonly allDay?: boolean;
   readonly reminderMinutesBefore?: CalendarEventReminderMinutes;
-  readonly attendees?: readonly MailAddress[];
+  readonly attendees?: readonly CalendarAttendee[];
   readonly availability?: CalendarAvailability;
   readonly idempotencyKey?: string;
   readonly recurrence?: CalendarRecurrenceRule | null;
@@ -375,6 +380,8 @@ export interface UpsertCalendarEventInput {
   readonly recurrenceScope?: CalendarRecurrenceEditScope;
   /** Optional local compare-and-swap revision for trusted server-side callers. */
   readonly expectedUpdatedAt?: ISODateTime;
+  readonly sendInvitations?: boolean;
+  readonly reminderIsSet?: boolean;
 }
 
 export interface CalendarProvider {

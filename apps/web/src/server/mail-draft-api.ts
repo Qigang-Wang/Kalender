@@ -4,9 +4,10 @@ import { MailDraftAttachmentError } from "./mail-draft-attachment-service";
 import { MailDraftRepositoryError } from "./mail-draft-repository";
 import { MailDraftValidationError } from "./mail-draft-validation";
 import { MailSendError } from "./mail-send-service";
+import { ExchangeEwsError } from "./exchange-ews-client";
 
 export function mailDraftErrorResponse(error: unknown): NextResponse {
-  if (error instanceof MailDraftRepositoryError || error instanceof MailDraftValidationError || error instanceof MailDraftAttachmentError || error instanceof MailSendError) {
+  if (error instanceof MailDraftRepositoryError || error instanceof MailDraftValidationError || error instanceof MailDraftAttachmentError || error instanceof MailSendError || error instanceof ExchangeEwsError) {
     return NextResponse.json({ ok: false, code: "code" in error ? error.code : "INVALID_DRAFT", message: error.message }, { status: error.status });
   }
   console.error("Mail draft request failed", error);

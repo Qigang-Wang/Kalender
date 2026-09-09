@@ -21,6 +21,8 @@ import {
   createExchangeCalendarEvent,
   deleteExchangeCalendarEvent,
   updateExchangeCalendarEvent,
+  respondToExchangeMeeting,
+  getExchangeAvailability,
   type ExchangeCalendarFolder,
 } from "./exchange-calendar";
 import { createCalDavEvent, deleteCalDavEvent, updateCalDavEvent } from "./caldav-client";
@@ -46,6 +48,7 @@ interface ExchangeEventTargetRow {
   provider_change_key: string | null;
   is_meeting: boolean;
   is_recurring: boolean;
+  is_organizer: boolean | null;
   availability: NonNullable<CalendarEvent["availability"]>;
   updated_at: string | Date;
 }
@@ -103,11 +106,13 @@ export async function upsertCalendarEvent(input: UpsertCalendarEventInput): Prom
       const existing = await getExchangeEventTarget(input.id, input.calendarId);
       assertExchangeRevision(existing, input.expectedUpdatedAt);
       assertSafeExchangeMutation(existing);
+      if ((existing.is_meeting || input.attendees?.length) && !input.sendInvitations) throw new CalendarRepositoryError("MEETING_NOTIFICATION_REQUIRED", "请确认向参与者发送会议更新", 409);
       remoteEvent = await updateExchangeCalendarEvent(credential, {
         itemId: existing.provider_item_id!,
         changeKey: existing.provider_change_key ?? undefined,
       }, { ...input, availability: input.availability ?? existing.availability }, controller.signal);
     } else {
+      if (input.attendees?.length && !input.sendInvitations) throw new CalendarRepositoryError("MEETING_NOTIFICATION_REQUIRED", "请确认发送会议邀请", 409);
       const folderId = target.provider_calendar_id.startsWith(`${target.account_id}:`)
         ? target.provider_calendar_id.slice(target.account_id.length + 1)
         : target.provider_calendar_id;
@@ -176,10 +181,12 @@ export async function deleteCalendarEvent(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 55_000);
   try {
-    await deleteExchangeCalendarEvent(credential, {
+    const identity = {
       itemId: existing.provider_item_id!,
       changeKey: existing.provider_change_key ?? undefined,
-    }, controller.signal);
+    };
+    if (existing.is_meeting) await respondToExchangeMeeting(credential, identity, "cancel");
+    else await deleteExchangeCalendarEvent(credential, identity, controller.signal);
     await deleteStoredCalendarEvent(calendarId, eventId, { expectedUpdatedAt });
   } finally {
     clearTimeout(timeout);
@@ -263,7 +270,7 @@ async function getExchangeEventTarget(eventId: string, calendarId: string): Prom
   const database = await getDatabase();
   const scope = await getUserScope();
   const result = await database.query<ExchangeEventTargetRow>(
-    `SELECT e.provider_item_id, e.provider_change_key, e.is_meeting, e.is_recurring, e.availability, e.updated_at
+    `SELECT e.provider_item_id, e.provider_change_key, e.is_meeting, e.is_recurring, e.is_organizer, e.availability, e.updated_at
        FROM calendar_events e JOIN calendars c ON c.id = e.calendar_id
       WHERE e.id = $1 AND e.calendar_id = $2${scope.active ? " AND c.user_id = $3" : ""}
       LIMIT 1`,
@@ -319,7 +326,27 @@ function assertSafeExchangeMutation(event: ExchangeEventTargetRow): void {
   if (event.is_recurring) {
     throw new CalendarRepositoryError("RECURRING_EVENT_PROTECTED", "当前版本暂不修改重复日程，请在 RWTH 网页端处理", 409);
   }
-  if (event.is_meeting) {
-    throw new CalendarRepositoryError("MEETING_EVENT_PROTECTED", "当前版本暂不修改含参会人的会议，避免误发会议通知", 409);
+  if (event.is_meeting && event.is_organizer !== true) {
+    throw new CalendarRepositoryError("MEETING_EVENT_PROTECTED", "只有组织者可以修改或取消会议；你可以回复邀请", 409);
   }
+}
+
+export async function respondToCalendarMeeting(calendarId: string, eventId: string, response: "accept" | "tentative" | "decline", expectedUpdatedAt?: string, comment?: string) {
+  const calendar = await getCalendarWriteTarget(calendarId);
+  if (calendar.provider_id !== "exchange" || !calendar.account_id) throw new CalendarRepositoryError("NOT_EXCHANGE", "仅支持 Exchange 会议", 400);
+  const event = await getExchangeEventTarget(eventId, calendarId);
+  assertExchangeRevision(event, expectedUpdatedAt);
+  if (!event.is_meeting || event.is_organizer !== false || !event.provider_item_id) throw new CalendarRepositoryError("MEETING_RESPONSE_UNAVAILABLE", "这个事件不能回复会议邀请", 409);
+  const credential = await loadExchangeCalendarCredential(calendar.account_id);
+  await respondToExchangeMeeting(credential, { itemId: event.provider_item_id, changeKey: event.provider_change_key ?? undefined }, response, comment);
+  const database = await getDatabase();
+  // The provider changes item identities on responses; the next sync reconciles them.
+  await database.query(`UPDATE calendar_events SET exchange_metadata = exchange_metadata || $2::jsonb, status = $3, updated_at = clock_timestamp() WHERE id = $1`, [eventId, JSON.stringify({ myResponseType: { accept: "Accept", tentative: "Tentative", decline: "Decline" }[response] }), response === "decline" ? "cancelled" : response === "tentative" ? "tentative" : "confirmed"]);
+  return getStoredCalendarEvent(eventId);
+}
+
+export async function calendarParticipantAvailability(calendarId: string, addresses: readonly string[], start: string, end: string) {
+  const calendar = await getCalendarWriteTarget(calendarId);
+  if (calendar.provider_id !== "exchange" || !calendar.account_id) throw new CalendarRepositoryError("NOT_EXCHANGE", "请选择 Exchange 日历", 400);
+  return getExchangeAvailability(await loadExchangeCalendarCredential(calendar.account_id), addresses, start, end);
 }

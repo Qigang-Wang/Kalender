@@ -147,19 +147,21 @@ export async function saveMailDraft(input: ParsedMailDraftInput, id?: string): P
   if (existing?.status === "sending") throw new MailDraftRepositoryError("DRAFT_BUSY", "邮件正在发送", 409);
   if (existing?.status === "sent") throw new MailDraftRepositoryError("DRAFT_SENT", "邮件已经发送", 409);
   const database = await getDatabase();
+  if (existing && existing.accountId !== input.accountId && (await database.query("SELECT 1 FROM exchange_draft_links WHERE draft_id = $1", [draftId])).rows.length) throw new MailDraftRepositoryError("REPLY_ACCOUNT_MISMATCH", "已同步的 Exchange 草稿不能切换发件账户，请新建邮件", 409);
   const scope = await getUserScope();
   const values = [draftId, input.accountId, input.replyToMessageId ?? null, JSON.stringify(input.to), JSON.stringify(input.cc),
     JSON.stringify(input.bcc), input.subject, input.textBody, input.bodyContent, input.signatureId ?? null, input.signatureVariant ?? null];
   if (existing) {
-    await database.query(
+    const saved = await database.query(
       `UPDATE mail_drafts SET account_id = $2, reply_to_message_id = $3,
          to_addresses = $4::jsonb, cc_addresses = $5::jsonb, bcc_addresses = $6::jsonb,
          subject = $7, text_body = $8, body_content = $9, status = 'draft', idempotency_key = NULL,
          signature_id = $10, signature_variant = $11,
          error_message = NULL, updated_at = now()
-       WHERE id = $1${scope.active ? " AND user_id = $12" : ""}`,
+       WHERE id = $1 AND status NOT IN ('sending', 'sent')${scope.active ? " AND user_id = $12" : ""} RETURNING id`,
       scope.active ? [...values, scope.userId] : values,
     );
+    if (!saved.rows.length) throw new MailDraftRepositoryError("DRAFT_BUSY", "邮件正在发送，请刷新草稿", 409);
   } else {
     await database.query(
       `INSERT INTO mail_drafts (

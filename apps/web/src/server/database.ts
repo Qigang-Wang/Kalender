@@ -2031,6 +2031,49 @@ export const DATABASE_MIGRATIONS = [
   { version: 42, name: "hide-legacy-plan-item-task-mirrors", sql: LEGACY_PLAN_ITEM_MIRROR_SCHEMA_SQL },
   { version: 43, name: "mail-iframe-body-cache", sql: MAIL_IFRAME_BODY_CACHE_SCHEMA_SQL },
   { version: 44, name: "task-reminders-and-recurrence", sql: TASK_REMINDERS_AND_RECURRENCE_SCHEMA_SQL },
+  { version: 45, name: "exchange-calendar-workflows", sql: `
+    ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS exchange_metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE calendar_events DROP CONSTRAINT IF EXISTS calendar_events_reminder_minutes_check;
+    ALTER TABLE calendar_events ADD CONSTRAINT calendar_events_reminder_minutes_check CHECK (reminder_minutes_before IS NULL OR reminder_minutes_before BETWEEN 0 AND 525600);
+    CREATE TABLE IF NOT EXISTS exchange_calendar_sync_state (
+      calendar_id text PRIMARY KEY REFERENCES calendars(id) ON DELETE CASCADE,
+      sync_state text NOT NULL,
+      range_day date NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+  ` },
+  { version: 46, name: "exchange-draft-sync", sql: `
+    CREATE TABLE IF NOT EXISTS exchange_draft_links (
+      draft_id text PRIMARY KEY REFERENCES mail_drafts(id) ON DELETE CASCADE,
+      account_id text NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      item_id text NOT NULL,
+      change_key text NOT NULL,
+      local_revision text NOT NULL,
+      UNIQUE (account_id, item_id)
+    );
+  ` },
+  { version: 47, name: "calendar-operation-receipts", sql: `
+    CREATE TABLE IF NOT EXISTS calendar_operation_receipts (
+      user_id text NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+      operation_id text NOT NULL,
+      request_hash text NOT NULL,
+      response_body text,
+      response_status integer,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, operation_id)
+    );
+  ` },
+  { version: 48, name: "recoverable-calendar-operations-and-draft-creates", sql: `
+    ALTER TABLE calendar_operation_receipts ADD COLUMN write_started boolean NOT NULL DEFAULT true;
+    ALTER TABLE calendar_operation_receipts ALTER COLUMN write_started SET DEFAULT false;
+    -- Old conflict-list responses came exclusively from read-only API preflight.
+    UPDATE calendar_operation_receipts SET write_started = false
+      WHERE response_status = 409 AND response_body LIKE '%"conflicts":%';
+    CREATE TABLE exchange_draft_creates (
+      draft_id text PRIMARY KEY REFERENCES mail_drafts(id) ON DELETE CASCADE,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+  ` },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

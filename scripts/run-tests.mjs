@@ -27,6 +27,7 @@ const testScripts = [
   "test:caldav",
   "test:exchange",
   "test:exchange-mail",
+  "test:exchange-workflows",
   "test:ics",
   "test:tasks",
   "test:task-recurrence",

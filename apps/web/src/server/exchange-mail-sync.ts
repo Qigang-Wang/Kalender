@@ -1,4 +1,5 @@
 import { resolveExchangeInlineImages, sanitizeEmailHtml, sanitizeEmailIframeHtml } from "./mail-body-service";
+import { synchronizeExchangeDrafts, pushPendingExchangeDrafts } from "./exchange-draft-sync";
 import {
   exchangeFolderLocalId,
   exchangeMessageLocalId,
@@ -75,6 +76,7 @@ async function executeExchangeMailSync(accountId: string, maximumMessages: numbe
       if (!state?.latestSeeded) {
         const seeded = await fetchExchangeMailMessages(credential, folder, remaining, AbortSignal.timeout(45_000));
         await storeMessages(accountId, folder.folderId, seeded);
+        if (folder.role === "drafts") await synchronizeExchangeDrafts(accountId, seeded);
         messagesProcessed += seeded.length;
         state = { syncState: state?.syncState, latestSeeded: true, initialComplete: state?.initialComplete ?? false };
         await saveExchangeMailSyncState(accountId, folder.folderId, state);
@@ -95,6 +97,7 @@ async function executeExchangeMailSync(accountId: string, maximumMessages: numbe
           AbortSignal.timeout(45_000),
         );
         await storeMessages(accountId, folder.folderId, recent);
+        if (folder.role === "drafts") await synchronizeExchangeDrafts(accountId, recent);
         messagesProcessed += recent.length;
         if (messagesProcessed >= maximumMessages) {
           hasMoreHistory = true;
@@ -111,6 +114,7 @@ async function executeExchangeMailSync(accountId: string, maximumMessages: numbe
         AbortSignal.timeout(45_000),
       );
       await storeMessages(accountId, folder.folderId, changes.messages);
+      if (folder.role === "drafts") await synchronizeExchangeDrafts(accountId, changes.messages, changes.deletedItemIds);
       messagesProcessed += changes.messages.length;
       messagesRemoved += await removeExchangeMessages(accountId, changes.deletedItemIds);
       messagesReconciled += await updateExchangeMessageReadFlags(
@@ -129,6 +133,7 @@ async function executeExchangeMailSync(accountId: string, maximumMessages: numbe
       foldersProcessed += 1;
       await updateSyncRunProgress(runId, foldersProcessed, messagesProcessed);
     }
+    await pushPendingExchangeDrafts(accountId);
     await setSyncStatus(accountId, "ready");
     await finishSyncRun(runId, "succeeded", foldersProcessed, messagesProcessed);
     return {

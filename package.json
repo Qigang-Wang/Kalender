@@ -21,7 +21,7 @@
     "typecheck:core": "tsc -p tsconfig.json --noEmit",
     "typecheck:web": "npm run typecheck --workspace @workspace/web",
     "test": "node scripts/run-tests.mjs",
-    "test:serial": "npm run test:core && npm run test:storage && npm run test:auth && npm run test:database-migrations && npm run test:backup && npm run test:imap-sync-state && npm run test:ai-provider && npm run test:ai-chat && npm run test:mail-ai && npm run test:mail-body && npm run test:mail-drafts && npm run test:mail-signatures && npm run test:mail-reply && npm run test:mail-date-groups && npm run test:mail-smime && npm run test:mail-attachment-preview && npm run test:context-commands && npm run test:task-view && npm run test:project-plan-progress && npm run test:mcp && npm run test:calendar && npm run test:calendar-sync-scheduler && npm run test:caldav && npm run test:exchange && npm run test:exchange-mail && npm run test:ics && npm run test:tasks && npm run test:task-recurrence && npm run test:projects && npm run test:notes && npm run test:links && npm run test:today && npm run test:search && npm run test:http-client && npm run test:proxy && npm run test:desktop-reminders",
+    "test:serial": "npm run test:core && npm run test:storage && npm run test:auth && npm run test:database-migrations && npm run test:backup && npm run test:imap-sync-state && npm run test:ai-provider && npm run test:ai-chat && npm run test:mail-ai && npm run test:mail-body && npm run test:mail-drafts && npm run test:mail-signatures && npm run test:mail-reply && npm run test:mail-date-groups && npm run test:mail-smime && npm run test:mail-attachment-preview && npm run test:context-commands && npm run test:task-view && npm run test:project-plan-progress && npm run test:mcp && npm run test:calendar && npm run test:calendar-sync-scheduler && npm run test:caldav && npm run test:exchange && npm run test:exchange-mail && npm run test:exchange-workflows && npm run test:ics && npm run test:tasks && npm run test:task-recurrence && npm run test:projects && npm run test:notes && npm run test:links && npm run test:today && npm run test:search && npm run test:http-client && npm run test:proxy && npm run test:desktop-reminders",
     "test:core": "npm run build:core && node dist/test/run.js",
     "test:storage": "tsx apps/web/src/server/storage.test.ts",
     "test:auth": "tsx apps/web/src/server/auth.test.ts",
@@ -61,7 +61,8 @@
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
     "desktop:build:updater": "tauri build --config src-tauri/tauri.updater.conf.json",
-    "desktop:check": "cargo check --manifest-path src-tauri/Cargo.toml"
+    "desktop:check": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "test:exchange-workflows": "node --import tsx --import ./scripts/test-web-runtime.mjs apps/web/src/server/exchange-workflows.test.ts"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",

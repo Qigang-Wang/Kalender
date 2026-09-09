@@ -21,11 +21,16 @@ export type ExchangeSoapAction =
   | "GetAttachment"
   | "CreateItem"
   | "CreateAttachment"
+  | "DeleteAttachment"
   | "UpdateItem"
   | "MoveItem"
   | "DeleteItem"
   | "SendItem"
-  | "SyncFolderItems";
+  | "SyncFolderItems"
+  | "GetUserAvailability"
+  | "Subscribe"
+  | "Unsubscribe"
+  | "GetStreamingEvents";
 
 export class ExchangeEwsError extends Error {
   constructor(
@@ -77,6 +82,7 @@ export async function exchangeSoapRequest(
   action: ExchangeSoapAction,
   body: string,
   signal?: AbortSignal,
+  onEnvelope?: (xml: string) => void | Promise<void>,
 ): Promise<string> {
   const envelope = `<?xml version="1.0" encoding="utf-8"?>
     <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
@@ -112,12 +118,36 @@ export async function exchangeSoapRequest(
     if (response.status === 401 || response.status === 403) {
       throw new ExchangeEwsError("AUTH_REQUIRED", "Exchange 拒绝了登录。请检查 RWTH-E-Mail 用户名和密码", 401);
     }
+    if (response.ok && onEnvelope && response.body) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let last = "";
+      try {
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          buffer += decoder.decode(chunk.value, { stream: true });
+          if (buffer.length > 2_000_000) throw new ExchangeEwsError("INVALID_RESPONSE", "Exchange 通知响应过大", 502);
+          let match: RegExpExecArray | null;
+          while ((match = /<\/(?:[\w-]+:)?Envelope>/.exec(buffer))) {
+            const end = match.index + match[0].length;
+            last = buffer.slice(0, end);
+            buffer = buffer.slice(end);
+            assertExchangeSuccess(last);
+            await onEnvelope(last);
+          }
+        }
+      } finally { await reader.cancel().catch(() => undefined); }
+      if (!last || buffer.trim()) throw new ExchangeEwsError("INVALID_RESPONSE", "Exchange 通知连接中断，将重新订阅", 502);
+      return last;
+    }
     const xml = await response.text();
     if (!response.ok) {
       const message = elementText(xml, "MessageText") || `Exchange 服务器返回 HTTP ${response.status}`;
       throw new ExchangeEwsError("REMOTE_ERROR", message, 502);
     }
-    assertExchangeSuccess(xml);
+    if (action !== "GetUserAvailability" || !elementContent(xml, "FreeBusyResponseArray")) assertExchangeSuccess(xml);
     return xml;
   }
   throw new ExchangeEwsError("TOO_MANY_REDIRECTS", "Exchange 服务器跳转次数过多", 502);

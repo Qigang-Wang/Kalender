@@ -15,6 +15,7 @@ import { taskCalendarRange } from "@/lib/task-calendar";
 import { appConfirm } from "@/components/app-dialog-provider";
 import { useRealtimeRefresh } from "@/components/realtime-context";
 import { useVisiblePageRefresh } from "@/hooks/use-visible-page-refresh";
+import { useCalendarOutbox } from "@/hooks/use-calendar-outbox";
 import {
   EMPTY_PLATE_NOTE_CONTENT,
   decodeNoteContent,
@@ -163,8 +164,11 @@ interface CalendarViewEvent {
     readonly isMeeting?: boolean;
     readonly isRecurring?: boolean;
     readonly isOrganizer?: boolean;
+    readonly myResponseType?: string;
+    readonly reminderIsSet?: boolean;
+    readonly pendingSync?: boolean;
   };
-  readonly attendees?: readonly { readonly address: string; readonly name?: string }[];
+  readonly attendees?: readonly { readonly address: string; readonly name?: string; readonly role?: "required" | "optional" | "resource"; readonly response?: string }[];
   readonly meetingUrl?: string;
   readonly recurrence?: CalendarRecurrenceRule;
   readonly recurrenceSeriesId?: string;
@@ -177,6 +181,8 @@ interface CalendarViewEvent {
 }
 
 interface CalendarEventDraft {
+  readonly attendeesText?: string;
+  readonly reminderIsSet?: boolean;
   readonly id?: string;
   readonly calendarId: string;
   readonly title: string;
@@ -217,15 +223,16 @@ type CalendarViewMode = "week" | "month";
 type CalendarDialogMode = "view" | "edit";
 
 function calendarEventWriteDisabledReason(event?: CalendarViewEvent, calendar?: CalendarListItem): string | undefined {
+  if (event?.providerData?.pendingSync) return "这项修改正在等待联网同步";
   if (calendar?.readOnly) return "这个日历当前为只读";
   if (event?.providerData?.providerId !== "exchange") return undefined;
   if (!event.providerData.itemId) return "请先立即同步 RWTH 日历，再尝试修改";
   if (event.providerData.isRecurring) return "重复日程暂不支持写回，请在 RWTH 网页端处理";
-  if (event.providerData.isMeeting) return "含参会人的会议暂不支持写回，避免误发会议通知";
+  if (event.providerData.isMeeting && event.providerData.isOrganizer !== true) return "只有组织者可以编辑或取消会议；你可以回复邀请";
   return undefined;
 }
 
-export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly initialEventId?: string; readonly initialCalendarDate?: string }) {
+export function CalendarPage({ userId, initialEventId, initialCalendarDate }: { readonly userId: string; readonly initialEventId?: string; readonly initialCalendarDate?: string }) {
   const router = useRouter();
   const [viewMode, setViewMode] = useState<CalendarViewMode>("week");
   const [anchorDate, setAnchorDate] = useState(() => {
@@ -234,6 +241,8 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   });
   const [calendars, setCalendars] = useState<readonly CalendarListItem[]>([]);
   const [events, setEvents] = useState<readonly CalendarViewEvent[]>([]);
+  const outbox = useCalendarOutbox(userId);
+  const calendarRequest = (url: string, init: RequestInit) => outbox.request(url, init, events.find((event) => url.includes(encodeURIComponent(event.id))) as unknown as Record<string, unknown> | undefined);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -248,6 +257,9 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   const [calendarTasks, setCalendarTasks] = useState<readonly ClientTask[]>([]);
   const [taskDropBusy, setTaskDropBusy] = useState(false);
   const [calendarMoveBusy, setCalendarMoveBusy] = useState(false);
+  const [pendingTimeChange, setPendingTimeChange] = useState<CalendarViewEvent>();
+  const [participantAvailability, setParticipantAvailability] = useState<readonly { address: string; availability: string }[]>([]);
+  const timeChangeVersionRef = useRef(0);
   const menuReturnFocusRef = useRef<HTMLElement | null>(null);
   const recurrenceScopeResolverRef = useRef<((scope: CalendarRecurrenceEditScope | undefined) => void) | undefined>(undefined);
   const openedInitialEvent = useRef(false);
@@ -289,9 +301,17 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     });
   }, [calendarTasks, timeZone, visibleRange, writableLocalCalendar]);
   const displayedEvents = useMemo(
-    () => [...events, ...deadlineTaskEvents].sort((left, right) => left.start.localeCompare(right.start)),
-    [deadlineTaskEvents, events],
+    () => [...events.filter((event) => !outbox.operations.some((operation) => operation.event.id === event.id)), ...outbox.operations.filter((operation) => operation.method !== "DELETE").map((operation) => operation.event as unknown as CalendarViewEvent), ...deadlineTaskEvents]
+      .map((event) => event.id === pendingTimeChange?.id ? pendingTimeChange : event)
+      .sort((left, right) => left.start.localeCompare(right.start)),
+    [deadlineTaskEvents, events, pendingTimeChange, outbox.operations],
   );
+
+  const previewTimeChange = (event?: CalendarViewEvent, start?: Date, end?: Date) => {
+    // Ignore refreshes started before a move or completed after its response.
+    timeChangeVersionRef.current += 1;
+    setPendingTimeChange(event && start && end ? { ...event, start: start.toISOString(), end: end.toISOString() } : undefined);
+  };
 
   const requestRecurrenceScope = useCallback((
     action: RecurrenceScopePrompt["action"],
@@ -315,10 +335,11 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   }, []);
 
   const loadCalendarTasks = useCallback(async () => {
+    const timeChangeVersion = timeChangeVersionRef.current;
     const response = await workspaceFetch("/api/tasks", {}, 0);
     const payload = await response.json() as { readonly tasks?: readonly ClientTask[] };
     if (!response.ok) throw new Error("无法读取待安排任务");
-    setCalendarTasks(payload.tasks ?? []);
+    if (timeChangeVersion === timeChangeVersionRef.current) setCalendarTasks(payload.tasks ?? []);
   }, []);
 
   useEffect(() => {
@@ -344,13 +365,14 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   }, []);
 
   const loadEvents = useCallback(async ({ background = false }: { readonly background?: boolean } = {}) => {
+    const timeChangeVersion = timeChangeVersionRef.current;
     if (!background) setLoading(true);
     try {
       const params = new URLSearchParams({ from: visibleRange.start.toISOString(), to: visibleRange.end.toISOString() });
       const response = await workspaceFetch(`/api/calendar-events?${params}`, {}, 0);
       const payload = await response.json() as { readonly events?: readonly CalendarViewEvent[]; readonly message?: string };
       if (!response.ok || !payload.events) throw new Error(payload.message || "无法读取日程");
-      setEvents(payload.events);
+      if (timeChangeVersion === timeChangeVersionRef.current) setEvents(payload.events);
       if (!background) setFeedback("");
     } catch (error) {
       if (!background) setFeedback(error instanceof Error ? error.message : "无法读取日程");
@@ -384,6 +406,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   }, [refreshVisibleCalendar]);
 
   const openCreateDraft = useCallback((start = nextCalendarHour(new Date()), title = "", selectedEnd?: Date) => {
+    setParticipantAvailability([]);
     const calendarId = writableLocalCalendar?.id;
     if (!calendarId) {
       setFeedback("本地日历尚未准备好，请稍后再试");
@@ -413,6 +436,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   }, [timeZone, writableLocalCalendar]);
 
   const openEditDraft = useCallback((event: CalendarViewEvent, mode: CalendarDialogMode = "view") => {
+    setParticipantAvailability([]);
     const eventStart = new Date(event.start);
     const eventEnd = new Date(event.end);
     const inclusiveAllDayEnd = event.allDay ? addCalendarDays(eventEnd, -1) : eventEnd;
@@ -423,6 +447,8 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     setDraftMode(mode);
     setDraft({
       id: event.id,
+      attendeesText: event.attendees?.map((attendee) => attendee.address).join(", ") ?? "",
+      reminderIsSet: event.providerData?.reminderIsSet,
       calendarId: event.calendarId,
       title: event.title,
       description: event.description ?? "",
@@ -513,6 +539,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
 
   const saveDraft = async (allowConflicts = false) => {
     if (!draft || busy) return;
+    if (outbox.operations.some((item) => item.event.id === draft.id)) { setFeedback("此日程有待同步修改，请先同步或撤销"); return; }
     if (calendars.find((calendar) => calendar.id === draft.calendarId)?.readOnly) {
       setFeedback("这是只读日历，不能修改远端日程");
       return;
@@ -533,10 +560,13 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       recurrenceScope = await requestRecurrenceScope("修改", draft.title);
       if (!recurrenceScope) return;
     }
+    const attendees = (draft.attendeesText ?? "").split(/[,;\s]+/).filter(Boolean).map((address) => events.find((event) => event.id === draft.id)?.attendees?.find((attendee) => attendee.address.toLowerCase() === address.toLowerCase()) ?? ({ address }));
+    const sendsMeetingNotice = calendars.find((calendar) => calendar.id === draft.calendarId)?.providerData?.providerId === "exchange" && (attendees.length > 0 || events.find((event) => event.id === draft.id)?.providerData?.isMeeting);
+    if (sendsMeetingNotice && !await appConfirm({ title: draft.id ? "发送会议更新？" : "发送会议邀请？", description: "保存后将通知参与者。", confirmLabel: "保存并发送" })) return;
     setBusy(true);
     setFeedback("");
     try {
-      const response = await fetch(draft.id ? `/api/calendar-events/${encodeURIComponent(draft.id)}` : "/api/calendar-events", {
+      const response = await calendarRequest(draft.id ? `/api/calendar-events/${encodeURIComponent(draft.id)}` : "/api/calendar-events", {
         method: draft.id ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -550,6 +580,10 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
           timeZone: draft.timeZone,
           allDay: draft.allDay,
           reminderMinutesBefore: draft.reminderMinutesBefore,
+          reminderIsSet: draft.reminderIsSet,
+          availability: draft.availability,
+          attendees,
+          sendInvitations: Boolean(sendsMeetingNotice),
           recurrence: draft.recurrence ?? null,
           recurrenceSeriesId: draft.recurrenceSeriesId,
           recurrenceId: draft.recurrenceId,
@@ -567,8 +601,8 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       }
       if (!response.ok || !payload.event) throw new Error(payload.message || "无法保存日程");
       setDraft(undefined);
-      setFeedback(draft.id ? "日程已更新" : "日程已创建");
-      await loadEvents();
+      setFeedback(response.status === 202 ? "修改已保存在本机，联网后自动同步" : draft.id ? "日程已更新" : "日程已创建");
+      if (response.status !== 202) await loadEvents();
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法保存日程");
     } finally {
@@ -577,6 +611,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   };
 
   const deleteEvent = async (event: CalendarViewEvent) => {
+    if (event.providerData?.pendingSync) { setFeedback("此日程有待同步修改，请先同步或撤销"); return; }
     if (calendars.find((calendar) => calendar.id === event.calendarId)?.readOnly) {
       setMenu(undefined);
       setFeedback("这是只读日历，不能删除远端日程");
@@ -589,8 +624,8 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       if (!recurrenceScope) return;
     } else if (!await appConfirm({
       title: `删除日程“${event.title}”？`,
-      description: "该日程将被永久删除。",
-      confirmLabel: "删除日程",
+      description: event.providerData?.isMeeting ? "将取消会议并向参与者发送取消通知。" : "该日程将被删除。",
+      confirmLabel: event.providerData?.isMeeting ? "取消会议并通知" : "删除日程",
       tone: "danger",
     })) {
       return;
@@ -605,12 +640,12 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
         params.set("recurrenceId", event.recurrenceId);
         params.set("scope", recurrenceScope ?? "occurrence");
       }
-      const response = await fetch(`/api/calendar-events/${encodeURIComponent(event.id)}?${params}`, { method: "DELETE" });
+      const response = await calendarRequest(`/api/calendar-events/${encodeURIComponent(event.id)}?${params}`, { method: "DELETE" });
       const payload = await response.json().catch(() => ({})) as { readonly message?: string };
       if (!response.ok) throw new Error(payload.message || "无法删除日程");
       setDraft(undefined);
-      setFeedback("日程已删除");
-      await loadEvents();
+      setFeedback(response.status === 202 ? "删除操作已保存在本机，联网后自动同步" : "日程已删除");
+      if (response.status !== 202) await loadEvents();
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法删除日程");
     } finally {
@@ -790,6 +825,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
   const updateTaskTimeBlock = async (event: CalendarViewEvent, start: Date, end: Date, action: "移动" | "调整时长") => {
     if (taskDropBusy || !event.linkedTask) return;
     setTaskDropBusy(true);
+    previewTimeChange(event, start, end);
     try {
       const requestMove = async (allowConflicts: boolean) => {
         const response = await fetch(`/api/tasks/${encodeURIComponent(event.linkedTask!.id)}/schedule/${encodeURIComponent(event.id)}`, {
@@ -815,12 +851,13 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       }
       if (!result.response.ok || !result.payload.task || !result.payload.event) throw new Error(result.payload.message ?? "无法调整时间块");
       setCalendarTasks((current) => current.map((item) => item.id === result.payload.task!.id ? result.payload.task! : item));
-      setEvents((current) => [...current.filter((item) => item.id !== result.payload.event!.id), result.payload.event!].sort((left, right) => left.start.localeCompare(right.start)));
+      if (result.response.status !== 202) setEvents((current) => [...current.filter((item) => item.id !== result.payload.event!.id), result.payload.event!].sort((left, right) => left.start.localeCompare(right.start)));
       setFeedback(action === "移动" ? `已重新安排“${result.payload.task.title}”` : `已调整“${result.payload.task.title}”的时长`);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法调整时间块");
     } finally {
       setTaskDropBusy(false);
+      previewTimeChange();
     }
   };
 
@@ -844,6 +881,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     if (!task || taskDropBusy) return;
     if (task.dueAt === dueAt && task.estimatedMinutes === estimatedMinutes) return;
     setTaskDropBusy(true);
+    previewTimeChange(event, new Date(dueAt), new Date(new Date(dueAt).getTime() + estimatedMinutes * 60_000));
     setEventPreview(undefined);
     try {
       const response = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, {
@@ -873,6 +911,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       setFeedback(error instanceof Error ? error.message : `无法${action}任务`);
     } finally {
       setTaskDropBusy(false);
+      previewTimeChange();
     }
   };
 
@@ -901,15 +940,17 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     const targetEnd = new Date(targetStart.getTime() + duration);
     if (targetStart.getTime() === originalStart.getTime()) return;
     let recurrenceScope: CalendarRecurrenceEditScope | undefined;
-    if (event.recurrenceSeriesId && event.recurrenceId) {
-      recurrenceScope = await requestRecurrenceScope("移动", event.title);
-      if (!recurrenceScope) return;
-    }
     setCalendarMoveBusy(true);
     setEventPreview(undefined);
+    previewTimeChange(event, targetStart, targetEnd);
     try {
+      if (event.providerData?.isMeeting && !await appConfirm({ title: "移动会议并通知参与者？", confirmLabel: "移动并发送更新" })) return;
+      if (event.recurrenceSeriesId && event.recurrenceId) {
+        recurrenceScope = await requestRecurrenceScope("移动", event.title);
+        if (!recurrenceScope) return;
+      }
       const requestMove = async (allowConflicts: boolean) => {
-        const response = await fetch(`/api/calendar-events/${encodeURIComponent(event.id)}`, {
+        const response = await calendarRequest(`/api/calendar-events/${encodeURIComponent(event.id)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -926,6 +967,10 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
             recurrenceId: event.recurrenceId,
             recurrenceScope,
             expectedUpdatedAt: event.updatedAt,
+            sendInvitations: Boolean(event.providerData?.isMeeting),
+            reminderMinutesBefore: event.reminderMinutesBefore,
+            reminderIsSet: event.providerData?.reminderIsSet,
+            availability: event.availability,
             allowConflicts,
           }),
         });
@@ -946,12 +991,13 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
         result = await requestMove(true);
       }
       if (!result.response.ok || !result.payload.event) throw new Error(result.payload.message ?? "无法移动日程");
-      setEvents((current) => [...current.filter((item) => item.id !== result.payload.event!.id), result.payload.event!].sort((left, right) => left.start.localeCompare(right.start)));
-      setFeedback(`已移动“${event.title}”`);
+      if (result.response.status !== 202) setEvents((current) => [...current.filter((item) => item.id !== result.payload.event!.id), result.payload.event!].sort((left, right) => left.start.localeCompare(right.start)));
+      setFeedback(result.response.status === 202 ? "移动已保存在本机，联网后自动同步" : `已移动“${event.title}”`);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法移动日程");
     } finally {
       setCalendarMoveBusy(false);
+      previewTimeChange();
     }
   };
 
@@ -978,15 +1024,17 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     const targetEnd = new Date(Math.max(targetStart.getTime() + 5 * 60_000, end.getTime()));
     if (targetEnd.getTime() === originalEnd.getTime()) return;
     let recurrenceScope: CalendarRecurrenceEditScope | undefined;
-    if (event.recurrenceSeriesId && event.recurrenceId) {
-      recurrenceScope = await requestRecurrenceScope("修改", event.title);
-      if (!recurrenceScope) return;
-    }
     setCalendarMoveBusy(true);
     setEventPreview(undefined);
+    previewTimeChange(event, targetStart, targetEnd);
     try {
+      if (event.providerData?.isMeeting && !await appConfirm({ title: "调整会议时长并通知参与者？", confirmLabel: "调整并发送更新" })) return;
+      if (event.recurrenceSeriesId && event.recurrenceId) {
+        recurrenceScope = await requestRecurrenceScope("修改", event.title);
+        if (!recurrenceScope) return;
+      }
       const requestResize = async (allowConflicts: boolean) => {
-        const response = await fetch(`/api/calendar-events/${encodeURIComponent(event.id)}`, {
+        const response = await calendarRequest(`/api/calendar-events/${encodeURIComponent(event.id)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1003,6 +1051,10 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
             recurrenceId: event.recurrenceId,
             recurrenceScope,
             expectedUpdatedAt: event.updatedAt,
+            sendInvitations: Boolean(event.providerData?.isMeeting),
+            reminderMinutesBefore: event.reminderMinutesBefore,
+            reminderIsSet: event.providerData?.reminderIsSet,
+            availability: event.availability,
             allowConflicts,
           }),
         });
@@ -1023,19 +1075,50 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
         result = await requestResize(true);
       }
       if (!result.response.ok || !result.payload.event) throw new Error(result.payload.message ?? "无法调整日程时长");
-      setEvents((current) => [...current.filter((item) => item.id !== result.payload.event!.id), result.payload.event!].sort((left, right) => left.start.localeCompare(right.start)));
-      setFeedback(`已调整“${event.title}”的时长`);
+      if (result.response.status !== 202) setEvents((current) => [...current.filter((item) => item.id !== result.payload.event!.id), result.payload.event!].sort((left, right) => left.start.localeCompare(right.start)));
+      setFeedback(result.response.status === 202 ? "时长修改已保存在本机，联网后自动同步" : `已调整“${event.title}”的时长`);
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "无法调整日程时长");
     } finally {
       setCalendarMoveBusy(false);
+      previewTimeChange();
     }
+  };
+
+  const replyToMeeting = async (event: CalendarViewEvent, response: "accept" | "tentative" | "decline") => {
+    const label = { accept: "接受", tentative: "暂定", decline: "拒绝" }[response];
+    if (busy || !await appConfirm({ title: `${label}会议邀请？`, description: "将向组织者发送你的回复。", confirmLabel: `${label}并发送回复` })) return;
+    setBusy(true);
+    try {
+      const result = await calendarRequest(`/api/calendar-events/${encodeURIComponent(event.id)}/response`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ calendarId: event.calendarId, expectedUpdatedAt: event.updatedAt, response }) });
+      const payload = await result.json();
+      if (!result.ok) throw new Error(payload.message ?? "回复失败");
+      setDraft(undefined);
+      if (result.status !== 202) await loadEvents();
+      setFeedback(result.status === 202 ? "回复已保存在本机，联网后自动发送" : `已${label}会议邀请`);
+    } catch (error) { setFeedback(error instanceof Error ? error.message : "回复失败"); }
+    finally { setBusy(false); }
+  };
+
+  useEffect(() => { setParticipantAvailability([]); }, [draft?.startLocal, draft?.endLocal, draft?.calendarId, draft?.allDay]);
+
+  const checkParticipantAvailability = async () => {
+    if (!draft || busy) return;
+    setBusy(true);
+    setParticipantAvailability([]);
+    try {
+      const result = await fetch("/api/calendars/availability", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ calendarId: draft.calendarId, start: new Date(draft.startLocal).toISOString(), end: (draft.allDay ? addCalendarDays(new Date(`${draft.endLocal}T00:00`), 1) : new Date(draft.endLocal)).toISOString(), attendees: (draft.attendeesText ?? "").split(/[,;\s]+/).filter(Boolean).map((address) => ({ address })) }) });
+      const payload = await result.json();
+      if (!result.ok) throw new Error(payload.message ?? "无法查询空闲时间");
+      setParticipantAvailability(payload.participants);
+    } catch (error) { setFeedback(error instanceof Error ? error.message : "无法查询空闲时间"); }
+    finally { setBusy(false); }
   };
 
   const previewEvent = eventPreview ? displayedEvents.find((event) => event.id === eventPreview.eventId) : undefined;
   const previewCalendar = previewEvent ? calendars.find((calendar) => calendar.id === previewEvent.calendarId) : undefined;
   const draftCalendar = draft ? calendars.find((calendar) => calendar.id === draft.calendarId) : undefined;
-  const draftEvent = draft?.id ? events.find((event) => event.id === draft.id) : undefined;
+  const draftEvent = draft?.id ? displayedEvents.find((event) => event.id === draft.id) : undefined;
   const draftWriteDisabledReason = draft?.id ? calendarEventWriteDisabledReason(draftEvent, draftCalendar) : undefined;
   const draftReadOnly = Boolean(draftWriteDisabledReason);
   const draftEditing = Boolean(draft && (!draft.id || draftMode === "edit"));
@@ -1068,6 +1151,13 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
             <button className="primary-button" onClick={() => openCreateDraft()}><Plus size={15} />新建日程</button>
           </div>
         </div>
+        {outbox.operations.length > 0 && <div className="calendar-detail-notice" role="status"><div>
+          <strong>{outbox.operations.length} 项修改等待同步；联网后会自动提交已确认的操作。</strong>
+          {outbox.operations.map((operation) => <p key={operation.id}>{String(operation.event.title ?? "日历修改")} · {operation.error ?? "等待联网"}
+            {operation.error && <button className="secondary-button" onClick={() => outbox.retry(operation.id)}>重试</button>}
+            <button className="secondary-button" onClick={() => { void appConfirm({ title: "放弃这项待同步修改？", confirmLabel: "放弃修改" }).then((confirmed) => { if (confirmed) outbox.discard(operation.id); }); }}>放弃修改</button>
+          </p>)}
+        </div></div>}
         {feedback && <TransientToast message={feedback} onClose={() => setFeedback("")} />}
         {viewMode === "week" ? (
           <CalendarWeekView
@@ -1194,9 +1284,10 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                     </div>
                     <div className="calendar-reminder-control">
                       <Select
-                        value={draft.reminderMinutesBefore === undefined ? "default" : String(draft.reminderMinutesBefore)}
+                        value={draft.reminderIsSet && draft.reminderMinutesBefore === 0 ? "at-start" : draft.reminderMinutesBefore === undefined ? "default" : String(draft.reminderMinutesBefore)}
                         onValueChange={(value) => updateCalendarDraft({
-                          reminderMinutesBefore: value === "default" ? undefined : Number(value) as CalendarEventReminderMinutes,
+                          reminderMinutesBefore: value === "default" ? undefined : value === "at-start" ? 0 : Number(value),
+                          reminderIsSet: value === "default" ? undefined : value !== "0",
                         })}
                       >
                         <SelectTrigger className="calendar-reminder-select-trigger" aria-label="提醒时间">
@@ -1206,6 +1297,8 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                         <SelectContent className="calendar-reminder-select-content" position="popper" align="end" sideOffset={6}>
                           <SelectItem className="calendar-reminder-select-item" value="default">使用桌面默认设置</SelectItem>
                           <SelectItem className="calendar-reminder-select-item" value="0">不提醒</SelectItem>
+                          {draftCalendar?.providerData?.providerId === "exchange" && <SelectItem value="at-start">开始时提醒</SelectItem>}
+                          {draft.reminderMinutesBefore !== undefined && ![0, 5, 15, 30, 60, 1440].includes(draft.reminderMinutesBefore) && <SelectItem value={String(draft.reminderMinutesBefore)}>提前 {draft.reminderMinutesBefore} 分钟</SelectItem>}
                           <SelectItem className="calendar-reminder-select-item" value="5">提前 5 分钟</SelectItem>
                           <SelectItem className="calendar-reminder-select-item" value="15">提前 15 分钟</SelectItem>
                           <SelectItem className="calendar-reminder-select-item" value="30">提前 30 分钟</SelectItem>
@@ -1362,6 +1455,14 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                     )}
                   </div>
                 )}
+                <label><span>显示为</span><select aria-label="忙闲状态" value={draft.availability ?? "busy"} onChange={(event) => updateCalendarDraft({ availability: event.target.value as CalendarViewEvent["availability"] })}>
+                  <option value="free">空闲</option><option value="tentative">暂定</option><option value="busy">忙碌</option><option value="oof">外出</option><option value="working_elsewhere">在其他地点工作</option>
+                </select></label>
+                {draftCalendar?.providerData?.providerId === "exchange" && <div>
+                  <label><span>参与者邮箱（用逗号分隔）</span><input aria-label="参与者邮箱" value={draft.attendeesText ?? ""} onChange={(event) => { updateCalendarDraft({ attendeesText: event.target.value }); setParticipantAvailability([]); }} /></label>
+                  <button type="button" className="secondary-button" disabled={busy || !draft.attendeesText?.trim()} onClick={() => void checkParticipantAvailability()}>查询参与者空闲时间</button>
+                  {participantAvailability.map((participant) => <p key={participant.address}>{participant.address} · {!participant.availability || participant.availability.includes("4") ? "未提供完整忙闲信息" : /[123]/.test(participant.availability) ? "该时间有日程冲突" : "空闲"}</p>)}
+                </div>}
                 <div className="calendar-description calendar-rich-description">
                   <NotebookPen size={18} aria-hidden="true" />
                   <CalendarDescriptionEditor
@@ -1387,9 +1488,13 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                 {calendarAvailabilityLabel(draft.availability) && <div className={draft.availability === "oof" ? "calendar-detail-availability oof" : "calendar-detail-availability"}><span className="calendar-detail-icon"><Circle size={15} /></span><strong>显示为：{calendarAvailabilityLabel(draft.availability)}</strong></div>}
                 {draft.location && <div><span className="calendar-detail-icon"><MapPin size={15} /></span><strong>{draft.location}</strong></div>}
                 {draft.recurrence && <div><span className="calendar-detail-icon"><Repeat2 size={15} /></span><strong>{calendarRecurrenceSummary(draft.recurrence)}</strong></div>}
-                <div><span className="calendar-detail-icon"><BellRing size={15} /></span><strong>{formatCalendarReminder(draft.reminderMinutesBefore)}</strong></div>
+                <div><span className="calendar-detail-icon"><BellRing size={15} /></span><strong>{draft.reminderIsSet && draft.reminderMinutesBefore === 0 ? "开始时提醒" : formatCalendarReminder(draft.reminderMinutesBefore)}</strong></div>
               </div>
               {draftWriteDisabledReason && <div className="calendar-detail-notice" role="note"><ShieldCheck size={14} /><span>{draftWriteDisabledReason}</span></div>}
+              {draftEvent?.providerData?.isMeeting && draftEvent.providerData.isOrganizer === false && <div>
+                <p>邀请回复：{({ Accept: "已接受", Tentative: "暂定", Decline: "已拒绝", NoResponseReceived: "尚未回复", Unknown: "未知" } as Record<string, string>)[draftEvent.providerData.myResponseType ?? ""] ?? "尚未回复"}</p>
+                {(["accept", "tentative", "decline"] as const).map((response) => <button className="secondary-button" key={response} disabled={busy || draftEvent.providerData?.pendingSync} onClick={() => void replyToMeeting(draftEvent, response)}>{{ accept: "接受", tentative: "暂定", decline: "拒绝" }[response]}</button>)}
+              </div>}
               {draftEvent?.attendees?.length ? (
                 <CalendarAttendeeList
                   attendees={draftEvent.attendees}
@@ -2389,7 +2494,7 @@ function CalendarAttendeeList({
   onOpenCorrespondence,
   onFeedback,
 }: {
-  readonly attendees: readonly { readonly address: string; readonly name?: string }[];
+  readonly attendees: readonly { readonly address: string; readonly name?: string; readonly role?: "required" | "optional" | "resource"; readonly response?: string }[];
   readonly expanded: boolean;
   readonly onToggle: () => void;
   readonly onCompose: (address: string) => void;
@@ -2438,7 +2543,7 @@ function CalendarAttendeeCard({
   onOpenCorrespondence,
   onFeedback,
 }: {
-  readonly attendee: { readonly address: string; readonly name?: string };
+  readonly attendee: NonNullable<CalendarViewEvent["attendees"]>[number];
   readonly onCompose: (address: string) => void;
   readonly onOpenCorrespondence: (address: string) => void;
   readonly onFeedback: (message: string) => void;
@@ -2503,6 +2608,7 @@ function CalendarAttendeeCard({
           <span>
             <strong>{name}</strong>
             <small>{attendee.address}</small>
+            {attendee.response && <small>{({ Accept: "已接受", Tentative: "暂定", Decline: "已拒绝", NoResponseReceived: "尚未回复", Organizer: "组织者", Unknown: "未知" } as Record<string, string>)[attendee.response] ?? attendee.response}{attendee.role === "optional" ? " · 可选参与者" : attendee.role === "resource" ? " · 资源" : ""}</small>}
           </span>
         </button>
       </HoverCardTrigger>
@@ -2516,7 +2622,8 @@ function CalendarAttendeeCard({
       >
         <header>
           <i aria-hidden="true" style={{ background: calendarAttendeeAvatarColor(attendee.address, name) }}>{calendarAttendeeInitials(name)}</i>
-          <div><strong>{name}</strong><small>{attendee.address}</small></div>
+          <div><strong>{name}</strong><small>{attendee.address}</small>
+            {attendee.response && <small>{({ Accept: "已接受", Tentative: "暂定", Decline: "已拒绝", NoResponseReceived: "尚未回复", Organizer: "组织者", Unknown: "未知" } as Record<string, string>)[attendee.response] ?? attendee.response}{attendee.role === "optional" ? " · 可选参与者" : attendee.role === "resource" ? " · 资源" : ""}</small>}</div>
           <span>参与者</span>
           {pinned && <button type="button" aria-label="关闭参与者信息" title="关闭" onClick={closeCard}><X size={14} /></button>}
         </header>
@@ -2801,16 +2908,16 @@ function calendarDraftDescriptionContent(content?: string, plainText?: string): 
 }
 
 function deduplicateCalendarAttendees(
-  attendees: readonly { readonly address: string; readonly name?: string }[],
-): readonly { readonly address: string; readonly name?: string }[] {
-  const unique = new Map<string, { readonly address: string; readonly name?: string }>();
+  attendees: readonly { readonly address: string; readonly name?: string; readonly role?: "required" | "optional" | "resource"; readonly response?: string }[],
+): readonly { readonly address: string; readonly name?: string; readonly role?: "required" | "optional" | "resource"; readonly response?: string }[] {
+  const unique = new Map<string, NonNullable<CalendarViewEvent["attendees"]>[number]>();
   for (const attendee of attendees) {
     const address = attendee.address.trim();
     if (!address) continue;
     const key = address.toLocaleLowerCase();
     const existing = unique.get(key);
     if (!existing || (!existing.name && attendee.name?.trim())) {
-      unique.set(key, { address, name: attendee.name?.trim() || undefined });
+      unique.set(key, { ...attendee, address, name: attendee.name?.trim() || undefined });
     }
   }
   return [...unique.values()];

@@ -28,6 +28,11 @@ async function main() {
     } = await import("./calendar-account-repository");
     const { listStoredCalendarEvents, listStoredCalendars } = await import("./calendar-repository");
     const { getDatabase } = await import("./database");
+    const { calendarErrorResponse } = await import("./calendar-api");
+    const { ExchangeEwsError } = await import("./exchange-ews-client");
+
+    const remoteError = calendarErrorResponse(new ExchangeEwsError("REMOTE_CONFLICT", "远端日程已变化，请同步后重试", 409));
+    assert(remoteError.status === 409 && (await remoteError.json()).message === "远端日程已变化，请同步后重试", "Exchange transport errors retain their actionable message and status");
 
     const credential = parseExchangeCalendarCredential({
       providerId: "exchange",
@@ -99,6 +104,7 @@ async function main() {
     await saveExchangeCalendarEvents(calendarId, events, "2026-07-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z");
     const resyncedEvents = await listStoredCalendarEvents({ calendarIds: [calendarId], from: "2026-07-01T00:00:00.000Z", to: "2026-08-01T00:00:00.000Z" });
     assert(resyncedEvents.find((event) => event.id === storedEvents[0]!.id)?.reminderMinutesBefore === 30, "Exchange sync preserves local reminder overrides");
+    assert(resyncedEvents[0]?.updatedAt === storedEvents[0]?.updatedAt, "unchanged Exchange sync preserves the revision of an open draft");
     const { upsertCalendarEvent, deleteCalendarEvent, validateCalendarEventDelete, validateCalendarEventUpsert } = await import("./calendar-event-service");
     const originalFetch = globalThis.fetch;
     let soapCallCount = 0;
@@ -107,12 +113,18 @@ async function main() {
     try {
       globalThis.fetch = (async (_request, init) => {
         soapCallCount += 1;
+        await saveExchangeCalendarEvents(calendarId, events, "2026-07-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z");
         const body = String(init?.body);
         return new Response(body.includes("UpdateItem") ? updateResponse : body.includes("GetItem") ? getResponse : "", { status: 200 });
       }) as typeof fetch;
       const target = resyncedEvents[0]!;
       const updated = await upsertCalendarEvent({ id: target.id, calendarId, title: "产品评审更新", description: "更新后的描述", start: target.start, end: target.end, expectedUpdatedAt: target.updatedAt });
       assert(soapCallCount === 2 && updated.providerData?.itemId === "event-1" && updated.providerData?.changeKey === "event-key-2", "REQ-MCP-EXCHANGE-01 successful Exchange update carries old itemId to a new changeKey");
+      assert(updated.updatedAt !== target.updatedAt, "an actual Exchange edit advances the revision even when background sync overlaps the request");
+      const changedEvents = events.map((event) => ({ ...event, title: `${event.title}（远端修改）` }));
+      await saveExchangeCalendarEvents(calendarId, changedEvents, "2026-07-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z");
+      const remoteChanges = await listStoredCalendarEvents({ calendarIds: [calendarId], from: "2026-07-01T00:00:00.000Z", to: "2026-08-01T00:00:00.000Z" });
+      assert(remoteChanges[1]?.title === changedEvents[1]?.title && remoteChanges[1]?.updatedAt !== resyncedEvents[1]?.updatedAt, "changed remote content advances the revision even without an Exchange change key");
       globalThis.fetch = (async () => { soapCallCount += 1; throw new Error("SOAP must not be reached by a rejected local mutation"); }) as typeof fetch;
       soapCallCount = 0;
       await validateCalendarEventUpsert({ id: updated.id, calendarId, title: updated.title, start: updated.start, end: updated.end });
@@ -123,6 +135,7 @@ async function main() {
         try { await operation(); } catch { failed = true; }
         assert(failed && soapCallCount === 0, `${label} rejects before any SOAP/network call`);
       };
+      await rejected(() => upsertCalendarEvent({ id: updated.id, calendarId, title: updated.title, start: updated.start, end: updated.end, expectedUpdatedAt: updated.updatedAt }), "Exchange update after a real remote change");
       await rejected(() => upsertCalendarEvent({ id: updated.id, calendarId, title: updated.title, start: updated.start, end: updated.end, expectedUpdatedAt: "2000-01-01T00:00:00.000Z" }), "stale Exchange update");
       await rejected(() => upsertCalendarEvent({ id: updated.id, calendarId, title: updated.title, start: updated.start, end: updated.end }), "missing Exchange update revision");
       await rejected(() => deleteCalendarEvent(calendarId, updated.id, undefined, "2000-01-01T00:00:00.000Z"), "stale Exchange delete");

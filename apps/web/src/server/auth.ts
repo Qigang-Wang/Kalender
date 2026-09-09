@@ -532,11 +532,11 @@ export async function updateManagedAppUser(actor: AppUser, userId: string, input
         `UPDATE app_login_credentials SET
            username = $2,
            password_hash = COALESCE($3, password_hash),
-           session_version = CASE WHEN $3 IS NULL THEN session_version ELSE session_version + 1 END,
+           session_version = CASE WHEN $3 IS NOT NULL OR $5::boolean THEN session_version + 1 ELSE session_version END,
            must_change_password = $4,
            updated_at = now()
          WHERE user_id = $1`,
-        [userId, username, passwordHash ?? null, input.mustChangePassword ?? (passwordHash ? true : current.must_change_password)],
+        [userId, username, passwordHash ?? null, input.mustChangePassword ?? (passwordHash ? true : current.must_change_password), nextDisabled],
       );
     });
     const result = await database.query<ManagedAppUserRow>(
@@ -672,7 +672,11 @@ export async function getCurrentAppUser(): Promise<AppUser | undefined> {
   const mcpActor = getMcpActor();
   if (mcpActor) return mcpActor;
   const store = await cookies();
-  const payload = verifySessionToken(store.get(AUTH_COOKIE_NAME)?.value);
+  return getAppUserFromSessionToken(store.get(AUTH_COOKIE_NAME)?.value);
+}
+
+export async function getAppUserFromSessionToken(token: string | undefined): Promise<AppUser | undefined> {
+  const payload = verifySessionToken(token);
   if (!payload) return undefined;
   const database = await getDatabase();
   const result = await database.query<AppUserRow & { readonly disabled_at: string | null }>(

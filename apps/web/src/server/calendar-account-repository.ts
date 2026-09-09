@@ -637,8 +637,8 @@ export async function saveExchangeCalendarMutation(
        id, calendar_id, provider_event_id, title, description, description_content, location,
        starts_at, ends_at, time_zone, all_day, attendees, meeting_url,
        status, etag, provider_item_id, provider_change_key,
-       is_meeting, is_recurring, is_organizer, availability, reminder_minutes_before, updated_at
-     ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,now())
+       is_meeting, is_recurring, is_organizer, availability, reminder_minutes_before, exchange_metadata, updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$24::jsonb,now())
      ON CONFLICT (id) DO UPDATE SET
        provider_event_id = EXCLUDED.provider_event_id,
        title = EXCLUDED.title,
@@ -658,6 +658,7 @@ export async function saveExchangeCalendarMutation(
        is_meeting = EXCLUDED.is_meeting,
        is_recurring = EXCLUDED.is_recurring,
        is_organizer = EXCLUDED.is_organizer,
+       exchange_metadata = EXCLUDED.exchange_metadata,
        availability = EXCLUDED.availability,
        reminder_minutes_before = COALESCE(EXCLUDED.reminder_minutes_before, calendar_events.reminder_minutes_before),
        updated_at = GREATEST(clock_timestamp(), calendar_events.updated_at + interval '1 millisecond')
@@ -669,7 +670,7 @@ export async function saveExchangeCalendarMutation(
       event.providerEventId,
       event.title,
       event.description ?? null,
-      descriptionContent ? JSON.stringify(decodeNoteContent(descriptionContent)) : null,
+      descriptionContent || event.descriptionContent ? JSON.stringify(decodeNoteContent(descriptionContent ?? event.descriptionContent!)) : null,
       event.location ?? null,
       event.start,
       event.end,
@@ -685,8 +686,9 @@ export async function saveExchangeCalendarMutation(
       event.isRecurring,
       event.isOrganizer ?? null,
       event.availability ?? "busy",
-      reminderMinutesBefore ?? null,
+      event.reminderMinutesBefore ?? reminderMinutesBefore ?? null,
       expectedUpdatedAt ?? null,
+      JSON.stringify(event.providerData ?? {}),
     ],
   );
   if (!saved.rows[0]) throw new Error("Exchange event local revision conflict");
@@ -710,12 +712,12 @@ async function saveRemoteCalendarEvents(
          id, calendar_id, provider_event_id, title, description, location,
          starts_at, ends_at, time_zone, all_day, attendees, meeting_url,
          status, etag, provider_item_id, provider_change_key,
-         is_meeting, is_recurring, is_organizer, availability, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16,$17,$18,$19,$20,now())
+         is_meeting, is_recurring, is_organizer, availability, description_content, exchange_metadata, reminder_minutes_before, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb,$22::jsonb,$23,now())
        ON CONFLICT (calendar_id, provider_event_id) DO UPDATE SET
          title = EXCLUDED.title,
          description_content = CASE
-           WHEN calendar_events.description IS DISTINCT FROM EXCLUDED.description THEN NULL
+           WHEN calendar_events.description IS DISTINCT FROM EXCLUDED.description OR calendar_events.exchange_metadata->>'bodyHash' IS DISTINCT FROM EXCLUDED.exchange_metadata->>'bodyHash' THEN EXCLUDED.description_content
            ELSE calendar_events.description_content
          END,
          description = EXCLUDED.description,
@@ -733,8 +735,27 @@ async function saveRemoteCalendarEvents(
          is_meeting = EXCLUDED.is_meeting,
          is_recurring = EXCLUDED.is_recurring,
          is_organizer = EXCLUDED.is_organizer,
+         exchange_metadata = EXCLUDED.exchange_metadata,
+         reminder_minutes_before = COALESCE(EXCLUDED.reminder_minutes_before, calendar_events.reminder_minutes_before),
          availability = EXCLUDED.availability,
-         updated_at = now()`,
+         updated_at = GREATEST(clock_timestamp(), calendar_events.updated_at + interval '1 millisecond')
+       WHERE ROW(
+         calendar_events.title, calendar_events.description, calendar_events.location,
+         calendar_events.starts_at, calendar_events.ends_at, calendar_events.time_zone,
+         calendar_events.all_day, calendar_events.attendees, calendar_events.meeting_url,
+         calendar_events.status, calendar_events.etag, calendar_events.provider_item_id,
+         calendar_events.provider_change_key, calendar_events.is_meeting,
+         calendar_events.is_recurring, calendar_events.is_organizer, calendar_events.availability,
+         calendar_events.exchange_metadata, calendar_events.reminder_minutes_before
+       ) IS DISTINCT FROM ROW(
+         EXCLUDED.title, EXCLUDED.description, EXCLUDED.location,
+         EXCLUDED.starts_at, EXCLUDED.ends_at, EXCLUDED.time_zone,
+         EXCLUDED.all_day, EXCLUDED.attendees, EXCLUDED.meeting_url,
+         EXCLUDED.status, EXCLUDED.etag, EXCLUDED.provider_item_id,
+         EXCLUDED.provider_change_key, EXCLUDED.is_meeting,
+         EXCLUDED.is_recurring, EXCLUDED.is_organizer, EXCLUDED.availability,
+         EXCLUDED.exchange_metadata, COALESCE(EXCLUDED.reminder_minutes_before, calendar_events.reminder_minutes_before)
+       )`,
       [
         `${idPrefix}:${randomUUID()}`,
         calendarId,
@@ -756,6 +777,9 @@ async function saveRemoteCalendarEvents(
         exchangeEvent?.isRecurring ?? false,
         exchangeEvent?.isOrganizer ?? null,
         event.availability ?? "busy",
+        event.descriptionContent ? JSON.stringify(decodeNoteContent(event.descriptionContent)) : null,
+        JSON.stringify(exchangeEvent?.providerData ?? {}),
+        event.reminderMinutesBefore ?? null,
       ],
     );
   }

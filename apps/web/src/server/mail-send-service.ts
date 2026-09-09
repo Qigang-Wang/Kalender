@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readFile } from "node:fs/promises";
 
 import * as nodemailer from "nodemailer";
 
@@ -15,7 +14,8 @@ import {
 import { clearMailDraftAttachmentFiles, mailDraftAttachmentPath } from "./mail-draft-attachment-service";
 import { assertDraftCanSend } from "./mail-draft-validation";
 import { mailDraftAttachmentUrl, mailInlineImageAttachmentIds, renderMailHtml } from "./mail-rich-text";
-import { sendExchangeMessage } from "./exchange-mail";
+import { sendExchangeSavedDraft } from "./exchange-mail";
+import { pushExchangeDraft } from "./exchange-draft-sync";
 import { getAccount, loadExchangeMailCredential, loadImapSmtpCredential } from "./mail-repository";
 
 export interface MailSendResult {
@@ -69,25 +69,10 @@ export async function sendMailDraft(
     const htmlBody = await renderMailHtml(claim.draft.bodyContent, inlineImages);
     if (account.providerId === "exchange-ews") {
       const credential = await loadExchangeMailCredential(accountId);
-      const reply = claim.draft.replyToMessageId
-        ? await getMailReplyContext(claim.draft.replyToMessageId)
-        : undefined;
-      const providerMessageId = await sendExchangeMessage(credential, {
-        to: claim.draft.to,
-        cc: claim.draft.cc,
-        bcc: claim.draft.bcc,
-        subject: claim.draft.subject,
-        textBody: claim.draft.textBody,
-        htmlBody,
-        attachments: await Promise.all(sendAttachments.map(async (attachment) => ({
-          filename: attachment.filename,
-          contentType: attachment.contentType,
-          content: new Uint8Array(await readFile(mailDraftAttachmentPath(attachment))),
-          inline: attachment.inline,
-          contentId: attachment.contentId,
-        }))),
-        replyToItemId: reply?.providerMessageId,
-      }, AbortSignal.timeout(60_000));
+      const remoteDraft = await pushExchangeDraft(draftId);
+      if (!remoteDraft) throw new MailSendError("REMOTE_ERROR", "Exchange 草稿尚未准备好", 409);
+      await sendExchangeSavedDraft(credential, remoteDraft, AbortSignal.timeout(60000));
+      const providerMessageId = remoteDraft.itemId;
       const draft = await finishMailDraftSend(draftId, providerMessageId);
       await clearMailDraftAttachmentFiles(draftId).catch(() => undefined);
       return {

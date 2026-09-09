@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
+import { AuthError } from "./auth";
 
 import { TaskRepositoryError } from "./task-repository";
 import { TaskValidationError } from "./task-validation";
 
 export function taskErrorResponse(error: unknown) {
-  if (error instanceof TaskValidationError || error instanceof TaskRepositoryError) {
+  if (error instanceof AuthError || error instanceof TaskValidationError || error instanceof TaskRepositoryError) {
     return NextResponse.json({ ok: false, message: error.message }, { status: error.status });
   }
   console.error("Task operation failed", error);

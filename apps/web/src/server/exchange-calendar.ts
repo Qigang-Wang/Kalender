@@ -1,4 +1,8 @@
 import type { CalendarEvent } from "../../../../src/mail/types";
+import { createHash } from "node:crypto";
+import { exchangeHtmlToContent } from "./exchange-rich-text";
+import { noteContentToPlainText } from "../lib/note-content";
+import { renderMailHtml } from "./mail-rich-text";
 
 import type { UpsertCalendarEventInput } from "../../../../src/mail/types";
 import {
@@ -92,6 +96,7 @@ export async function fetchExchangeCalendarEvents(
             <t:FieldURI FieldURI="calendar:LegacyFreeBusyStatus"/>
             <t:FieldURI FieldURI="calendar:RequiredAttendees"/>
             <t:FieldURI FieldURI="calendar:OptionalAttendees"/>
+            <t:FieldURI FieldURI="calendar:Resources"/>
             <t:FieldURI FieldURI="calendar:UID"/>
           </t:AdditionalProperties>
         </m:ItemShape>
@@ -121,7 +126,7 @@ export async function fetchExchangeCalendarEventDetails(
       <m:GetItem>
         <m:ItemShape>
           <t:BaseShape>AllProperties</t:BaseShape>
-          <t:BodyType>Text</t:BodyType>
+          <t:BodyType>HTML</t:BodyType>
         </m:ItemShape>
         <m:ItemIds>${batch.map((event) => `<t:ItemId Id="${escapeXml(event.itemId)}"${event.changeKey ? ` ChangeKey="${escapeXml(event.changeKey)}"` : ""}/>`).join("")}</m:ItemIds>
       </m:GetItem>`, signal);
@@ -137,9 +142,9 @@ export async function createExchangeCalendarEvent(
   signal?: AbortSignal,
 ): Promise<ExchangeCalendarEvent> {
   const xml = await exchangeSoapRequest(credential, "CreateItem", `
-    <m:CreateItem SendMeetingInvitations="SendToNone">
+    <m:CreateItem SendMeetingInvitations="${input.sendInvitations ? "SendToAllAndSaveCopy" : "SendToNone"}">
       <m:SavedItemFolderId><t:FolderId Id="${escapeXml(folder.folderId)}"${folder.changeKey ? ` ChangeKey="${escapeXml(folder.changeKey)}"` : ""}/></m:SavedItemFolderId>
-      <m:Items>${exchangeCalendarItemXml(input)}</m:Items>
+      <m:Items>${await exchangeCalendarItemXml(input)}</m:Items>
     </m:CreateItem>`, signal);
   return fetchExchangeCalendarEventByIdentity(credential, parseExchangeItemIdentity(xml), signal);
 }
@@ -151,17 +156,20 @@ export async function updateExchangeCalendarEvent(
   signal?: AbortSignal,
 ): Promise<ExchangeCalendarEvent> {
   const xml = await exchangeSoapRequest(credential, "UpdateItem", `
-    <m:UpdateItem ConflictResolution="AutoResolve" MessageDisposition="SaveOnly" SendMeetingInvitationsOrCancellations="SendToNone">
+    <m:UpdateItem ConflictResolution="NeverOverwrite" MessageDisposition="SaveOnly" SendMeetingInvitationsOrCancellations="${input.sendInvitations ? "SendToAllAndSaveCopy" : "SendToNone"}">
       <m:ItemChanges>
         <t:ItemChange>
           <t:ItemId Id="${escapeXml(identity.itemId)}"${identity.changeKey ? ` ChangeKey="${escapeXml(identity.changeKey)}"` : ""}/>
           <t:Updates>
             ${exchangeSetField("item:Subject", `<t:Subject>${escapeXml(input.title)}</t:Subject>`)}
-            ${exchangeSetField("item:Body", `<t:Body BodyType="Text">${escapeXml(input.description ?? "")}</t:Body>`)}
+            ${exchangeSetField("item:Body", await exchangeBodyXml(input))}
             ${exchangeSetField("calendar:Location", `<t:Location>${escapeXml(input.location ?? "")}</t:Location>`)}
             ${exchangeSetField("calendar:Start", `<t:Start>${escapeXml(input.start)}</t:Start>`)}
             ${exchangeSetField("calendar:End", `<t:End>${escapeXml(input.end)}</t:End>`)}
             ${exchangeSetField("calendar:IsAllDayEvent", `<t:IsAllDayEvent>${input.allDay === true}</t:IsAllDayEvent>`)}
+            ${input.availability === undefined ? "" : exchangeSetField("calendar:LegacyFreeBusyStatus", `<t:LegacyFreeBusyStatus>${exchangeAvailabilityValue(input.availability)}</t:LegacyFreeBusyStatus>`)}
+            ${input.reminderMinutesBefore === undefined ? "" : exchangeSetField("item:ReminderIsSet", `<t:ReminderIsSet>${input.reminderIsSet ?? input.reminderMinutesBefore > 0}</t:ReminderIsSet>`) + exchangeSetField("item:ReminderMinutesBeforeStart", `<t:ReminderMinutesBeforeStart>${input.reminderMinutesBefore}</t:ReminderMinutesBeforeStart>`)}
+            ${input.attendees === undefined ? "" : exchangeAttendeesXml(input.attendees, true)}
           </t:Updates>
         </t:ItemChange>
       </m:ItemChanges>
@@ -179,6 +187,33 @@ export async function deleteExchangeCalendarEvent(
     <m:DeleteItem DeleteType="MoveToDeletedItems" SendMeetingCancellations="SendToNone">
       <m:ItemIds><t:ItemId Id="${escapeXml(identity.itemId)}"${identity.changeKey ? ` ChangeKey="${escapeXml(identity.changeKey)}"` : ""}/></m:ItemIds>
     </m:DeleteItem>`, signal);
+}
+
+export async function respondToExchangeMeeting(
+  credential: ExchangeCalendarCredential,
+  identity: ExchangeItemIdentity,
+  response: "accept" | "tentative" | "decline" | "cancel",
+  comment = "",
+): Promise<void> {
+  const tag = { accept: "AcceptItem", tentative: "TentativelyAcceptItem", decline: "DeclineItem", cancel: "CancelCalendarItem" }[response];
+  await exchangeSoapRequest(credential, "CreateItem", `<m:CreateItem MessageDisposition="SendAndSaveCopy"><m:Items><t:${tag}>
+    ${comment && response !== "cancel" ? `<t:Body BodyType="Text">${escapeXml(comment)}</t:Body>` : ""}
+    <t:ReferenceItemId Id="${escapeXml(identity.itemId)}"${identity.changeKey ? ` ChangeKey="${escapeXml(identity.changeKey)}"` : ""}/>
+    ${comment && response === "cancel" ? `<t:NewBodyContent BodyType="Text">${escapeXml(comment)}</t:NewBodyContent>` : ""}
+  </t:${tag}></m:Items></m:CreateItem>`, AbortSignal.timeout(55_000));
+}
+
+export async function getExchangeAvailability(credential: ExchangeCalendarCredential, addresses: readonly string[], start: string, end: string) {
+  const xml = await exchangeSoapRequest(credential, "GetUserAvailability", `<m:GetUserAvailabilityRequest>
+    <t:TimeZone><t:Bias>0</t:Bias><t:StandardTime><t:Bias>0</t:Bias><t:Time>00:00:00</t:Time><t:DayOrder>1</t:DayOrder><t:Month>0</t:Month><t:DayOfWeek>Sunday</t:DayOfWeek></t:StandardTime><t:DaylightTime><t:Bias>0</t:Bias><t:Time>00:00:00</t:Time><t:DayOrder>1</t:DayOrder><t:Month>0</t:Month><t:DayOfWeek>Sunday</t:DayOfWeek></t:DaylightTime></t:TimeZone>
+    <m:MailboxDataArray>${addresses.map((address) => `<t:MailboxData><t:Email><t:Address>${escapeXml(address)}</t:Address></t:Email><t:AttendeeType>Required</t:AttendeeType><t:ExcludeConflicts>false</t:ExcludeConflicts></t:MailboxData>`).join("")}</m:MailboxDataArray>
+    <t:FreeBusyViewOptions><t:TimeWindow><t:StartTime>${escapeXml(start)}</t:StartTime><t:EndTime>${escapeXml(end)}</t:EndTime></t:TimeWindow><t:MergedFreeBusyIntervalInMinutes>15</t:MergedFreeBusyIntervalInMinutes><t:RequestedView>DetailedMerged</t:RequestedView></t:FreeBusyViewOptions>
+  </m:GetUserAvailabilityRequest>`, AbortSignal.timeout(30_000));
+  return elementContents(xml, "FreeBusyResponse").map((item, index) => ({
+    address: addresses[index],
+    availability: elementText(item, "MergedFreeBusy"),
+    events: elementContents(item, "CalendarEvent").map((event) => ({ start: elementText(event, "StartTime"), end: elementText(event, "EndTime"), status: elementText(event, "BusyType") })),
+  }));
 }
 
 export async function fetchExchangeCalendarEventByIdentity(
@@ -234,20 +269,28 @@ export function parseExchangeEventsResponse(xml: string, sourceUrl: string): rea
     if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) return [];
     const providerEventId = `${elementText(item, "UID") || itemId}:${start.toISOString()}`;
     const attendees = [
-      ...parseExchangeAttendees(elementContent(item, "RequiredAttendees")),
-      ...parseExchangeAttendees(elementContent(item, "OptionalAttendees")),
+      ...parseExchangeAttendees(elementContent(item, "RequiredAttendees"), "required"),
+      ...parseExchangeAttendees(elementContent(item, "OptionalAttendees"), "optional"),
+      ...parseExchangeAttendees(elementContent(item, "Resources"), "resource"),
     ];
     const freeBusy = elementText(item, "LegacyFreeBusyStatus").toLocaleLowerCase();
     const availability = exchangeAvailability(freeBusy);
     const cancelled = elementText(item, "IsCancelled").toLocaleLowerCase() === "true";
     const changeKey = itemIdTag ? attributeValue(itemIdTag, "ChangeKey") : undefined;
     const calendarItemType = elementText(item, "CalendarItemType").toLocaleLowerCase();
+    const body = elementText(item, "Body");
+    const html = attributeValue(openingTag(item, "Body") ?? "", "BodyType") === "HTML";
+    const descriptionContent = html ? exchangeHtmlToContent(body) : undefined;
+    const reminderIsSet = elementText(item, "ReminderIsSet");
+    const reminderMinutes = Number(elementText(item, "ReminderMinutesBeforeStart"));
     return [{
       id: providerEventId,
       providerEventId,
       calendarId: "exchange:calendar",
       title: elementText(item, "Subject") || "（无标题）",
-      description: elementText(item, "Body") || undefined,
+      description: descriptionContent ? noteContentToPlainText(descriptionContent) : body || undefined,
+      descriptionContent,
+      reminderMinutesBefore: reminderIsSet ? (reminderIsSet === "true" ? Math.min(525600, Math.max(0, reminderMinutes || 0)) : 0) : undefined,
       location: elementText(item, "Location") || undefined,
       start: start.toISOString(),
       end: end.toISOString(),
@@ -264,7 +307,7 @@ export function parseExchangeEventsResponse(xml: string, sourceUrl: string): rea
       isMeeting: elementText(item, "IsMeeting").toLocaleLowerCase() === "true",
       isRecurring: elementText(item, "IsRecurring").toLocaleLowerCase() === "true" || Boolean(calendarItemType && calendarItemType !== "single"),
       isOrganizer: elementText(item, "IsOrganizer") ? elementText(item, "IsOrganizer").toLocaleLowerCase() === "true" : undefined,
-      providerData: { providerId: "exchange", itemId, changeKey },
+      providerData: { providerId: "exchange", itemId, changeKey, myResponseType: elementText(item, "MyResponseType"), reminderIsSet: reminderIsSet ? reminderIsSet === "true" : undefined, bodyHash: createHash("sha256").update(body).digest("hex") },
     } satisfies ExchangeCalendarEvent];
   });
 }
@@ -289,16 +332,32 @@ function exchangeAvailabilityValue(value?: CalendarEvent["availability"]): strin
   return "Busy";
 }
 
-function exchangeCalendarItemXml(input: UpsertCalendarEventInput): string {
+async function exchangeCalendarItemXml(input: UpsertCalendarEventInput): Promise<string> {
   return `<t:CalendarItem>
     <t:Subject>${escapeXml(input.title)}</t:Subject>
-    <t:Body BodyType="Text">${escapeXml(input.description ?? "")}</t:Body>
+    ${await exchangeBodyXml(input)}
+    ${input.reminderMinutesBefore === undefined ? "" : `<t:ReminderIsSet>${input.reminderIsSet ?? input.reminderMinutesBefore > 0}</t:ReminderIsSet><t:ReminderMinutesBeforeStart>${input.reminderMinutesBefore}</t:ReminderMinutesBeforeStart>`}
     <t:Start>${escapeXml(input.start)}</t:Start>
     <t:End>${escapeXml(input.end)}</t:End>
     <t:IsAllDayEvent>${input.allDay === true}</t:IsAllDayEvent>
     <t:LegacyFreeBusyStatus>${exchangeAvailabilityValue(input.availability)}</t:LegacyFreeBusyStatus>
     <t:Location>${escapeXml(input.location ?? "")}</t:Location>
+    ${input.attendees?.length ? exchangeAttendeesXml(input.attendees) : ""}
   </t:CalendarItem>`;
+}
+
+async function exchangeBodyXml(input: UpsertCalendarEventInput): Promise<string> {
+  return input.descriptionContent
+    ? `<t:Body BodyType="HTML">${escapeXml(await renderMailHtml(input.descriptionContent))}</t:Body>`
+    : `<t:Body BodyType="Text">${escapeXml(input.description ?? "")}</t:Body>`;
+}
+
+function exchangeAttendeesXml(attendees: NonNullable<UpsertCalendarEventInput["attendees"]>, update = false): string {
+  return ([['required', 'RequiredAttendees'], ['optional', 'OptionalAttendees'], ['resource', 'Resources']] as const).map(([role, tag]) => {
+    const group = attendees.filter((attendee) => (attendee.role ?? "required") === role);
+    const xml = group.length ? `<t:${tag}>${group.map((attendee) => `<t:Attendee><t:Mailbox>${attendee.name ? `<t:Name>${escapeXml(attendee.name)}</t:Name>` : ""}<t:EmailAddress>${escapeXml(attendee.address)}</t:EmailAddress></t:Mailbox></t:Attendee>`).join("")}</t:${tag}>` : "";
+    return update ? xml ? exchangeSetField(`calendar:${tag}`, xml) : `<t:DeleteItemField><t:FieldURI FieldURI="calendar:${tag}"/></t:DeleteItemField>` : xml;
+  }).join("");
 }
 
 function exchangeSetField(fieldUri: string, valueXml: string): string {
@@ -315,11 +374,11 @@ function parseExchangeItemIdentity(xml: string, fallback?: ExchangeItemIdentity)
   };
 }
 
-function parseExchangeAttendees(xml?: string): readonly { readonly address: string; readonly name?: string }[] {
+function parseExchangeAttendees(xml: string | undefined, role: "required" | "optional" | "resource"): NonNullable<UpsertCalendarEventInput["attendees"]> {
   if (!xml) return [];
   return elementContents(xml, "Attendee").flatMap((attendee) => {
     const mailbox = elementContent(attendee, "Mailbox") ?? attendee;
     const address = elementText(mailbox, "EmailAddress");
-    return address ? [{ address, name: elementText(mailbox, "Name") || undefined }] : [];
+    return address ? [{ address, name: elementText(mailbox, "Name") || undefined, role, response: elementText(attendee, "ResponseType") || undefined }] : [];
   });
 }

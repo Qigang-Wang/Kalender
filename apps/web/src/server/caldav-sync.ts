@@ -14,6 +14,7 @@ import {
   setCalendarAccountSyncStatus,
 } from "./calendar-account-repository";
 import { discoverExchangeCalendar, fetchExchangeCalendarEvents } from "./exchange-calendar";
+import { checkExchangeCalendarChanges } from "./exchange-calendar-sync-state";
 import { fetchIcsSubscription, safeIcsSubscriptionLabel } from "./ics-subscription";
 
 declare global {
@@ -113,8 +114,11 @@ export async function syncExchangeCalendarAccount(accountId: string): Promise<Ca
     const from = fromDate.toISOString();
     const to = toDate.toISOString();
     const calendarId = await saveExchangeCalendar(accountId, folder, credential.serverUrl, account.color);
-    const events = await fetchExchangeCalendarEvents(credential, folder, { from, to }, controller.signal);
-    const eventsProcessed = await saveExchangeCalendarEvents(calendarId, events, from, to);
+    const changes = await checkExchangeCalendarChanges(credential, calendarId, folder.folderId, controller.signal);
+    const eventsProcessed = changes.changed
+      ? await saveExchangeCalendarEvents(calendarId, await fetchExchangeCalendarEvents(credential, folder, { from, to }, controller.signal), from, to)
+      : 0;
+    await changes.commit();
     await setCalendarAccountSyncStatus(accountId, "ready");
     return { calendarsProcessed: 1, eventsProcessed, from, to };
   } catch (error) {

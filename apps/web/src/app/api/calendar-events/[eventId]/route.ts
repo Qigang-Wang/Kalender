@@ -1,3 +1,4 @@
+import { runCalendarOperation } from "@/server/calendar-operation";
 import { NextResponse } from "next/server";
 
 import { calendarErrorResponse } from "@/server/calendar-api";
@@ -12,40 +13,46 @@ interface CalendarEventRouteContext {
 }
 
 export async function PATCH(request: Request, context: CalendarEventRouteContext) {
-  const { eventId } = await context.params;
-  try {
-    const body = await request.json().catch(() => null) as CalendarEventRequestBody | null;
-    const input = parseCalendarEventInput({ ...body, id: eventId });
-    const conflicts = await listStoredCalendarEventConflicts({ calendarId: input.calendarId, start: input.start, end: input.end, excludeEventId: eventId });
-    if (conflicts.length && body?.allowConflicts !== true) {
-      return NextResponse.json({ ok: false, message: "所选时间与现有日程冲突", conflicts }, { status: 409 });
+  return runCalendarOperation(request, async (beginWrite) => {
+    const { eventId } = await context.params;
+    try {
+      const body = await request.json().catch(() => null) as CalendarEventRequestBody | null;
+      const input = parseCalendarEventInput({ ...body, id: eventId });
+      const conflicts = await listStoredCalendarEventConflicts({ calendarId: input.calendarId, start: input.start, end: input.end, excludeEventId: eventId });
+      if (conflicts.length && body?.allowConflicts !== true) {
+        return NextResponse.json({ ok: false, message: "所选时间与现有日程冲突", conflicts }, { status: 409 });
+      }
+      await beginWrite();
+      const event = await upsertCalendarEvent(input);
+      return NextResponse.json({ ok: true, event });
+    } catch (error) {
+      return calendarErrorResponse(error);
     }
-    const event = await upsertCalendarEvent(input);
-    return NextResponse.json({ ok: true, event });
-  } catch (error) {
-    return calendarErrorResponse(error);
-  }
+  });
 }
 
 export async function DELETE(request: Request, context: CalendarEventRouteContext) {
-  const { eventId } = await context.params;
-  const searchParams = new URL(request.url).searchParams;
-  const calendarId = searchParams.get("calendarId");
-  if (!calendarId) return NextResponse.json({ ok: false, message: "缺少日历标识" }, { status: 400 });
-  try {
-    const seriesId = searchParams.get("recurrenceSeriesId");
-    const recurrenceId = searchParams.get("recurrenceId");
-    const requestedScope = searchParams.get("scope");
-    const expectedUpdatedAt = searchParams.get("expectedUpdatedAt") ?? undefined;
-    const scope = requestedScope === "following" || requestedScope === "series" ? requestedScope : "occurrence";
-    await deleteCalendarEvent(
-      calendarId,
-      eventId,
-      seriesId && recurrenceId ? { seriesId, recurrenceId, scope } : undefined,
-      expectedUpdatedAt,
-    );
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    return calendarErrorResponse(error);
-  }
+  return runCalendarOperation(request, async (beginWrite) => {
+    const { eventId } = await context.params;
+    const searchParams = new URL(request.url).searchParams;
+    const calendarId = searchParams.get("calendarId");
+    if (!calendarId) return NextResponse.json({ ok: false, message: "缺少日历标识" }, { status: 400 });
+    try {
+      const seriesId = searchParams.get("recurrenceSeriesId");
+      const recurrenceId = searchParams.get("recurrenceId");
+      const requestedScope = searchParams.get("scope");
+      const expectedUpdatedAt = searchParams.get("expectedUpdatedAt") ?? undefined;
+      const scope = requestedScope === "following" || requestedScope === "series" ? requestedScope : "occurrence";
+      await beginWrite();
+      await deleteCalendarEvent(
+        calendarId,
+        eventId,
+        seriesId && recurrenceId ? { seriesId, recurrenceId, scope } : undefined,
+        expectedUpdatedAt,
+      );
+      return NextResponse.json({ ok: true });
+    } catch (error) {
+      return calendarErrorResponse(error);
+    }
+  });
 }

@@ -32,6 +32,10 @@ export interface CalendarEventRequestBody {
   readonly recurrenceId?: unknown;
   readonly recurrenceScope?: unknown;
   readonly expectedUpdatedAt?: unknown;
+  readonly availability?: unknown;
+  readonly attendees?: unknown;
+  readonly sendInvitations?: unknown;
+  readonly reminderIsSet?: unknown;
 }
 
 export function parseCalendarEventInput(body: CalendarEventRequestBody | null): UpsertCalendarEventInput {
@@ -75,7 +79,10 @@ export function parseCalendarEventInput(body: CalendarEventRequestBody | null): 
     timeZone,
     allDay: body.allDay === true,
     reminderMinutesBefore: parseReminderMinutes(body.reminderMinutesBefore),
-    attendees: [],
+    attendees: parseCalendarAttendees(body.attendees),
+    availability: parseCalendarAvailability(body.availability),
+    sendInvitations: body.sendInvitations === true,
+    reminderIsSet: typeof body.reminderIsSet === "boolean" ? body.reminderIsSet : undefined,
     idempotencyKey: typeof body.idempotencyKey === "string" && body.idempotencyKey
       ? body.idempotencyKey.slice(0, 200)
       : undefined,
@@ -89,10 +96,28 @@ export function parseCalendarEventInput(body: CalendarEventRequestBody | null): 
 
 function parseReminderMinutes(value: unknown): CalendarEventReminderMinutes | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "number" || ![0, 5, 15, 30, 60, 1440].includes(value)) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 525600) {
     throw new CalendarValidationError("提醒时间无效");
   }
   return value as CalendarEventReminderMinutes;
+}
+
+export function parseCalendarAttendees(value: unknown): UpsertCalendarEventInput["attendees"] {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 100) throw new CalendarValidationError("参与者最多 100 人");
+  const addresses = new Map<string, NonNullable<UpsertCalendarEventInput["attendees"]>[number]>();
+  for (const item of value) {
+    if (!item || typeof item !== "object" || typeof item.address !== "string" || item.address.length > 320 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(item.address)) throw new CalendarValidationError("参与者邮箱地址无效");
+    if (item.role !== undefined && !["required", "optional", "resource"].includes(item.role)) throw new CalendarValidationError("参与者角色无效");
+    addresses.set(item.address.toLowerCase(), { address: item.address, name: typeof item.name === "string" ? item.name.slice(0, 200) : undefined, role: item.role });
+  }
+  return [...addresses.values()];
+}
+
+function parseCalendarAvailability(value: unknown): UpsertCalendarEventInput["availability"] {
+  if (value === undefined) return undefined;
+  if (!["free", "tentative", "busy", "oof", "working_elsewhere"].includes(String(value))) throw new CalendarValidationError("忙闲状态无效");
+  return value as UpsertCalendarEventInput["availability"];
 }
 
 function optionalRichText(value: unknown): string | undefined {

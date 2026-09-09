@@ -121,6 +121,8 @@ export function NotesPage({
   const [relatedVersion, setRelatedVersion] = useState(0);
   const [mobileNoteDetail, setMobileNoteDetail] = useState(Boolean(initialNoteId));
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const saveInFlight = useRef<Promise<ClientNote | undefined> | undefined>(undefined);
+  const noteChangeVersion = useRef(0);
   const pendingNote = useRef<ClientNote | undefined>(undefined);
   const selectedNoteId = useRef<string | undefined>(undefined);
   const openedInitialNote = useRef(false);
@@ -140,6 +142,7 @@ export function NotesPage({
 
   const loadWorkspace = useCallback(async ({ background = false }: { readonly background?: boolean } = {}) => {
     if (!background) setLoading(true);
+    const version = noteChangeVersion.current;
     try {
       const [projectsResponse, notesResponse] = await Promise.all([
       workspaceFetch("/api/projects"),
@@ -151,6 +154,7 @@ export function NotesPage({
       if (!notesResponse.ok || !notesPayload.ok) throw new Error(notesPayload.message ?? "无法读取笔记");
       const loadedNotes = notesPayload.notes ?? [];
       setProjects(projectsPayload.projects ?? []);
+      if (version !== noteChangeVersion.current || pendingNote.current) return;
       setNotes(loadedNotes);
       const requestedId = background ? selectedNoteId.current : initialNoteId;
       const target = requestedId
@@ -177,7 +181,7 @@ export function NotesPage({
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
   useEffect(() => {
     setFilter(initialProjectId ?? initialFilter ?? "all");
-    if (!initialProjectId || loading) return;
+    if (!initialProjectId || loading || pendingNote.current) return;
     setDraft((current) => current?.projectId === initialProjectId
       ? current
       : notes.find((note) => note.projectId === initialProjectId));
@@ -191,59 +195,65 @@ export function NotesPage({
     return () => window.removeEventListener(OPEN_PROJECT_DIALOG_EVENT, openProjectDialog);
   }, []);
 
-  const persistNote = useCallback(async (snapshot: ClientNote): Promise<ClientNote | undefined> => {
-    setSaveState("saving");
-    try {
-      const response = await fetch(`/api/notes/${encodeURIComponent(snapshot.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectId: snapshot.projectId,
-          title: snapshot.title.trim() || "无标题笔记",
-          content: snapshot.content,
-          noteType: snapshot.noteType,
-          pinned: snapshot.pinned,
-        }),
-      });
-      const payload = await response.json() as { readonly ok: boolean; readonly note?: ClientNote; readonly message?: string };
-      if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "无法保存笔记");
-      const saved = payload.note;
-      setNotes((current) => current.map((note) => note.id === saved.id ? saved : note));
-      if (pendingNote.current === snapshot) {
-        pendingNote.current = undefined;
-        setDraft((current) => current?.id === saved.id ? saved : current);
-        setSaveState("saved");
+  const persistNote = useCallback((): Promise<ClientNote | undefined> => {
+    if (saveInFlight.current) return saveInFlight.current;
+    const save = async () => {
+      let saved: ClientNote | undefined;
+      while (pendingNote.current) {
+        const snapshot = pendingNote.current;
+        setSaveState("saving");
+        try {
+          const response = await fetch(`/api/notes/${encodeURIComponent(snapshot.id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ projectId: snapshot.projectId, title: snapshot.title.trim() || "无标题笔记", content: snapshot.content, noteType: snapshot.noteType, pinned: snapshot.pinned, expectedUpdatedAt: snapshot.updatedAt }),
+          });
+          const payload = await response.json() as { readonly ok: boolean; readonly note?: ClientNote; readonly message?: string };
+          if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "无法保存笔记");
+          saved = payload.note;
+          noteChangeVersion.current++;
+          if (pendingNote.current === snapshot) pendingNote.current = undefined;
+          else if (pendingNote.current?.id === saved.id) pendingNote.current = { ...pendingNote.current, updatedAt: saved.updatedAt };
+          const visible = pendingNote.current?.id === saved.id ? pendingNote.current : saved;
+          setNotes((current) => current.map((note) => note.id === visible.id ? visible : note));
+          setDraft((current) => current?.id === visible.id ? visible : current);
+        } catch (error) {
+          setSaveState("error");
+          setFeedback(`${error instanceof Error ? error.message : "无法保存笔记"}。本地编辑仍保留，可重试或另存为副本。`);
+          return undefined;
+        }
       }
+      setSaveState("saved");
       return saved;
-    } catch (error) {
-      if (pendingNote.current === snapshot) setSaveState("error");
-      setFeedback(error instanceof Error ? error.message : "无法保存笔记");
-      return undefined;
-    }
+    };
+    const operation = save().finally(() => { saveInFlight.current = undefined; });
+    saveInFlight.current = operation;
+    return operation;
   }, []);
 
   const flushPendingNote = useCallback(async () => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = undefined;
-    const pending = pendingNote.current;
-    return pending ? persistNote(pending) : draft;
+    if (!pendingNote.current && !saveInFlight.current) return draft;
+    return persistNote();
   }, [draft, persistNote]);
 
   const updateDraft = (changes: Partial<Pick<ClientNote, "title" | "content" | "projectId" | "projectName" | "projectColor" | "noteType" | "pinned">>) => {
     if (!draft) return;
-    const next = { ...draft, ...changes, updatedAt: new Date().toISOString() };
+    noteChangeVersion.current++;
+    const next = { ...draft, ...changes };
     setDraft(next);
     setNotes((current) => current.map((note) => note.id === next.id ? next : note));
     pendingNote.current = next;
     setSaveState("saving");
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { void persistNote(next); }, 700);
+    saveTimer.current = setTimeout(() => { void persistNote(); }, 700);
   };
 
   const createNote = useCallback(async () => {
     setBusy(true);
     try {
-      await flushPendingNote();
+      if (pendingNote.current && !await flushPendingNote()) return;
       const projectId = projects.some((project) => project.id === filter) ? filter : undefined;
       const response = await fetch("/api/notes", {
         method: "POST",
@@ -275,10 +285,11 @@ export function NotesPage({
     }
   }, [initialNoteId, loading, notes]);
 
-  const selectNote = (note: ClientNote) => {
+  const selectNote = async (note: ClientNote) => {
+    if (busy) return;
     setMobileNoteDetail(true);
     if (note.id !== draft?.id) {
-      void flushPendingNote();
+      if (pendingNote.current && !await flushPendingNote()) return;
       setDraft(note);
       setSaveState("saved");
     }
@@ -295,6 +306,7 @@ export function NotesPage({
     try {
       if (target.id === draft?.id) {
         if (saveTimer.current) clearTimeout(saveTimer.current);
+        if (saveInFlight.current) await saveInFlight.current;
         pendingNote.current = undefined;
       }
       const response = await fetch(`/api/notes/${encodeURIComponent(target.id)}`, { method: "DELETE" });
@@ -314,8 +326,9 @@ export function NotesPage({
   const toggleNotePinned = async (note: ClientNote) => {
     setBusy(true);
     try {
-      const source = note.id === draft?.id ? await flushPendingNote() ?? note : note;
-      const snapshot = { ...source, pinned: !source.pinned, updatedAt: new Date().toISOString() };
+      const source = note.id === draft?.id ? await flushPendingNote() ?? pendingNote.current ?? note : note;
+      if (pendingNote.current) return;
+      const snapshot = { ...source, pinned: !source.pinned };
       const response = await fetch(`/api/notes/${encodeURIComponent(source.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -325,6 +338,7 @@ export function NotesPage({
           content: snapshot.content,
           noteType: snapshot.noteType,
           pinned: snapshot.pinned,
+          expectedUpdatedAt: snapshot.updatedAt,
         }),
       });
       const payload = await response.json() as { readonly ok: boolean; readonly note?: ClientNote; readonly message?: string };
@@ -343,7 +357,7 @@ export function NotesPage({
   const duplicateNote = async (note: ClientNote) => {
     setBusy(true);
     try {
-      const source = note.id === draft?.id ? await flushPendingNote() ?? note : note;
+      const source = note.id === draft?.id ? await flushPendingNote() ?? pendingNote.current ?? note : note;
       const response = await fetch("/api/notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -357,6 +371,7 @@ export function NotesPage({
       });
       const payload = await response.json() as { readonly ok: boolean; readonly note?: ClientNote; readonly message?: string };
       if (!response.ok || !payload.ok || !payload.note) throw new Error(payload.message ?? "无法创建笔记副本");
+      pendingNote.current = undefined;
       setNotes((current) => [payload.note!, ...current]);
       setDraft(payload.note);
       setSaveState("saved");
@@ -524,7 +539,7 @@ export function NotesPage({
         </div>
         </section>
 
-        <article className="note-editor">
+        <article className="note-editor" inert={busy}>
         {draft ? <>
           <header className="note-editor-toolbar">
             <div className="note-editor-main-controls">
@@ -538,6 +553,7 @@ export function NotesPage({
             </div>
             <div className="note-editor-actions">
               <span className={`note-save-state ${saveState}`}><i />{saveState === "saving" ? "正在保存" : saveState === "error" ? "保存失败" : "已保存"}</span>
+              {saveState === "error" && <><button type="button" className="ghost-button" onClick={() => void persistNote()}>重试保存</button><button type="button" className="ghost-button" disabled={busy} onClick={() => { if (draft) void duplicateNote(draft); }}>另存为副本</button></>}
               <button className={draft.pinned ? "active" : ""} aria-label={draft.pinned ? "取消置顶" : "置顶笔记"} title={draft.pinned ? "取消置顶" : "置顶笔记"} onClick={() => updateDraft({ pinned: !draft.pinned })}><Pin size={15} fill={draft.pinned ? "currentColor" : "none"} /></button>
               <button className="danger-button" aria-label="删除笔记" title="删除笔记" disabled={busy} onClick={() => void deleteNote()}><Trash2 size={15} /></button>
             </div>

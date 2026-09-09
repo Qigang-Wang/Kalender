@@ -2633,7 +2633,7 @@ function PageContent({
   switch (section) {
     case "today": return <TodayPage />;
     case "inbox": return <InboxPage initialMessageId={initialMessageId} initialFolderId={initialMailFolderId} initialCorrespondent={initialMailCorrespondent} initialComposeTo={initialComposeTo} onOpenAssistant={onOpenAssistant} />;
-    case "calendar": return <CalendarPage initialEventId={initialEventId} initialCalendarDate={initialCalendarDate} />;
+    case "calendar": return <CalendarPage userId={currentUser.id} initialEventId={initialEventId} initialCalendarDate={initialCalendarDate} />;
     case "tasks": return <TasksPage initialTaskId={initialTaskId} initialTaskView={initialTaskView} initialCreateTask={initialCreateTask} initialProjectId={initialProjectId} initialScheduleTaskId={initialScheduleTaskId} />;
     case "projects": return <ProjectsPage initialProjectId={initialProjectId} />;
     case "notes": return <NotesPage initialNoteId={initialNoteId} initialFilter={initialNoteFilter} initialProjectId={initialProjectId} />;

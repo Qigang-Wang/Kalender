@@ -4,6 +4,8 @@ import { mailDraftErrorResponse } from "@/server/mail-draft-api";
 import { clearMailDraftAttachmentFiles } from "@/server/mail-draft-attachment-service";
 import { deleteMailDraft, MailDraftRepositoryError, saveMailDraft } from "@/server/mail-draft-repository";
 import { parseMailDraftInput, type MailDraftRequestBody } from "@/server/mail-draft-validation";
+import { pushExchangeDraft, deleteLinkedExchangeDraft } from "@/server/exchange-draft-sync";
+import { getMailDraft } from "@/server/mail-draft-repository";
 
 export const runtime = "nodejs";
 
@@ -15,7 +17,9 @@ export async function PATCH(request: Request, context: DraftRouteContext) {
   const { draftId } = await context.params;
   try {
     const body = await request.json().catch(() => null) as MailDraftRequestBody | null;
-    return NextResponse.json({ ok: true, draft: await saveMailDraft(parseMailDraftInput(body), draftId) });
+    await saveMailDraft(parseMailDraftInput(body), draftId);
+    await pushExchangeDraft(draftId).catch(() => undefined);
+    return NextResponse.json({ ok: true, draft: await getMailDraft(draftId) });
   } catch (error) {
     return mailDraftErrorResponse(error);
   }
@@ -24,6 +28,7 @@ export async function PATCH(request: Request, context: DraftRouteContext) {
 export async function DELETE(_request: Request, context: DraftRouteContext) {
   const { draftId } = await context.params;
   try {
+    await deleteLinkedExchangeDraft(draftId);
     if (!await deleteMailDraft(draftId)) {
       throw new MailDraftRepositoryError("DRAFT_NOT_FOUND", "草稿不存在或无法删除", 404);
     }

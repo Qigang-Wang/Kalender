@@ -1,3 +1,4 @@
+import { runCalendarOperation } from "@/server/calendar-operation";
 import { NextResponse } from "next/server";
 
 import { calendarErrorResponse } from "@/server/calendar-api";
@@ -30,16 +31,19 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  try {
-    const body = await request.json().catch(() => null) as CalendarEventRequestBody | null;
-    const input = parseCalendarEventInput(body);
-    const conflicts = await listStoredCalendarEventConflicts({ calendarId: input.calendarId, start: input.start, end: input.end });
-    if (conflicts.length && body?.allowConflicts !== true) {
-      return NextResponse.json({ ok: false, message: "所选时间与现有日程冲突", conflicts }, { status: 409 });
+  return runCalendarOperation(request, async (beginWrite) => {
+    try {
+      const body = await request.json().catch(() => null) as CalendarEventRequestBody | null;
+      const input = parseCalendarEventInput(body);
+      const conflicts = await listStoredCalendarEventConflicts({ calendarId: input.calendarId, start: input.start, end: input.end });
+      if (conflicts.length && body?.allowConflicts !== true) {
+        return NextResponse.json({ ok: false, message: "所选时间与现有日程冲突", conflicts }, { status: 409 });
+      }
+      await beginWrite();
+      const event = await upsertCalendarEvent(input);
+      return NextResponse.json({ ok: true, event }, { status: 201 });
+    } catch (error) {
+      return calendarErrorResponse(error);
     }
-    const event = await upsertCalendarEvent(input);
-    return NextResponse.json({ ok: true, event }, { status: 201 });
-  } catch (error) {
-    return calendarErrorResponse(error);
-  }
+  });
 }

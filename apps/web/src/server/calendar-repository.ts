@@ -58,6 +58,7 @@ interface CalendarEventRow {
   is_meeting: boolean;
   is_recurring: boolean;
   is_organizer: boolean | null;
+  exchange_metadata: Record<string, unknown>;
   recurrence_rule: CalendarRecurrenceRule | null;
   recurrence_series_id: string | null;
   recurrence_id: string | null;
@@ -75,7 +76,7 @@ export interface CalendarEventConflict {
 const calendarEventColumns = `
   e.id, e.provider_event_id, e.calendar_id, e.title, e.description, e.description_content, e.location,
   e.starts_at, e.ends_at, e.time_zone, e.all_day, e.reminder_minutes_before, e.attendees, e.meeting_url, e.status, e.availability,
-  e.provider_item_id, e.provider_change_key, e.is_meeting, e.is_recurring, e.is_organizer,
+  e.provider_item_id, e.provider_change_key, e.is_meeting, e.is_recurring, e.is_organizer, e.exchange_metadata,
   e.recurrence_rule, e.recurrence_series_id, e.recurrence_id, e.recurrence_cancelled, e.updated_at
 `;
 
@@ -688,6 +689,7 @@ function mapCalendarEvent(
     recurrenceId: row.recurrence_id ?? undefined,
     recurrenceException: Boolean(row.recurrence_series_id),
     providerData: {
+      ...row.exchange_metadata,
       providerId: row.id.startsWith("caldav-event:")
         ? "caldav"
         : row.id.startsWith("exchange-event:")

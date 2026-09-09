@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { noteErrorResponse } from "@/server/note-api";
 import { deleteStoredNote, saveStoredNote, NoteRepositoryError } from "@/server/note-repository";
-import { parseNoteInput, type NoteRequestBody } from "@/server/note-validation";
+import { parseNoteInput, parseNoteRevision, type NoteRequestBody } from "@/server/note-validation";
 
 export const runtime = "nodejs";
 
@@ -14,7 +14,7 @@ export async function PATCH(request: Request, context: NoteRouteContext) {
   const { noteId } = await context.params;
   try {
     const body = await request.json().catch(() => null) as NoteRequestBody | null;
-    return NextResponse.json({ ok: true, note: await saveStoredNote(parseNoteInput(body, noteId)) });
+    return NextResponse.json({ ok: true, note: await saveStoredNote(parseNoteInput(body, noteId), { expectedUpdatedAt: parseNoteRevision(body?.expectedUpdatedAt) }) });
   } catch (error) {
     return noteErrorResponse(error);
   }

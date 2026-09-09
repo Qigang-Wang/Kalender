@@ -1,6 +1,8 @@
+import { runWithSystemScope } from "./user-scope";
 import { CalendarSyncAlreadyRunningError, isCalendarAccountSyncing, syncCalDavAccount } from "./caldav-sync";
 import { listCalendarAccounts } from "./calendar-account-repository";
 import { getWorkspaceSyncSettings, type WorkspaceSyncSettings } from "./sync-settings";
+import { ensureExchangeNotifications, stopExchangeNotifications } from "./exchange-notifications";
 
 declare global {
   var kalenderCalendarSyncTimer: ReturnType<typeof setInterval> | undefined;
@@ -52,6 +54,7 @@ export async function ensureCalendarSyncScheduler(
 }
 
 export async function stopCalendarSyncScheduler(): Promise<void> {
+  stopExchangeNotifications();
   globalThis.kalenderCalendarSyncStopping = true;
   clearCalendarSyncTimers();
   globalThis.kalenderCalendarSyncEnabled = false;
@@ -67,13 +70,18 @@ export async function stopCalendarSyncScheduler(): Promise<void> {
   globalThis.kalenderCalendarSyncStopping = false;
 }
 
-export async function runScheduledCalendarSync(): Promise<void> {
+export function runScheduledCalendarSync(): Promise<void> {
+  return runWithSystemScope(() => runScheduledCalendarSyncAsSystem());
+}
+
+async function runScheduledCalendarSyncAsSystem(): Promise<void> {
   if (!globalThis.kalenderCalendarSyncEnabled || globalThis.kalenderCalendarSyncTickRunning) return;
   globalThis.kalenderCalendarSyncTickRunning = true;
   const backoff = globalThis.kalenderCalendarSyncBackoff ??= new Map();
   try {
     const now = Date.now();
     const accounts = await listCalendarAccounts();
+    await ensureExchangeNotifications();
     for (const account of accounts) {
       if (globalThis.kalenderCalendarSyncStopping) break;
       if (!account.calendarEnabled || account.syncStatus === "paused" || isCalendarAccountSyncing(account.id)) continue;

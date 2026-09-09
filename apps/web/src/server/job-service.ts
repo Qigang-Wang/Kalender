@@ -1,3 +1,4 @@
+import { runWithSystemScope } from "./user-scope";
 import { randomUUID } from "node:crypto";
 
 import { getDatabase, type DatabaseExecutor } from "./database";
@@ -243,7 +244,11 @@ export async function initializeJobRunner(): Promise<void> {
   await recoverInterruptedJobs();
 }
 
-export async function drainJobQueue(limit = 3): Promise<void> {
+export function drainJobQueue(limit = 3): Promise<void> {
+  return runWithSystemScope(() => drainJobQueueAsSystem(limit));
+}
+
+async function drainJobQueueAsSystem(limit = 3): Promise<void> {
   await recoverInterruptedJobs();
   if (globalThis.qgwJobRunnerActive) return;
   globalThis.qgwJobRunnerActive = true;
