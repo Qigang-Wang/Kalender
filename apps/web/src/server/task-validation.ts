@@ -5,6 +5,7 @@ import {
   type SaveTaskInput,
   type TaskSourceReference,
 } from "./task-repository";
+import { taskRecurrenceFrequencies, type TaskRecurrenceRule } from "../lib/task-recurrence";
 
 export interface TaskRequestBody {
   readonly title?: unknown;
@@ -20,6 +21,8 @@ export interface TaskRequestBody {
   readonly areaName?: unknown;
   readonly assigneeUserId?: unknown;
   readonly sourceReferences?: unknown;
+  readonly reminderMinutesBefore?: unknown;
+  readonly recurrence?: unknown;
 }
 
 export function parseTaskInput(body: TaskRequestBody | null, id?: string): SaveTaskInput {
@@ -47,6 +50,10 @@ export function parseTaskInput(body: TaskRequestBody | null, id?: string): SaveT
     }
     estimatedMinutes = value;
   }
+  const reminderMinutesBefore = parseReminderMinutes(body.reminderMinutesBefore);
+  const recurrence = parseTaskRecurrence(body.recurrence);
+  if (!dueAt && reminderMinutesBefore !== undefined) throw new TaskValidationError("请先设置开始时间再启用提醒");
+  if (!dueAt && recurrence) throw new TaskValidationError("请先设置开始时间再启用重复任务");
   return {
     id,
     title,
@@ -62,7 +69,26 @@ export function parseTaskInput(body: TaskRequestBody | null, id?: string): SaveT
     areaName: optionalText(body.areaName, 100, "领域名称"),
     assigneeUserId: optionalText(body.assigneeUserId, 100, "指派用户"),
     sourceReferences: parseSources(body.sourceReferences),
+    reminderMinutesBefore,
+    recurrence,
   };
+}
+
+function parseReminderMinutes(value: unknown): SaveTaskInput["reminderMinutesBefore"] {
+  if (value === undefined || value === null || value === "") return undefined;
+  const minutes = Number(value);
+  if (![0, 5, 15, 30, 60, 1440].includes(minutes)) throw new TaskValidationError("任务提醒时间无效");
+  return minutes as SaveTaskInput["reminderMinutesBefore"];
+}
+
+function parseTaskRecurrence(value: unknown): TaskRecurrenceRule | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (!value || typeof value !== "object") throw new TaskValidationError("重复任务规则无效");
+  const rule = value as Partial<TaskRecurrenceRule>;
+  if (!taskRecurrenceFrequencies.includes(rule.frequency as TaskRecurrenceRule["frequency"]) || !Number.isInteger(rule.interval) || rule.interval! < 1 || rule.interval! > 365) {
+    throw new TaskValidationError("重复任务规则无效");
+  }
+  return { frequency: rule.frequency!, interval: rule.interval! };
 }
 
 export class TaskValidationError extends Error {

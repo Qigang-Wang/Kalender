@@ -36,11 +36,13 @@ export async function DELETE(request: Request, context: CalendarEventRouteContex
     const seriesId = searchParams.get("recurrenceSeriesId");
     const recurrenceId = searchParams.get("recurrenceId");
     const requestedScope = searchParams.get("scope");
+    const expectedUpdatedAt = searchParams.get("expectedUpdatedAt") ?? undefined;
     const scope = requestedScope === "following" || requestedScope === "series" ? requestedScope : "occurrence";
     await deleteCalendarEvent(
       calendarId,
       eventId,
       seriesId && recurrenceId ? { seriesId, recurrenceId, scope } : undefined,
+      expectedUpdatedAt,
     );
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -1970,6 +1970,22 @@ const MAIL_IFRAME_BODY_CACHE_SCHEMA_SQL = String.raw`
     ADD COLUMN IF NOT EXISTS iframe_html_body text;
 `;
 
+const TASK_REMINDERS_AND_RECURRENCE_SCHEMA_SQL = String.raw`
+  ALTER TABLE tasks ADD COLUMN IF NOT EXISTS reminder_minutes_before integer;
+  ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurrence_rule jsonb;
+  ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurrence_source_id text REFERENCES tasks(id) ON DELETE SET NULL;
+
+  DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tasks_reminder_minutes_check') THEN
+      ALTER TABLE tasks ADD CONSTRAINT tasks_reminder_minutes_check
+        CHECK (reminder_minutes_before IS NULL OR reminder_minutes_before IN (0, 5, 15, 30, 60, 1440));
+    END IF;
+  END $$;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS tasks_recurrence_source_unique_idx
+    ON tasks (recurrence_source_id) WHERE recurrence_source_id IS NOT NULL;
+`;
+
 export const DATABASE_MIGRATIONS = [
   { version: 1, name: "initial-workspace-schema", sql: INITIAL_SCHEMA_SQL },
   { version: 2, name: "exchange-ai-and-relations", sql: FEATURE_SCHEMA_SQL },
@@ -2014,6 +2030,7 @@ export const DATABASE_MIGRATIONS = [
   { version: 41, name: "mcp-action-event-retention-index", sql: MCP_ACTION_EVENT_RETENTION_INDEX_SQL },
   { version: 42, name: "hide-legacy-plan-item-task-mirrors", sql: LEGACY_PLAN_ITEM_MIRROR_SCHEMA_SQL },
   { version: 43, name: "mail-iframe-body-cache", sql: MAIL_IFRAME_BODY_CACHE_SCHEMA_SQL },
+  { version: 44, name: "task-reminders-and-recurrence", sql: TASK_REMINDERS_AND_RECURRENCE_SCHEMA_SQL },
 ] as const satisfies readonly DatabaseMigration[];
 
 export const LATEST_DATABASE_SCHEMA_VERSION = DATABASE_MIGRATIONS.at(-1)!.version;

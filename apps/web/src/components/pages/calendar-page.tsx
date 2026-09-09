@@ -173,6 +173,7 @@ interface CalendarViewEvent {
   readonly availability?: "free" | "tentative" | "busy" | "oof" | "working_elsewhere";
   readonly linkedTask?: { readonly id: string; readonly title: string; readonly href: string };
   readonly derivedFromTask?: boolean;
+  readonly updatedAt?: string;
 }
 
 interface CalendarEventDraft {
@@ -193,6 +194,7 @@ interface CalendarEventDraft {
   readonly recurrenceId?: string;
   readonly recurrenceScope?: CalendarRecurrenceEditScope;
   readonly conflicts: readonly TaskScheduleConflict[];
+  readonly expectedUpdatedAt?: string;
 }
 
 interface RecurrenceScopePrompt {
@@ -435,6 +437,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
       recurrence: event.recurrence,
       recurrenceSeriesId: event.recurrenceSeriesId,
       recurrenceId: event.recurrenceId,
+      expectedUpdatedAt: event.updatedAt,
       conflicts: [],
     });
   }, [timeZone]);
@@ -551,6 +554,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
           recurrenceSeriesId: draft.recurrenceSeriesId,
           recurrenceId: draft.recurrenceId,
           recurrenceScope,
+          expectedUpdatedAt: draft.expectedUpdatedAt,
           allowConflicts,
           idempotencyKey: draft.id ? undefined : `calendar-ui-${globalThis.crypto.randomUUID()}`,
         }),
@@ -595,6 +599,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
     setBusy(true);
     try {
       const params = new URLSearchParams({ calendarId: event.calendarId });
+      if (event.updatedAt) params.set("expectedUpdatedAt", event.updatedAt);
       if (event.recurrenceSeriesId && event.recurrenceId) {
         params.set("recurrenceSeriesId", event.recurrenceSeriesId);
         params.set("recurrenceId", event.recurrenceId);
@@ -920,6 +925,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
             recurrenceSeriesId: event.recurrenceSeriesId,
             recurrenceId: event.recurrenceId,
             recurrenceScope,
+            expectedUpdatedAt: event.updatedAt,
             allowConflicts,
           }),
         });
@@ -996,6 +1002,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
             recurrenceSeriesId: event.recurrenceSeriesId,
             recurrenceId: event.recurrenceId,
             recurrenceScope,
+            expectedUpdatedAt: event.updatedAt,
             allowConflicts,
           }),
         });

@@ -43,7 +43,7 @@ export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)"],
 };
 
-function isPublicPath(pathname: string): boolean {
+export function isPublicPath(pathname: string): boolean {
   return pathname === "/"
     || pathname === "/login"
     || pathname === "/setup"
@@ -51,7 +51,7 @@ function isPublicPath(pathname: string): boolean {
     || pathname === "/api/health"
     || pathname.startsWith("/api/auth/")
     || pathname.startsWith("/_next/")
-    || pathname.includes(".");
+    || /^\/(?:favicon\.ico|robots\.txt|sitemap\.xml|manifest\.webmanifest|icon(?:-[^/]+)?\.(?:svg|png|ico))$/.test(pathname);
 }
 
 interface ProxySessionPayload {

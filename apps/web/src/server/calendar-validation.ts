@@ -31,6 +31,7 @@ export interface CalendarEventRequestBody {
   readonly recurrenceSeriesId?: unknown;
   readonly recurrenceId?: unknown;
   readonly recurrenceScope?: unknown;
+  readonly expectedUpdatedAt?: unknown;
 }
 
 export function parseCalendarEventInput(body: CalendarEventRequestBody | null): UpsertCalendarEventInput {
@@ -82,6 +83,7 @@ export function parseCalendarEventInput(body: CalendarEventRequestBody | null): 
     recurrenceSeriesId,
     recurrenceId,
     recurrenceScope,
+    expectedUpdatedAt: body.expectedUpdatedAt === undefined ? undefined : parseDate(body.expectedUpdatedAt, "日程版本").toISOString(),
   };
 }
 

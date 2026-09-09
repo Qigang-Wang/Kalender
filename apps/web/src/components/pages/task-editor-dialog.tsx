@@ -29,6 +29,8 @@ export interface SharedTaskEditorDraft {
   urgencyMode: EditorUrgencyMode;
   dueAt: string;
   estimatedMinutes: string;
+  reminderMinutesBefore: string;
+  recurrenceFrequency: string;
   projectId: string;
   planItemId: string;
   projectName: string;
@@ -109,11 +111,13 @@ export function TaskEditorDialog({
             projectName: project?.name ?? "",
             areaName: project?.areaName ?? (projectId ? draft.areaName : ""),
           });
-        }} options={[{ value: "", label: "无项目" }, ...(draft.projectName && !draft.projectId ? [{ value: "__legacy__", label: `旧标签 · ${draft.projectName}`, disabled: true }] : []), ...projects.map((project) => ({ value: project.id, label: `${project.name}${project.areaName ? ` · ${project.areaName}` : ""}${project.status === "archived" ? " · 已归档" : ""}`, disabled: project.status === "archived" && project.id !== draft.projectId }))]} /></label>
+        }} options={[{ value: "", label: "无项目" }, ...(draft.projectName && !draft.projectId ? [{ value: "__legacy__", label: `旧标签 · ${draft.projectName}`, disabled: true }] : []), ...projects.map((project) => ({ value: project.id, label: `${project.areaName ? `${project.areaName} · ` : ""}${project.name}${project.status === "archived" ? " · 已归档" : ""}`, disabled: project.status === "archived" && project.id !== draft.projectId }))]} /></label>
         <label><span>状态</span><AppSelect ariaLabel="任务状态" value={draft.status} onValueChange={(status) => update({ status: status as EditorTaskStatus })} options={[{ value: "inbox", label: "Inbox · 待整理" }, { value: "next", label: "下一步" }, { value: "waiting", label: "等待中" }, { value: "someday", label: "以后也许" }, { value: "done", label: "已完成" }]} /></label>
         <label><span>紧急程度</span><AppSelect ariaLabel="紧急程度" value={draft.urgencyMode} onValueChange={(urgencyMode) => update({ urgencyMode: urgencyMode as EditorUrgencyMode })} options={[{ value: "auto", label: "自动（按开始时间）" }, { value: "urgent", label: "紧急" }, { value: "not_urgent", label: "不紧急" }]} /></label>
-        <DateTimeField label="开始时间" value={draft.dueAt} onChange={(dueAt) => update({ dueAt })} />
+        <DateTimeField label="开始时间" value={draft.dueAt} onChange={(dueAt) => update({ dueAt, ...(!dueAt ? { reminderMinutesBefore: "", recurrenceFrequency: "" } : {}) })} />
         <label><span>预计时长（分钟，用于日历）</span><input type="number" min="5" max="1440" step="5" value={draft.estimatedMinutes} onChange={(event) => update({ estimatedMinutes: event.target.value })} placeholder="例如 45" /></label>
+        <label><span>提醒</span><AppSelect ariaLabel="任务提醒" disabled={!draft.dueAt} value={draft.reminderMinutesBefore} onValueChange={(reminderMinutesBefore) => update({ reminderMinutesBefore })} options={[{ value: "", label: draft.dueAt ? "不提醒" : "请先设置开始时间" }, { value: "0", label: "开始时" }, { value: "5", label: "提前 5 分钟" }, { value: "15", label: "提前 15 分钟" }, { value: "30", label: "提前 30 分钟" }, { value: "60", label: "提前 1 小时" }, { value: "1440", label: "提前 1 天" }]} /></label>
+        <label><span>重复</span><AppSelect ariaLabel="任务重复规则" disabled={!draft.dueAt} value={draft.recurrenceFrequency} onValueChange={(recurrenceFrequency) => update({ recurrenceFrequency })} options={[{ value: "", label: draft.dueAt ? "不重复" : "请先设置开始时间" }, { value: "daily", label: "每天" }, { value: "weekly", label: "每周" }, { value: "monthly", label: "每月" }, { value: "yearly", label: "每年" }]} /></label>
         {draft.projectId && <label className="task-project-field"><span>关联计划项（可选）</span><AppSelect ariaLabel="任务关联计划项" value={draft.planItemId} onValueChange={(planItemId) => update({ planItemId })} options={[{ value: "", label: "不关联 · 仅作为行动任务" }, ...planItems.map((item) => ({ value: item.id, label: `${item.title}${item.status === "done" ? " · 已完成" : item.status === "cancelled" ? " · 已取消" : ""}` }))]} /></label>}
         <label className="task-important-field"><input type="checkbox" checked={draft.important} onChange={(event) => update({ important: event.target.checked })} /><Star size={15} fill={draft.important ? "currentColor" : "none"} /><span>这是重要任务</span></label>
         <section className="task-notes-field task-notes-editor" aria-labelledby="task-notes-label">

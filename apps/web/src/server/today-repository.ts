@@ -25,6 +25,7 @@ export interface TodayEventItem {
   readonly linkedTask?: { readonly id: string; readonly title: string; readonly href: string };
   readonly deleteDisabledReason?: string;
   readonly href: string;
+  readonly updatedAt?: string;
 }
 
 export interface TodayTaskItem {
@@ -148,6 +149,7 @@ export async function getTodaySnapshot(from: string, to: string): Promise<TodayS
         linkedTask: calendarTaskLinks.get(event.id),
         deleteDisabledReason: todayEventDeleteDisabledReason(event, calendar),
         href: `/calendar?event=${encodeURIComponent(event.id)}&date=${encodeURIComponent(event.start)}`,
+        updatedAt: event.updatedAt,
       };
     }),
     tasks: todayTasks,

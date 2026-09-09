@@ -532,7 +532,7 @@ export function NotesPage({
               <AppSelect ariaLabel="笔记所属项目" className="note-toolbar-project-select" size="compact" value={draft.projectId ?? ""} onValueChange={(projectId) => {
                 const project = projects.find((entry) => entry.id === projectId);
                 updateDraft({ projectId: project?.id, projectName: project?.name, projectColor: project?.color });
-              }} options={[{ value: "", label: "未归档" }, ...projects.map((project) => ({ value: project.id, label: project.name }))]} />
+              }} options={[{ value: "", label: "未归档" }, ...projects.map((project) => ({ value: project.id, label: `${project.areaName ? `${project.areaName} · ` : ""}${project.name}` }))]} />
               <AppSelect ariaLabel="笔记类型" className="note-toolbar-type-select" size="compact" value={draft.noteType} onValueChange={(noteType) => updateDraft({ noteType: noteType as ClientNoteType })} options={Object.entries(noteTypeLabels).map(([value, label]) => ({ value, label }))} />
               <input ref={noteTitleRef} className="note-title-inline" aria-label="笔记标题" value={draft.title} maxLength={240} onChange={(event) => updateDraft({ title: event.target.value })} placeholder="无标题笔记" />
             </div>

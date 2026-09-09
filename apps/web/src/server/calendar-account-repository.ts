@@ -472,15 +472,15 @@ export async function saveDiscoveredCalendar(
     `INSERT INTO calendars (
        id, user_id, account_id, provider_id, provider_calendar_id, source_url,
        name, color, read_only, is_primary, time_zone, updated_at
-     ) VALUES ($1,COALESCE($2, (SELECT user_id FROM calendar_accounts WHERE id = $3)),$3,'caldav',$4,$5,$6,$7,true,$8,'Europe/Berlin',now())
+     ) VALUES ($1,COALESCE($2, (SELECT user_id FROM calendar_accounts WHERE id = $3)),$3,'caldav',$4,$5,$6,$7,$8,$9,'Europe/Berlin',now())
      ON CONFLICT (id) DO UPDATE SET
        name = EXCLUDED.name,
        color = EXCLUDED.color,
-       read_only = true,
+       read_only = EXCLUDED.read_only,
        is_primary = EXCLUDED.is_primary,
        source_url = EXCLUDED.source_url,
        updated_at = now()`,
-    [id, scope.valueOrNull(), accountId, `${accountId}:${calendar.url}`, calendar.url, calendar.name, calendar.color, primary],
+    [id, scope.valueOrNull(), accountId, `${accountId}:${calendar.url}`, calendar.url, calendar.name, calendar.color, calendar.readOnly, primary],
   );
   return id;
 }
@@ -551,6 +551,66 @@ export async function saveCalDavEvents(
   to: string,
 ): Promise<number> {
   return saveRemoteCalendarEvents(calendarId, events, from, to, "caldav-event");
+}
+
+export async function saveCalDavCalendarMutation(
+  calendarId: string,
+  event: CalDavEventRecord,
+  localEventId?: string,
+  descriptionContent?: string,
+  reminderMinutesBefore?: CalendarEvent["reminderMinutesBefore"],
+  expectedUpdatedAt?: string,
+): Promise<string> {
+  const database = await getDatabase();
+  const id = localEventId ?? `caldav-event:${randomUUID()}`;
+  const saved = await database.query<{ id: string }>(
+    `INSERT INTO calendar_events (
+       id, calendar_id, provider_event_id, title, description, description_content, location,
+       starts_at, ends_at, time_zone, all_day, attendees, meeting_url,
+       status, etag, availability, reminder_minutes_before, updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16,$17,now())
+     ON CONFLICT (id) DO UPDATE SET
+       provider_event_id = EXCLUDED.provider_event_id,
+       title = EXCLUDED.title,
+       description = EXCLUDED.description,
+       description_content = EXCLUDED.description_content,
+       location = EXCLUDED.location,
+       starts_at = EXCLUDED.starts_at,
+       ends_at = EXCLUDED.ends_at,
+       time_zone = EXCLUDED.time_zone,
+       all_day = EXCLUDED.all_day,
+       attendees = EXCLUDED.attendees,
+       meeting_url = EXCLUDED.meeting_url,
+       status = EXCLUDED.status,
+       etag = EXCLUDED.etag,
+       availability = EXCLUDED.availability,
+       reminder_minutes_before = COALESCE(EXCLUDED.reminder_minutes_before, calendar_events.reminder_minutes_before),
+       updated_at = GREATEST(clock_timestamp(), calendar_events.updated_at + interval '1 millisecond')
+     WHERE ($18::timestamptz IS NULL OR date_trunc('milliseconds', calendar_events.updated_at) = date_trunc('milliseconds', $18::timestamptz))
+     RETURNING id`,
+    [
+      id,
+      calendarId,
+      event.providerEventId,
+      event.title,
+      event.description ?? null,
+      descriptionContent ? JSON.stringify(decodeNoteContent(descriptionContent)) : null,
+      event.location ?? null,
+      event.start,
+      event.end,
+      event.timeZone ?? "Europe/Berlin",
+      event.allDay,
+      JSON.stringify(event.attendees),
+      event.meetingUrl ?? null,
+      event.status,
+      event.etag ?? null,
+      event.availability ?? "busy",
+      reminderMinutesBefore ?? null,
+      expectedUpdatedAt ?? null,
+    ],
+  );
+  if (!saved.rows[0]) throw new Error("CalDAV event local revision conflict");
+  return id;
 }
 
 export async function saveExchangeCalendarEvents(

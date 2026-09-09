@@ -532,6 +532,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             desktop_status,
             update_desktop_settings,
@@ -586,6 +587,7 @@ pub fn run() {
             start_reminder_scheduler(app.handle().clone());
             start_server_connection_monitor(app.handle().clone());
             start_desktop_window_guard(app.handle().clone());
+            start_automatic_update(app.handle().clone());
             if let Ok(state) = app.state::<DesktopRuntime>().state.lock() {
                 update_tray_tooltip(app.handle(), &state);
             }
@@ -646,6 +648,25 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running Kalender desktop client");
+}
+
+fn start_automatic_update(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        use tauri_plugin_updater::UpdaterExt;
+
+        let result = async {
+            let updater = app.updater()?;
+            if let Some(update) = updater.check().await? {
+                update.download_and_install(|_, _| {}, || {}).await?;
+                app.restart();
+            }
+            Ok::<(), tauri_plugin_updater::Error>(())
+        }
+        .await;
+        if let Err(error) = result {
+            eprintln!("自动更新检查失败：{error}");
+        }
+    });
 }
 
 fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
@@ -1670,8 +1691,26 @@ fn create_main_window(app: &AppHandle, server_url: &str, visible: bool) -> Resul
         .lock()
         .map(|state| state.desktop_mode)
         .unwrap_or(false);
+    let navigation_app = app.clone();
     let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         .title("Kalender")
+        .on_navigation(move |url| {
+            let server_url = navigation_app
+                .state::<DesktopRuntime>()
+                .state
+                .lock()
+                .map(|state| configured_server_url(&state).to_string())
+                .unwrap_or_else(|_| DEFAULT_SERVER_URL.into());
+            if is_kalender_server_url(url, &server_url) {
+                return true;
+            }
+            if is_external_browser_url(url) {
+                if let Err(error) = open_in_default_browser(url) {
+                    eprintln!("{error}");
+                }
+            }
+            false
+        })
         .on_new_window(|url, _features| {
             if is_external_browser_url(&url) {
                 if let Err(error) = open_in_default_browser(&url) {
@@ -1704,12 +1743,19 @@ fn is_external_browser_url(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https" | "mailto")
 }
 
+fn is_kalender_server_url(url: &Url, server_url: &str) -> bool {
+    matches!(url.scheme(), "http" | "https")
+        && Url::parse(server_url)
+            .map(|server| url.origin() == server.origin())
+            .unwrap_or(false)
+}
+
 #[cfg(target_os = "windows")]
 fn open_in_default_browser(url: &Url) -> Result<(), String> {
     let target = HSTRING::from(url.as_str());
     let result = unsafe { ShellExecuteW(None, None, &target, None, None, SW_SHOWNORMAL) };
     if result.0 as isize <= 32 {
-        Err("无法使用系统默认浏览器打开邮件链接".to_string())
+        Err("无法使用系统默认浏览器打开外部链接".to_string())
     } else {
         Ok(())
     }
@@ -1721,7 +1767,7 @@ fn open_in_default_browser(url: &Url) -> Result<(), String> {
         .arg(url.as_str())
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("无法使用系统默认浏览器打开邮件链接：{error}"))
+        .map_err(|error| format!("无法使用系统默认浏览器打开外部链接：{error}"))
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -1730,7 +1776,7 @@ fn open_in_default_browser(url: &Url) -> Result<(), String> {
         .arg(url.as_str())
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("无法使用系统默认浏览器打开邮件链接：{error}"))
+        .map_err(|error| format!("无法使用系统默认浏览器打开外部链接：{error}"))
 }
 
 fn show_server_unavailable_notification(app: &AppHandle) {
@@ -2166,7 +2212,7 @@ mod tests {
     }
 
     #[test]
-    fn external_browser_links_only_allow_safe_mail_schemes() {
+    fn external_browser_links_only_allow_safe_schemes() {
         for value in [
             "https://example.com/path",
             "http://example.com/path",
@@ -2177,6 +2223,23 @@ mod tests {
         for value in ["file:///tmp/message", "javascript:alert(1)"] {
             assert!(!is_external_browser_url(&Url::parse(value).unwrap()));
         }
+    }
+
+    #[test]
+    fn navigation_keeps_only_the_configured_server_origin_in_the_client() {
+        let server = "https://kalender.example.com:8443/";
+        assert!(is_kalender_server_url(
+            &Url::parse("https://kalender.example.com:8443/tasks?task=1").unwrap(),
+            server
+        ));
+        assert!(!is_kalender_server_url(
+            &Url::parse("https://example.com/").unwrap(),
+            server
+        ));
+        assert!(!is_kalender_server_url(
+            &Url::parse("http://kalender.example.com:8443/").unwrap(),
+            server
+        ));
     }
 
     #[test]

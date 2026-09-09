@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { getDatabase } from "./database";
 import { ensureProjectAccess } from "./project-collaboration";
 import { getUserScope } from "./user-scope";
+import { nextTaskOccurrence, type TaskRecurrenceRule } from "../lib/task-recurrence";
 
 export const taskStatuses = ["inbox", "next", "waiting", "someday", "done"] as const;
 export const taskUrgencyModes = ["auto", "urgent", "not_urgent"] as const;
@@ -30,6 +31,8 @@ export interface StoredTask {
   readonly isUrgent: boolean;
   readonly dueAt?: string;
   readonly estimatedMinutes?: number;
+  readonly reminderMinutesBefore?: 0 | 5 | 15 | 30 | 60 | 1440;
+  readonly recurrence?: TaskRecurrenceRule;
   readonly projectId?: string;
   readonly projectName?: string;
   readonly projectColor?: string;
@@ -66,6 +69,8 @@ export interface SaveTaskInput {
   readonly urgencyMode: TaskUrgencyMode;
   readonly dueAt?: string;
   readonly estimatedMinutes?: number;
+  readonly reminderMinutesBefore?: StoredTask["reminderMinutesBefore"];
+  readonly recurrence?: TaskRecurrenceRule;
   readonly projectId?: string;
   readonly planItemId?: string;
   readonly projectName?: string;
@@ -83,6 +88,8 @@ interface TaskRow {
   urgency_mode: TaskUrgencyMode;
   due_at: string | Date | null;
   estimated_minutes: number | null;
+  reminder_minutes_before: StoredTask["reminderMinutesBefore"] | null;
+  recurrence_rule: TaskRecurrenceRule | null;
   project_id: string | null;
   project_name: string | null;
   project_color: string | null;
@@ -119,7 +126,7 @@ interface TimeBlockDetailsRow {
 
 const taskSelect = `
   SELECT t.id, t.title, t.notes, t.status, t.important, t.urgency_mode,
-         t.due_at, t.estimated_minutes, t.project_id,
+         t.due_at, t.estimated_minutes, t.reminder_minutes_before, t.recurrence_rule, t.project_id,
          COALESCE(p.name, t.project_name) AS project_name,
          p.color AS project_color,
          t.plan_item_id, plan_item.title AS plan_item_title,
@@ -260,8 +267,8 @@ export async function saveStoredTask(input: SaveTaskInput, options: { readonly e
       `INSERT INTO tasks (
          id, user_id, title, notes, status, important, urgency_mode, due_at,
          estimated_minutes, project_id, project_name, area_name, assignee_user_id, plan_item_id,
-         completed_at, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now())
+         reminder_minutes_before, recurrence_rule, completed_at, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,now())
        ON CONFLICT (id) DO UPDATE SET
          title = EXCLUDED.title,
          notes = EXCLUDED.notes,
@@ -274,10 +281,12 @@ export async function saveStoredTask(input: SaveTaskInput, options: { readonly e
          project_name = EXCLUDED.project_name,
          area_name = EXCLUDED.area_name,
          assignee_user_id = EXCLUDED.assignee_user_id,
-         plan_item_id = EXCLUDED.plan_item_id,
-         completed_at = EXCLUDED.completed_at,
+       plan_item_id = EXCLUDED.plan_item_id,
+       reminder_minutes_before = EXCLUDED.reminder_minutes_before,
+       recurrence_rule = EXCLUDED.recurrence_rule,
+       completed_at = EXCLUDED.completed_at,
          updated_at = GREATEST(clock_timestamp(), tasks.updated_at + interval '1 millisecond')
-       WHERE ($16::timestamptz IS NULL OR date_trunc('milliseconds', tasks.updated_at) = date_trunc('milliseconds', $16::timestamptz))
+     WHERE ($18::timestamptz IS NULL OR date_trunc('milliseconds', tasks.updated_at) = date_trunc('milliseconds', $18::timestamptz))
        RETURNING id`,
       [
         id,
@@ -294,6 +303,8 @@ export async function saveStoredTask(input: SaveTaskInput, options: { readonly e
         areaName,
         input.assigneeUserId ?? null,
         planItemId,
+        input.reminderMinutesBefore ?? null,
+        input.recurrence ? JSON.stringify(input.recurrence) : null,
         input.status === "done" ? new Date().toISOString() : null,
         options.expectedUpdatedAt ?? null,
       ],
@@ -337,6 +348,49 @@ export async function saveStoredTask(input: SaveTaskInput, options: { readonly e
            ON CONFLICT (source_kind, source_id, target_kind, target_id, relation) DO NOTHING`,
           [`source:${sourceReferenceId}`, scope.valueOrNull(), source.kind, source.sourceId, id],
         );
+      }
+    }
+    if (input.status === "done" && input.recurrence && input.dueAt) {
+      const nextId = randomUUID();
+      const spawned = await transaction.query<{ id: string }>(
+        `INSERT INTO tasks (
+           id, user_id, title, notes, status, important, urgency_mode, due_at, estimated_minutes,
+           project_id, project_name, area_name, assignee_user_id, plan_item_id,
+           reminder_minutes_before, recurrence_rule, recurrence_source_id, updated_at
+         ) SELECT $2, user_id, title, notes, 'next', important, urgency_mode, $3, estimated_minutes,
+                  project_id, project_name, area_name, assignee_user_id, plan_item_id,
+                  reminder_minutes_before, recurrence_rule, id, now()
+             FROM tasks WHERE id = $1
+         ON CONFLICT (recurrence_source_id) WHERE recurrence_source_id IS NOT NULL DO NOTHING
+         RETURNING id`,
+        [id, nextId, nextTaskOccurrence(input.dueAt, input.recurrence)],
+      );
+      if (spawned.rows[0]) {
+        const sources = await transaction.query<Omit<SourceRow, "id">>(
+          "SELECT task_id, source_kind, source_id, label, href FROM task_source_references WHERE task_id = $1",
+          [id],
+        );
+        for (const source of sources.rows) {
+          const sourceId = randomUUID();
+          await transaction.query(
+            `INSERT INTO task_source_references (id, task_id, source_kind, source_id, label, href) VALUES ($1,$2,$3,$4,$5,$6)`,
+            [sourceId, nextId, source.source_kind, source.source_id, source.label, source.href],
+          );
+          await transaction.query(
+            `INSERT INTO entity_links (id, user_id, source_kind, source_id, target_kind, target_id, relation)
+             VALUES ($1,$2,$3,$4,'task',$5,'derived-task')
+             ON CONFLICT (source_kind, source_id, target_kind, target_id, relation) DO NOTHING`,
+            [`source:${sourceId}`, scope.valueOrNull(), source.source_kind, source.source_id, nextId],
+          );
+        }
+        if (projectId) {
+          await transaction.query(
+            `INSERT INTO entity_links (id, user_id, source_kind, source_id, target_kind, target_id, relation)
+             VALUES ($1,$2,'project',$3,'task',$4,'project-item')
+             ON CONFLICT (source_kind, source_id, target_kind, target_id, relation) DO NOTHING`,
+            [`project-task:${nextId}`, scope.valueOrNull(), projectId, nextId],
+          );
+        }
       }
     }
   });
@@ -436,6 +490,8 @@ async function attachSources(rows: readonly TaskRow[]): Promise<readonly StoredT
     isUrgent: deriveTaskUrgency(row.urgency_mode, toIso(row.due_at)),
     dueAt: toIso(row.due_at),
     estimatedMinutes: row.estimated_minutes ?? undefined,
+    reminderMinutesBefore: row.reminder_minutes_before ?? undefined,
+    recurrence: row.recurrence_rule ?? undefined,
     projectId: row.project_id ?? undefined,
     projectName: row.project_name ?? undefined,
     projectColor: row.project_color ?? undefined,

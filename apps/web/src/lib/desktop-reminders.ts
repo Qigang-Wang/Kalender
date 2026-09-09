@@ -21,6 +21,15 @@ export interface NativeReminderInput {
   readonly route: string;
 }
 
+export interface TaskReminderInput {
+  readonly id: string;
+  readonly title: string;
+  readonly dueAt?: string;
+  readonly estimatedMinutes?: number;
+  readonly reminderMinutesBefore?: number;
+  readonly status: string;
+}
+
 export interface DesktopReminderSyncPayload {
   readonly settings: DesktopReminderSettings;
   readonly reminders: readonly NativeReminderInput[];
@@ -50,6 +59,7 @@ export function createDesktopReminderSyncPayload(
   sourceEvents: readonly CalendarReminderEvent[],
   settings: DesktopReminderSettings,
   now = new Date(),
+  tasks: readonly TaskReminderInput[] = [],
 ): DesktopReminderSyncPayload {
   const range = desktopReminderRange(now);
   const events = sourceEvents
@@ -66,9 +76,9 @@ export function createDesktopReminderSyncPayload(
 
   return {
     settings,
-    reminders: events
+    reminders: [...events
       .filter((event) => event.reminderMinutesBefore !== 0)
-      .map((event) => toNativeReminder(event, settings)),
+      .map((event) => toNativeReminder(event, settings)), ...tasks.flatMap((task) => toNativeTaskReminder(task))],
     summary: {
       todayCount: todayEvents.length,
       nextTitle: nextEvent?.title,
@@ -76,6 +86,20 @@ export function createDesktopReminderSyncPayload(
       syncedAt: now.getTime(),
     },
   };
+}
+
+function toNativeTaskReminder(task: TaskReminderInput): readonly NativeReminderInput[] {
+  if (task.status === "done" || !task.dueAt || task.reminderMinutesBefore === undefined) return [];
+  const startAt = new Date(task.dueAt).getTime();
+  if (!Number.isFinite(startAt)) return [];
+  return [{
+    id: `task:${task.id}`,
+    title: task.title,
+    startAt,
+    remindAt: startAt - task.reminderMinutesBefore * 60_000,
+    allDay: false,
+    route: `/tasks?task=${encodeURIComponent(task.id)}`,
+  }];
 }
 
 function isValidEventRange(event: CalendarReminderEvent): boolean {

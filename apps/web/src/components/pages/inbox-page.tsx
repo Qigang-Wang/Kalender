@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   AlertCircle, Archive, Award, CalendarDays, Check, CheckCircle2, CheckSquare2,
   ChevronDown, ChevronLeft, ChevronRight, Circle, Copy, Download, FileArchive, FileText, Folder,
-  Forward, ImageIcon, Link2, ListChecks, LoaderCircle, Mail, MoreHorizontal,
+  Forward, Link2, ListChecks, LoaderCircle, Mail, MoreHorizontal,
   MailOpen, Paperclip, Pencil, RefreshCw, Reply, ReplyAll, Search, Send, ShieldCheck,
   Sparkles, Star, Trash2, Upload, WandSparkles, X,
 } from "lucide-react";
@@ -20,7 +20,6 @@ import { fetchWithTimeout, readApiJson } from "@/lib/fetch-with-timeout";
 import { replaceMailSignatureContent, type MailSignatureVariant } from "@/lib/mail-signature-content";
 import { decodeNoteContent, EMPTY_PLATE_NOTE_CONTENT, encodeNoteContent, noteContentToPlainText } from "@/lib/note-content";
 import { groupMailByDate, type MailDateGroupId } from "@/lib/mail-date-groups";
-import { buildMailIframeDocument } from "@/lib/mail-html-document";
 import { resolveReplyRecipients } from "@/lib/mail-reply-recipients";
 import { isSmimeSignatureAttachment } from "@/lib/mail-smime";
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
@@ -31,6 +30,8 @@ import { ContextMenu } from "../context-menu";
 import { resolveContextCommands, type ContextCommandId, type MailMessageCommandId } from "../context-commands";
 import { useWorkspaceAssistant, type MailAssistantAction } from "../workspace-assistant-context";
 import { TransientToast } from "../workspace-shared";
+import { MailAttachmentActions } from "../mail-attachment-actions";
+import { enableRemoteEmailImages, MailBodyFrame, RemoteImagePermissionButton } from "../mail-body-frame";
 import { MailProjectChip, ProjectAssociationControl, RelatedContentPanel } from "./related-content";
 
 const MAIL_MESSAGE_DRAG_TYPE = "application/x-kalender-mail-message";
@@ -2134,7 +2135,7 @@ export function InboxPage({
                       ? <MailBodyFrame html={iframeHtml} allowRemoteImages={remoteImagesEnabled} />
                       : <div className="mail-body-text">{body.text || "（邮件正文为空）"}</div>}
                   </div>}
-                  {visibleAttachments.length > 0 && <section className="incoming-attachments" aria-label="邮件附件"><header><Paperclip size={14} /><strong>附件</strong><span>{visibleAttachments.length}</span></header><div>{threadMessage.attachments.map((attachment, attachmentIndex) => attachment.inline || isSmimeSignatureAttachment(attachment) ? null : <a href={`/api/messages/${encodeURIComponent(threadMessage.id)}/attachments/${attachmentIndex}`} key={`${attachment.filename}:${attachmentIndex}`}><FileText size={16} /><span><strong>{attachment.filename}</strong><small>{attachment.contentType} · {formatFileSize(attachment.sizeBytes)}</small></span><em>下载</em></a>)}</div></section>}
+                  {visibleAttachments.length > 0 && <section className="incoming-attachments" aria-label="邮件附件"><header><Paperclip size={14} /><strong>附件</strong><span>{visibleAttachments.length}</span></header><div>{threadMessage.attachments.map((attachment, attachmentIndex) => attachment.inline || isSmimeSignatureAttachment(attachment) ? null : <div className="incoming-attachment" key={`${attachment.filename}:${attachmentIndex}`}><FileText size={16} /><span><strong>{attachment.filename}</strong><small>{attachment.contentType} · {formatFileSize(attachment.sizeBytes)}</small></span><MailAttachmentActions messageId={threadMessage.id} attachmentIndex={attachmentIndex} filename={attachment.filename} contentType={attachment.contentType} /></div>)}</div></section>}
                 </div>}
               </section>;
             })}
@@ -2307,89 +2308,6 @@ export function InboxPage({
     {mailNotice && <TransientToast message={mailNotice} onClose={() => setMailNotice(null)} testId="mail-action-notice" />}
     </>
   );
-}
-
-function MailBodyFrame({ html, allowRemoteImages }: { readonly html: string; readonly allowRemoteImages: boolean }) {
-  const frameRef = useRef<HTMLIFrameElement>(null);
-  const resize = useCallback(() => {
-    const frame = frameRef.current;
-    const document = frame?.contentDocument;
-    if (!frame || !document) return;
-    frame.style.height = `${Math.max(120, document.documentElement.scrollHeight)}px`;
-  }, []);
-
-  useEffect(() => {
-    window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
-  }, [resize]);
-
-  return <iframe
-    ref={frameRef}
-    className="mail-body-frame"
-    title="HTML 邮件正文"
-    sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-    referrerPolicy="no-referrer"
-    srcDoc={buildMailIframeDocument(html, allowRemoteImages)}
-    onLoad={resize}
-  />;
-}
-
-function enableRemoteEmailImages(html: string): string {
-  if (typeof DOMParser === "undefined") return html;
-  const document = new DOMParser().parseFromString(html, "text/html");
-  document.querySelectorAll<HTMLImageElement>("img[data-remote-src]").forEach((image) => {
-    const source = image.dataset.remoteSrc;
-    if (!source || !/^https?:\/\//i.test(source)) return;
-    image.src = source;
-    image.removeAttribute("data-remote-src");
-  });
-  const styles = Array.from(document.head.querySelectorAll("style"), (style) => style.outerHTML).join("");
-  return styles + document.body.innerHTML;
-}
-
-function RemoteImagePermissionButton({
-  domain,
-  onAllowOnce,
-  onAlwaysAllow,
-}: {
-  readonly domain?: string;
-  readonly onAllowOnce: () => void;
-  readonly onAlwaysAllow: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const closeOnOutsideClick = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("pointerdown", closeOnOutsideClick);
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("pointerdown", closeOnOutsideClick);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open]);
-
-  return <div className="remote-image-permission" ref={rootRef}>
-    <button
-      className="ghost-button show-mail-images"
-      aria-haspopup="menu"
-      aria-expanded={open}
-      onClick={(event) => {
-        event.stopPropagation();
-        setOpen((current) => !current);
-      }}
-    ><ImageIcon size={14} />显示图片<ChevronDown size={13} /></button>
-    {open && <div className="remote-image-permission-menu" role="menu" aria-label="图片加载选项" onClick={(event) => event.stopPropagation()}>
-      <button role="menuitem" onClick={onAllowOnce}><ImageIcon size={15} /><strong>仅显示此邮件</strong></button>
-      {domain && <button role="menuitem" onClick={onAlwaysAllow}><ShieldCheck size={15} /><strong>始终允许此域名</strong></button>}
-    </div>}
-  </div>;
 }
 
 function emailAddressDomain(address: string): string | undefined {

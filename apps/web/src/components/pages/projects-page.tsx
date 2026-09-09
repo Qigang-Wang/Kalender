@@ -66,6 +66,8 @@ interface ClientTask {
   readonly isUrgent: boolean;
   readonly dueAt?: string;
   readonly estimatedMinutes?: number;
+  readonly reminderMinutesBefore?: 0 | 5 | 15 | 30 | 60 | 1440;
+  readonly recurrence?: { readonly frequency: "daily" | "weekly" | "monthly" | "yearly"; readonly interval: number };
   readonly projectId?: string;
   readonly projectName?: string;
   readonly projectColor?: string;
@@ -315,6 +317,8 @@ interface ProjectTaskEditDraft {
   urgencyMode: TaskUrgencyMode;
   dueAt: string;
   estimatedMinutes: string;
+  reminderMinutesBefore: string;
+  recurrenceFrequency: string;
   projectId: string;
   planItemId: string;
   projectName: string;
@@ -379,6 +383,8 @@ function projectTaskToEditDraft(task: ClientTask): ProjectTaskEditDraft {
     urgencyMode: task.urgencyMode,
     dueAt: task.dueAt ? toLocalDateTimeInput(new Date(task.dueAt)) : "",
     estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : "",
+    reminderMinutesBefore: task.reminderMinutesBefore === undefined ? "" : String(task.reminderMinutesBefore),
+    recurrenceFrequency: task.recurrence?.frequency ?? "",
     projectId: task.projectId ?? "",
     planItemId: task.planItemId ?? "",
     projectName: task.projectName ?? "",
@@ -397,6 +403,8 @@ function projectTaskEditPayload(draft: ProjectTaskEditDraft) {
     urgencyMode: draft.urgencyMode,
     dueAt: draft.dueAt ? new Date(draft.dueAt).toISOString() : undefined,
     estimatedMinutes: draft.estimatedMinutes ? Number(draft.estimatedMinutes) : undefined,
+    reminderMinutesBefore: draft.dueAt && draft.reminderMinutesBefore !== "" ? Number(draft.reminderMinutesBefore) : undefined,
+    recurrence: draft.dueAt && draft.recurrenceFrequency ? { frequency: draft.recurrenceFrequency, interval: 1 } : undefined,
     projectId: draft.projectId || undefined,
     planItemId: draft.projectId && draft.planItemId ? draft.planItemId : undefined,
     projectName: draft.projectId ? undefined : draft.projectName || undefined,

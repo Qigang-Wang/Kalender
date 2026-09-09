@@ -16,11 +16,15 @@ const events: CalendarReminderEvent[] = [
   { id: "invalid", title: "无效日程", start: "invalid", end: at(5, 12), allDay: false, status: "confirmed" },
 ];
 
-const payload = createDesktopReminderSyncPayload(events, DEFAULT_DESKTOP_REMINDER_SETTINGS, now);
+const payload = createDesktopReminderSyncPayload(events, DEFAULT_DESKTOP_REMINDER_SETTINGS, now, [
+  { id: "task-1", title: "提交报告", dueAt: at(5, 14), reminderMinutesBefore: 30, status: "next" },
+  { id: "task-silent", title: "无提醒任务", dueAt: at(5, 15), status: "next" },
+]);
 
 assert.equal(payload.summary.todayCount, 3, "summary includes overlapping events from every calendar source");
 assert.equal(payload.summary.nextTitle, "后续日程", "next event skips completed and cancelled events");
-assert.equal(payload.reminders.length, 5, "queue excludes cancelled, invalid, and explicitly silent events");
+assert.equal(payload.reminders.length, 6, "queue includes explicit task reminders and excludes silent items");
+assert.equal(payload.reminders.find((reminder) => reminder.id === "task:task-1")?.route, "/tasks?task=task-1", "task reminders open the task details");
 assert(payload.reminders.some((reminder) => reminder.id === "exchange"), "Exchange events remain in the reminder queue");
 assert.equal(
   payload.reminders.find((reminder) => reminder.id === "local")?.remindAt,

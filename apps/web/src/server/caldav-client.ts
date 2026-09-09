@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type {
   CalendarEvent,
   CalendarProvider,
@@ -79,11 +81,15 @@ export class CalDavCalendarProvider implements CalendarProvider {
   }
 
   async upsertEvent(_context: ProviderContext, _input: UpsertCalendarEventInput): Promise<CalendarEvent> {
-    throw new CalDavError("READ_ONLY_PHASE", "CalDAV 写入将在只读同步稳定后启用", 501);
+    const credential = credentialFromContext(_context, this.serverUrl);
+    return _input.id
+      ? updateCalDavEvent(credential, new URL(_input.id, _input.calendarId).toString(), undefined, _input, _context.signal)
+      : createCalDavEvent(credential, _input.calendarId, _input, _context.signal);
   }
 
   async deleteEvent(_context: ProviderContext, _calendarId: string, _eventId: string): Promise<void> {
-    throw new CalDavError("READ_ONLY_PHASE", "CalDAV 写入将在只读同步稳定后启用", 501);
+    const credential = credentialFromContext(_context, this.serverUrl);
+    await deleteCalDavEvent(credential, new URL(_eventId, _calendarId).toString(), undefined, _context.signal);
   }
 }
 
@@ -159,6 +165,118 @@ export async function fetchCalDavEvents(
   return parseCalendarEventResponse(xml, calendarUrl);
 }
 
+export async function createCalDavEvent(
+  credential: CalDavCredential,
+  calendarUrl: string,
+  input: UpsertCalendarEventInput,
+  signal?: AbortSignal,
+): Promise<CalDavEventRecord> {
+  const uid = randomUUID();
+  const baseUrl = calendarUrl.endsWith("/") ? calendarUrl : `${calendarUrl}/`;
+  const sourceUrl = new URL(`${encodeURIComponent(uid)}.ics`, baseUrl).toString();
+  return putCalDavEvent(credential, sourceUrl, uid, undefined, input, signal, true);
+}
+
+export async function updateCalDavEvent(
+  credential: CalDavCredential,
+  sourceUrl: string,
+  etag: string | undefined,
+  input: UpsertCalendarEventInput,
+  signal?: AbortSignal,
+  uid?: string,
+): Promise<CalDavEventRecord> {
+  return putCalDavEvent(credential, sourceUrl, calDavEventUid(sourceUrl, uid), etag, input, signal, false);
+}
+
+export async function deleteCalDavEvent(
+  credential: CalDavCredential,
+  sourceUrl: string,
+  etag?: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await calDavFetch(credential, sourceUrl, {
+    method: "DELETE",
+    headers: { "If-Match": etag ?? "*" },
+    signal,
+  });
+}
+
+async function putCalDavEvent(
+  credential: CalDavCredential,
+  sourceUrl: string,
+  uid: string,
+  etag: string | undefined,
+  input: UpsertCalendarEventInput,
+  signal: AbortSignal | undefined,
+  create: boolean,
+): Promise<CalDavEventRecord> {
+  const response = await calDavFetch(credential, sourceUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "text/calendar; charset=utf-8",
+      [create ? "If-None-Match" : "If-Match"]: create ? "*" : etag ?? "*",
+    },
+    body: serializeCalDavEvent(input, uid),
+    signal,
+  });
+  const finalUrl = response.headers.get("location")
+    ? new URL(response.headers.get("location")!, sourceUrl).toString()
+    : sourceUrl;
+  const finalEtag = response.headers.get("etag") ?? etag;
+  return {
+    id: `${finalUrl}#${uid}`,
+    providerEventId: `${finalUrl}#${uid}`,
+    calendarId: input.calendarId,
+    title: input.title,
+    description: input.description,
+    location: input.location,
+    start: input.start,
+    end: input.end,
+    timeZone: input.timeZone ?? "Europe/Berlin",
+    allDay: input.allDay ?? false,
+    attendees: input.attendees ?? [],
+    status: "confirmed",
+    availability: input.availability ?? "busy",
+    etag: finalEtag,
+    sourceUrl: finalUrl,
+    providerData: { providerId: "caldav", sourceUrl: finalUrl, etag: finalEtag },
+  };
+}
+
+export function serializeCalDavEvent(input: UpsertCalendarEventInput, uid: string): string {
+  const allDay = input.allDay === true;
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Dayline//Calendar//EN",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:${escapeIcsText(uid)}`,
+    `DTSTAMP:${toCalDavTime(new Date().toISOString())}`,
+    allDay ? `DTSTART;VALUE=DATE:${toCalDavDate(input.start)}` : `DTSTART:${toCalDavTime(input.start)}`,
+    allDay ? `DTEND;VALUE=DATE:${toCalDavDate(input.end)}` : `DTEND:${toCalDavTime(input.end)}`,
+    `SUMMARY:${escapeIcsText(input.title)}`,
+    ...(input.description ? [`DESCRIPTION:${escapeIcsText(input.description)}`] : []),
+    ...(input.location ? [`LOCATION:${escapeIcsText(input.location)}`] : []),
+    `TRANSP:${input.availability === "free" ? "TRANSPARENT" : "OPAQUE"}`,
+    ...(input.attendees ?? []).map((attendee) => `${attendee.name ? `ATTENDEE;CN=${escapeIcsParameter(attendee.name)}` : "ATTENDEE"}:mailto:${escapeIcsText(attendee.address)}`),
+    ...(input.reminderMinutesBefore === undefined ? [] : [
+      "BEGIN:VALARM",
+      `TRIGGER:-PT${input.reminderMinutesBefore}M`,
+      "ACTION:DISPLAY",
+      `DESCRIPTION:${escapeIcsText(input.title)}`,
+      "END:VALARM",
+    ]),
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  return `${lines.map(foldIcsLine).join("\r\n")}\r\n`;
+}
+
+function calDavEventUid(sourceUrl: string, uid?: string): string {
+  return uid || decodeURIComponent(new URL(sourceUrl).pathname.split("/").pop()?.replace(/\.ics$/i, "") || randomUUID());
+}
+
 export function parseCalendarDiscoveryResponse(xml: string, baseUrl: string): readonly DiscoveredCalDavCalendar[] {
   return xmlResponses(xml).flatMap((response) => {
     const resourceType = tagContent(response, "resourcetype") ?? "";
@@ -166,7 +284,9 @@ export function parseCalendarDiscoveryResponse(xml: string, baseUrl: string): re
     const href = xmlText(response, "href");
     if (!href) return [];
     const status = xmlText(response, "status") ?? "";
-    const readOnly = /403|404/.test(status) || !/<(?:[\w-]+:)?write(?:\s|\/|>)/i.test(tagContent(response, "current-user-privilege-set") ?? "");
+    const privileges = tagContent(response, "current-user-privilege-set") ?? "";
+    const readOnly = /403|404/.test(status)
+      || !/<(?:[\w-]+:)?(?:write(?:-content|-properties)?|bind|unbind)(?:\s|\/|>)/i.test(privileges);
     return [{
       url: new URL(href, baseUrl).toString(),
       name: xmlText(response, "displayname") || "未命名日历",
@@ -296,8 +416,21 @@ async function calDavFetch(
       url = new URL(location, url);
       continue;
     }
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
       throw new CalDavError("AUTH_REQUIRED", "CalDAV 服务器拒绝了用户名或应用专用密码", 401);
+    }
+    if (response.status === 403) {
+      const method = init.method?.toUpperCase();
+      if (method === "PUT" || method === "DELETE") {
+        throw new CalDavError("CALENDAR_READ_ONLY", "CalDAV 服务器拒绝写入这个日历", 409);
+      }
+      throw new CalDavError("AUTH_REQUIRED", "CalDAV 服务器拒绝了用户名或应用专用密码", 401);
+    }
+    if (response.status === 404) {
+      throw new CalDavError("EVENT_NOT_FOUND", "CalDAV 日程已在服务器上删除，请先同步", 404);
+    }
+    if (response.status === 409 || response.status === 412) {
+      throw new CalDavError("REMOTE_CONFLICT", "CalDAV 日程已在其他客户端修改，请同步后重试", 409);
     }
     if (!response.ok && response.status !== 207) {
       throw new CalDavError("REMOTE_ERROR", `CalDAV 服务器返回 HTTP ${response.status}`, 502);
@@ -410,6 +543,27 @@ function zonedDateToUtc(
 
 function toCalDavTime(value: string): string {
   return new Date(value).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+
+function toCalDavDate(value: string): string {
+  return new Date(value).toISOString().slice(0, 10).replaceAll("-", "");
+}
+
+function escapeIcsText(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
+}
+
+function escapeIcsParameter(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"").replace(/\r?\n/g, " ")}"`;
+}
+
+function foldIcsLine(line: string): string {
+  if (line.length <= 75) return line;
+  const parts: string[] = [];
+  for (let offset = 0; offset < line.length; offset += 74) {
+    parts.push(`${offset ? " " : ""}${line.slice(offset, offset + 74)}`);
+  }
+  return parts.join("\r\n");
 }
 
 function calendarUrlFromEventSource(sourceUrl: string): string {

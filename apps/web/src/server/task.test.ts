@@ -104,6 +104,26 @@ async function main() {
   assert(!reopened.completedAt, "reopened task clears completion timestamp");
   assert(!repository.deriveTaskUrgency("not_urgent", created.dueAt), "manual not-urgent override wins");
 
+  const recurring = await repository.saveStoredTask(parseTaskInput({
+    title: "Weekly review",
+    status: "next",
+    dueAt: "2030-01-07T09:00:00.000Z",
+    reminderMinutesBefore: 30,
+    recurrence: { frequency: "weekly", interval: 1 },
+  }));
+  assert(recurring.reminderMinutesBefore === 30 && recurring.recurrence?.frequency === "weekly", "task reminder and recurrence are stored");
+  await repository.saveStoredTask({ ...parseTaskInput({
+    title: recurring.title,
+    status: "done",
+    dueAt: recurring.dueAt,
+    reminderMinutesBefore: recurring.reminderMinutesBefore,
+    recurrence: recurring.recurrence,
+  }), id: recurring.id });
+  const spawned = (await repository.listStoredTasks()).find((task) => task.title === recurring.title && task.id !== recurring.id);
+  assert(spawned?.dueAt === "2030-01-14T09:00:00.000Z", "completing a recurring task creates exactly the next occurrence");
+  if (spawned) await repository.deleteStoredTask(spawned.id);
+  await repository.deleteStoredTask(recurring.id);
+
   const firstBlock = await schedule.scheduleStoredTask(created.id, schedule.parseTaskScheduleInput({
     calendarId: "local:personal",
     start: "2026-07-22T08:00:00.000Z",

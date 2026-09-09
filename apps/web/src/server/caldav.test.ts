@@ -16,6 +16,7 @@ try {
     parseCalendarDiscoveryResponse,
     parseCalendarEventResponse,
     parseCalDavCredential,
+    serializeCalDavEvent,
   } = await import("./caldav-client");
   const {
     deleteCalendarAccount,
@@ -26,7 +27,7 @@ try {
     saveDiscoveredCalendar,
     updateCalendarAccountSettings,
   } = await import("./calendar-account-repository");
-  const { deleteStoredCalendarEvent, listStoredCalendarEvents, listStoredCalendars } = await import("./calendar-repository");
+  const { listStoredCalendarEvents, listStoredCalendars } = await import("./calendar-repository");
   const { getDatabase } = await import("./database");
 
   const credential = parseCalDavCredential({
@@ -46,12 +47,17 @@ try {
       <d:response><d:href>/dav/calendars/adam/</d:href><d:propstat><d:prop>
         <d:displayname>主页</d:displayname><d:resourcetype><d:collection/></d:resourcetype>
       </d:prop></d:propstat></d:response>
+      <d:response><d:href>/dav/calendars/adam/shared/</d:href><d:propstat><d:prop>
+        <d:displayname>共享日历</d:displayname><d:resourcetype><d:collection/><c:calendar/></d:resourcetype>
+        <d:current-user-privilege-set><d:privilege><d:read/></d:privilege><d:privilege><d:write-content/></d:privilege></d:current-user-privilege-set>
+      </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
     </d:multistatus>`;
   const discovered = parseCalendarDiscoveryResponse(discoveryXml, "https://calendar.example.test/");
-  assert(discovered.length === 1, "only CalDAV calendar collections are discovered");
+  assert(discovered.length === 2, "only CalDAV calendar collections are discovered");
   assert(discovered[0]?.name === "工作日历", "calendar display name is parsed");
   assert(discovered[0]?.color === "#F0A05E", "eight-digit calendar color is normalized");
   assert(discovered[0]?.readOnly === false, "write privilege is detected");
+  assert(discovered[1]?.readOnly === false, "expanded WebDAV write-content privilege is detected");
 
   const eventXml = `<?xml version="1.0"?>
     <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response>
@@ -64,6 +70,16 @@ try {
   assert(parsedEvents[0]?.start === "2026-07-20T07:30:00.000Z", "Europe/Berlin summer time is converted to UTC");
   assert(parsedEvents[0]?.attendees[0]?.address === "anna@example.test", "attendee mailto is parsed");
   assert(parsedEvents[1]?.allDay === true, "all-day event is detected");
+  const writableIcs = serializeCalDavEvent({
+    calendarId: discovered[0]!.url,
+    title: "产品评审, 第二轮",
+    description: "第一行\n第二行",
+    start: "2026-07-20T07:30:00.000Z",
+    end: "2026-07-20T08:30:00.000Z",
+    reminderMinutesBefore: 15,
+  }, "review-1");
+  assert(writableIcs.includes("UID:review-1") && writableIcs.includes("SUMMARY:产品评审\\, 第二轮"), "CalDAV write payload escapes event fields");
+  assert(writableIcs.includes("TRIGGER:-PT15M") && writableIcs.endsWith("\r\n"), "CalDAV write payload includes reminders and CRLF lines");
 
   const account = await saveCalDavAccount("工作日历", credential);
   const restored = await loadCalDavCredential(account.id);
@@ -79,6 +95,7 @@ try {
   await saveCalDavEvents(calendarId, parsedEvents, "2026-07-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z");
   const calendars = await listStoredCalendars();
   assert(calendars.some((calendar) => calendar.id === calendarId && calendar.providerData?.providerId === "caldav"), "CalDAV calendar is stored with provider identity");
+  assert(calendars.some((calendar) => calendar.id === calendarId && !calendar.readOnly), "CalDAV write privilege is preserved locally");
   const customizedAccount = await updateCalendarAccountSettings(account.id, {
     displayName: "自定义工作日历",
     color: "#c7a6f2",
@@ -95,13 +112,6 @@ try {
   });
   assert(storedEvents.length === 2, "CalDAV events are indexed locally");
 
-  let readOnlyProtected = false;
-  try {
-    await deleteStoredCalendarEvent(calendarId, storedEvents[0]!.id);
-  } catch (error) {
-    readOnlyProtected = error instanceof Error && error.message.includes("只读");
-  }
-  assert(readOnlyProtected, "remote calendar events cannot be deleted during read-only phase");
   assert((await listCalendarAccounts()).length === 1, "saved CalDAV account is listed");
   assert(await deleteCalendarAccount(account.id), "CalDAV account can be deleted with its local index");
 

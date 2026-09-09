@@ -88,6 +88,8 @@ import { WorkspaceAssistantProvider, useWorkspaceAssistant } from "./workspace-a
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { isDesktopApp, waitForDesktopApp } from "@/lib/desktop-bridge";
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
+import { useDesktopExternalLinks } from "@/hooks/use-desktop-external-links";
+import { useVisualViewportLayout } from "@/hooks/use-visual-viewport-layout";
 import { appConfirm, appPrompt } from "@/components/app-dialog-provider";
 import {
   RealtimeProvider,
@@ -526,6 +528,7 @@ function WorkspaceAppContent({
   initialProjectId,
 }: WorkspaceAppProps) {
   useVisualViewportLayout();
+  useDesktopExternalLinks();
   const searchParams = useSearchParams();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -2326,39 +2329,6 @@ function mailFolderLabel(folder: SidebarMailFolder): string {
 
 function mailFolderIcon(role: string): typeof Folder {
   return ({ inbox: Inbox, drafts: FileText, sent: Send, archive: Archive, all: Mail, junk: AlertCircle, spam: AlertCircle, trash: Trash2 } as Record<string, typeof Folder>)[role] ?? Folder;
-}
-
-function useVisualViewportLayout() {
-  useEffect(() => {
-    const root = document.documentElement;
-    const viewport = window.visualViewport;
-
-    const syncViewport = () => {
-      const height = viewport?.height ?? window.innerHeight;
-      const offsetTop = viewport?.offsetTop ?? 0;
-      root.style.setProperty("--visual-viewport-height", `${Math.round(height)}px`);
-      root.style.setProperty("--visual-viewport-offset-top", `${Math.round(offsetTop)}px`);
-      const keyboardOpen = window.innerWidth <= 760 && height < window.innerHeight * 0.82;
-      document.body.classList.toggle("software-keyboard-open", keyboardOpen);
-    };
-
-    syncViewport();
-    viewport?.addEventListener("resize", syncViewport);
-    viewport?.addEventListener("scroll", syncViewport);
-    window.addEventListener("orientationchange", syncViewport);
-    document.addEventListener("focusin", syncViewport);
-    document.addEventListener("focusout", syncViewport);
-    return () => {
-      viewport?.removeEventListener("resize", syncViewport);
-      viewport?.removeEventListener("scroll", syncViewport);
-      window.removeEventListener("orientationchange", syncViewport);
-      document.removeEventListener("focusin", syncViewport);
-      document.removeEventListener("focusout", syncViewport);
-      document.body.classList.remove("software-keyboard-open");
-      root.style.removeProperty("--visual-viewport-height");
-      root.style.removeProperty("--visual-viewport-offset-top");
-    };
-  }, []);
 }
 
 function MobileBottomNav({ section, unreadCount }: { readonly section: WorkspaceSection; readonly unreadCount: number }) {
@@ -5290,7 +5260,7 @@ function CalendarAccountSettings() {
                   <div><strong>{account.displayName}</strong><span>{account.providerId === "ics" ? "链接订阅" : account.providerId === "exchange" ? `${account.emailAddress || account.username} · 登录：${account.username}` : account.username}</span></div>
                   <span className={`sync-status sync-status-${account.syncStatus}`}>{account.syncStatus === "syncing" && <LoaderCircle className="spin" size={12} />}{accountStatusLabel(account.syncStatus)}</span>
                 </div>
-                <div className="saved-account-meta"><span>{account.providerId === "ics" ? "ICS 订阅 · 只读" : account.providerId === "exchange" ? `Exchange / RWTH · ${[account.mailEnabled && "邮件", account.calendarEnabled && "日历"].filter(Boolean).join(" + ") || "已暂停"}` : "CalDAV · 只读"}</span><span>{account.calendarsCount} 个日历</span><span>上次同步：{account.lastSyncAt ? formatAccountTime(account.lastSyncAt) : "尚未同步"}</span><span>自动同步：{syncEnabled ? `每 ${formatSyncInterval(syncIntervalMs)}` : "已关闭"}</span></div>
+                <div className="saved-account-meta"><span>{account.providerId === "ics" ? "ICS 订阅 · 只读" : account.providerId === "exchange" ? `Exchange / RWTH · ${[account.mailEnabled && "邮件", account.calendarEnabled && "日历"].filter(Boolean).join(" + ") || "已暂停"}` : "CalDAV · 按服务器权限读写"}</span><span>{account.calendarsCount} 个日历</span><span>上次同步：{account.lastSyncAt ? formatAccountTime(account.lastSyncAt) : "尚未同步"}</span><span>自动同步：{syncEnabled ? `每 ${formatSyncInterval(syncIntervalMs)}` : "已关闭"}</span></div>
                 {account.providerId === "exchange" && account.mailEnabled && (
                   <div className="saved-account-meta">
                     <span>邮件：{accountStatusLabel(account.mailSyncStatus ?? "idle")}</span>
@@ -5349,7 +5319,7 @@ function CalendarAccountSettings() {
         })}
       </div>
       {feedback && <TransientToast message={feedback} onClose={() => setFeedback("")} />}
-      <p className="settings-footnote">CalDAV 与 ICS 为只读；Exchange 凭据会加密保存。会议邀请和重复日程请在原服务中修改。</p>
+      <p className="settings-footnote">ICS 订阅为只读；CalDAV 与 Exchange 会按远端日历权限读写，账户凭据会加密保存。</p>
     </section>
   );
 }

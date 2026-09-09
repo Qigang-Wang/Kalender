@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import {
-  CalendarDays, CalendarClock, Check, CheckCircle2,
+  Bell, CalendarDays, CalendarClock, Check, CheckCircle2,
   ChevronRight, Circle, Clock3, Folder, FolderPlus, GripVertical, Inbox, Link2, ListChecks,
-  LayoutGrid, LoaderCircle, Mail, MoreHorizontal, Pause, Plus, RefreshCw, Star, X,
+  LayoutGrid, LoaderCircle, Mail, MoreHorizontal, Pause, Plus, RefreshCw, Repeat2, Star, X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 
@@ -62,6 +62,8 @@ interface ClientTask {
   readonly isUrgent: boolean;
   readonly dueAt?: string;
   readonly estimatedMinutes?: number;
+  readonly reminderMinutesBefore?: 0 | 5 | 15 | 30 | 60 | 1440;
+  readonly recurrence?: { readonly frequency: "daily" | "weekly" | "monthly" | "yearly"; readonly interval: number };
   readonly projectId?: string;
   readonly projectName?: string;
   readonly projectColor?: string;
@@ -105,6 +107,8 @@ interface TaskDraft {
   urgencyMode: TaskUrgencyMode;
   dueAt: string;
   estimatedMinutes: string;
+  reminderMinutesBefore: string;
+  recurrenceFrequency: string;
   projectId: string;
   planItemId: string;
   projectName: string;
@@ -666,6 +670,8 @@ function TaskCard({ task, busy, compact, draggable, dragging, onDragStart, onDra
         <span className="task-card-meta">
           {task.dueAt && <em className={new Date(task.dueAt).getTime() < Date.now() ? "overdue" : undefined}><CalendarClock size={12} />{formatTaskDue(task.dueAt)}</em>}
           {task.estimatedMinutes && <em><Clock3 size={12} />{formatTaskEstimate(task.estimatedMinutes)}</em>}
+          {task.reminderMinutesBefore !== undefined && <em><Bell size={12} />{formatTaskReminder(task.reminderMinutesBefore)}</em>}
+          {task.recurrence && <em><Repeat2 size={12} />{formatTaskRecurrence(task.recurrence.frequency)}</em>}
           {task.projectName && <em>{task.projectName}</em>}
           {task.planItemTitle && <em>计划项：{task.planItemTitle}</em>}
           {task.areaName && <em>{task.areaName}</em>}
@@ -683,7 +689,7 @@ function TaskCard({ task, busy, compact, draggable, dragging, onDragStart, onDra
 }
 
 function createEmptyTaskDraft(status: TaskStatus): TaskDraft {
-  return { title: "", notes: "", status, important: false, urgencyMode: "auto", dueAt: "", estimatedMinutes: "", projectId: "", planItemId: "", projectName: "", areaName: "", assigneeUserId: "", sourceReferences: [] };
+  return { title: "", notes: "", status, important: false, urgencyMode: "auto", dueAt: "", estimatedMinutes: "", reminderMinutesBefore: "", recurrenceFrequency: "", projectId: "", planItemId: "", projectName: "", areaName: "", assigneeUserId: "", sourceReferences: [] };
 }
 
 function taskToDraft(task: ClientTask): TaskDraft {
@@ -696,6 +702,8 @@ function taskToDraft(task: ClientTask): TaskDraft {
     urgencyMode: task.urgencyMode,
     dueAt: task.dueAt ? toLocalDateTimeInput(new Date(task.dueAt)) : "",
     estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : "",
+    reminderMinutesBefore: task.reminderMinutesBefore === undefined ? "" : String(task.reminderMinutesBefore),
+    recurrenceFrequency: task.recurrence?.frequency ?? "",
     projectId: task.projectId ?? "",
     planItemId: task.planItemId ?? "",
     projectName: task.projectName ?? "",
@@ -714,6 +722,8 @@ function taskDraftPayload(draft: TaskDraft) {
     urgencyMode: draft.urgencyMode,
     dueAt: draft.dueAt ? new Date(draft.dueAt).toISOString() : undefined,
     estimatedMinutes: draft.estimatedMinutes ? Number(draft.estimatedMinutes) : undefined,
+    reminderMinutesBefore: draft.dueAt && draft.reminderMinutesBefore !== "" ? Number(draft.reminderMinutesBefore) : undefined,
+    recurrence: draft.dueAt && draft.recurrenceFrequency ? { frequency: draft.recurrenceFrequency, interval: 1 } : undefined,
     projectId: draft.projectId || undefined,
     planItemId: draft.projectId && draft.planItemId ? draft.planItemId : undefined,
     projectName: draft.projectId ? undefined : draft.projectName || undefined,
@@ -721,6 +731,14 @@ function taskDraftPayload(draft: TaskDraft) {
     assigneeUserId: draft.assigneeUserId || undefined,
     sourceReferences: draft.sourceReferences.map(({ kind, sourceId, label, href }) => ({ kind, sourceId, label, href })),
   };
+}
+
+function formatTaskReminder(minutes: number): string {
+  return minutes === 0 ? "开始时提醒" : minutes === 1440 ? "提前一天提醒" : `提前 ${minutes} 分钟提醒`;
+}
+
+function formatTaskRecurrence(frequency: string): string {
+  return ({ daily: "每天", weekly: "每周", monthly: "每月", yearly: "每年" } as Record<string, string>)[frequency] ?? "重复";
 }
 
 function mailMessageHref(messageId: string): string {

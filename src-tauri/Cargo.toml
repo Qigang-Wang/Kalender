@@ -1,6 +1,6 @@
 [package]
 name = "kalender-desktop"
-version = "0.1.8"
+version = "0.1.9"
 description = "Kalender desktop reminder client"
 authors = ["Kalender"]
 edition = "2021"
@@ -21,6 +21,7 @@ serde_json = "1"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
 url = "2"
 
 [target.'cfg(windows)'.dependencies]

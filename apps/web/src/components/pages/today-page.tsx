@@ -35,6 +35,7 @@ interface TodayEventItem {
   readonly linkedTask?: { readonly id: string; readonly title: string; readonly href: string };
   readonly deleteDisabledReason?: string;
   readonly href: string;
+  readonly updatedAt?: string;
 }
 
 interface TodayTaskItem {
@@ -207,6 +208,7 @@ export function TodayPage() {
     setBusyEventId(event.id);
     try {
       const params = new URLSearchParams({ calendarId: event.calendarId });
+      if (event.updatedAt) params.set("expectedUpdatedAt", event.updatedAt);
       if (event.recurrenceSeriesId && event.recurrenceId) {
         params.set("recurrenceSeriesId", event.recurrenceSeriesId);
         params.set("recurrenceId", event.recurrenceId);
@@ -248,6 +250,7 @@ export function TodayPage() {
             end: targetEnd.toISOString(),
             timeZone: event.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
             allowConflicts,
+            expectedUpdatedAt: event.updatedAt,
           } : {
             calendarId: event.calendarId,
             title: event.title,

@@ -13,7 +13,7 @@ import {
   waitForDesktopApp,
   type DesktopStatus,
 } from "@/lib/desktop-bridge";
-import { createDesktopReminderSyncPayload, desktopReminderRange, type CalendarReminderEvent } from "@/lib/desktop-reminders";
+import { createDesktopReminderSyncPayload, desktopReminderRange, type CalendarReminderEvent, type TaskReminderInput } from "@/lib/desktop-reminders";
 import { workspaceFetch } from "@/lib/workspace-fetch-cache";
 
 const REGULAR_SYNC_INTERVAL_MS = 15 * 60 * 1_000;
@@ -26,12 +26,17 @@ export function DesktopReminderBridge() {
     const now = new Date();
     const range = desktopReminderRange(now);
     const params = new URLSearchParams({ from: range.from.toISOString(), to: range.to.toISOString() });
-    const response = await workspaceFetch(`/api/calendar-events?${params}`, {}, 0);
+    const [response, taskResponse] = await Promise.all([
+      workspaceFetch(`/api/calendar-events?${params}`, {}, 0),
+      workspaceFetch("/api/tasks", {}, 0),
+    ]);
     const payload = await response.json() as { readonly ok?: boolean; readonly events?: readonly CalendarReminderEvent[]; readonly message?: string };
+    const taskPayload = await taskResponse.json() as { readonly ok?: boolean; readonly tasks?: readonly TaskReminderInput[]; readonly message?: string };
     if (!response.ok || payload.ok !== true || !payload.events) throw new Error(payload.message || "无法读取桌面提醒日程");
+    if (!taskResponse.ok || taskPayload.ok !== true || !taskPayload.tasks) throw new Error(taskPayload.message || "无法读取桌面任务提醒");
 
     const status = await invokeDesktop<DesktopStatus>("sync_reminders", {
-      payload: createDesktopReminderSyncPayload(payload.events, settings, now),
+      payload: createDesktopReminderSyncPayload(payload.events, settings, now, taskPayload.tasks),
     });
     publishDesktopStatus(status);
   }, []);

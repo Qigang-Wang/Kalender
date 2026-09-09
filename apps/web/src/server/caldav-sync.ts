@@ -67,7 +67,7 @@ export async function syncCalDavAccount(accountId: string): Promise<CalDavSyncRe
           url: sourceUrl,
           name: calendar.name,
           color: account.colorOverride ?? calendar.color ?? account.color,
-          readOnly: true,
+          readOnly: calendar.readOnly,
         }, index === 0);
         const events = await fetchCalDavEvents(credential, sourceUrl, { from, to }, controller.signal);
         eventsProcessed += await saveCalDavEvents(storedCalendarId, events, from, to);
