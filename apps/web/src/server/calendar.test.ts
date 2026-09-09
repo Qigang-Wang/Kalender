@@ -15,11 +15,26 @@ async function main() {
   const { deleteStoredCalendarEvent, listStoredCalendarEventConflicts } = await import("./calendar-repository");
   const { parseCalendarEventInput, parseCalendarRange, CalendarValidationError } = await import("./calendar-validation");
   const { expandCalendarRecurrenceStarts } = await import("../lib/calendar-recurrence");
+  const { calendarDraftDuration, calendarDraftEndForDuration, shiftCalendarDraftStart } = await import("../lib/calendar-draft-time");
   const { taskCalendarRange } = await import("../lib/task-calendar");
   const { encodeNoteContent, noteContentToPlainText } = await import("../lib/note-content");
   const database = await getDatabase();
 
   try {
+    const shiftedTime = shiftCalendarDraftStart({
+      startLocal: "2026-09-09T13:25",
+      endLocal: "2026-09-10T13:40",
+      allDay: false,
+    }, "2026-09-25T13:25");
+    assert(shiftedTime.endLocal === "2026-09-26T13:40", "moving a timed event keeps its duration");
+    assert(
+      calendarDraftEndForDuration({ ...shiftedTime, allDay: false }, 90) === "2026-09-25T14:55",
+      "selecting a timed duration updates the end time",
+    );
+    const allDayRange = { startLocal: "2026-10-24", endLocal: "2026-10-25", allDay: true };
+    assert(calendarDraftDuration(allDayRange) === 2, "all-day duration counts inclusive calendar days");
+    assert(calendarDraftEndForDuration(allDayRange, 7) === "2026-10-30", "all-day duration remains stable across DST");
+
     const taskRange = taskCalendarRange("2026-07-20T10:00:00.000Z", 45);
     assert(
       taskRange?.start === "2026-07-20T10:00:00.000Z" && taskRange.end === "2026-07-20T10:45:00.000Z",

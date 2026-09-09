@@ -26,6 +26,11 @@ import {
   calendarRecurrenceSummary,
   localIsoWeekday,
 } from "@/lib/calendar-recurrence";
+import {
+  calendarDraftDuration,
+  calendarDraftEndForDuration,
+  shiftCalendarDraftStart,
+} from "@/lib/calendar-draft-time";
 import type {
   CalendarEventReminderMinutes,
   CalendarRecurrenceEditScope,
@@ -56,6 +61,8 @@ import {
 
 const TASKS_CHANGED_EVENT = "kalender:tasks-changed";
 const CALENDAR_SYNCED_EVENT = "kalender:calendar-synced";
+const CALENDAR_TIMED_DURATION_OPTIONS = [15, 30, 45, 60, 90, 120, 180, 240, 480] as const;
+const CALENDAR_ALL_DAY_DURATION_OPTIONS = [1, 2, 3, 5, 7, 14] as const;
 
 const CalendarDescriptionEditor = dynamic(
   () => import("../editor/calendar-description-editor").then((module) => module.CalendarDescriptionEditor),
@@ -1147,7 +1154,7 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                       ariaLabel={draft.allDay ? "开始日期" : "开始时间"}
                       mode={draft.allDay ? "date" : "datetime"}
                       value={draft.startLocal}
-                      onChange={(startLocal) => updateCalendarDraft({ startLocal })}
+                      onChange={(startLocal) => updateCalendarDraft(shiftCalendarDraftStart(draft, startLocal))}
                     />
                     <ArrowRight className="calendar-schedule-arrow" size={16} strokeWidth={1.7} aria-hidden="true" />
                     <DateTimeField
@@ -1158,7 +1165,26 @@ export function CalendarPage({ initialEventId, initialCalendarDate }: { readonly
                       value={draft.endLocal}
                       onChange={(endLocal) => updateCalendarDraft({ endLocal })}
                     />
-                    <small className="calendar-schedule-duration"><Clock3 size={12} />{formatCalendarDetailDuration(draft)}</small>
+                    <div className="calendar-schedule-duration">
+                      <Select
+                        value={String(calendarDraftDuration(draft))}
+                        onValueChange={(value) => updateCalendarDraft({
+                          endLocal: calendarDraftEndForDuration(draft, Number(value)),
+                        })}
+                      >
+                        <SelectTrigger className="calendar-duration-select-trigger" aria-label="持续时间">
+                          <Clock3 size={12} aria-hidden="true" />
+                          <SelectValue>{formatCalendarDetailDuration(draft)}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent className="calendar-reminder-select-content" position="popper" align="end" sideOffset={6}>
+                          {(draft.allDay ? CALENDAR_ALL_DAY_DURATION_OPTIONS : CALENDAR_TIMED_DURATION_OPTIONS).map((duration) => (
+                            <SelectItem className="calendar-reminder-select-item" value={String(duration)} key={duration}>
+                              {draft.allDay ? `${duration} 天` : formatCalendarDurationMinutes(duration)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div className="calendar-reminder-control">
                       <Select
                         value={draft.reminderMinutesBefore === undefined ? "default" : String(draft.reminderMinutesBefore)}
@@ -2867,6 +2893,13 @@ function formatCalendarDetailDuration(draft: CalendarEventDraft): string {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return remainingMinutes ? `${hours} 小时 ${remainingMinutes} 分钟` : `${hours} 小时`;
+}
+
+function formatCalendarDurationMinutes(minutes: number): string {
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours} 小时 ${remainder} 分钟` : `${hours} 小时`;
 }
 
 function formatCalendarEventRange(event: CalendarViewEvent): string {
