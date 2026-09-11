@@ -136,6 +136,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           shopt -s globstar nullglob
           files=(release-assets/**/*.exe release-assets/**/*.exe.sig release-assets/**/*.msi release-assets/**/*.msi.sig release-assets/**/latest.json)

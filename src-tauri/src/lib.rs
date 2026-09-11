@@ -1744,9 +1744,20 @@ fn is_external_browser_url(url: &Url) -> bool {
 }
 
 fn is_kalender_server_url(url: &Url, server_url: &str) -> bool {
+    // These two HTTPS origins serve the same Dayline instance.
+    let is_dayline = |url: &Url| {
+        url.scheme() == "https"
+            && url.port_or_known_default() == Some(443)
+            && matches!(
+                url.host_str(),
+                Some("dayline.qigang.wang" | "dayline.ipv6.qigang.wang")
+            )
+    };
     matches!(url.scheme(), "http" | "https")
         && Url::parse(server_url)
-            .map(|server| url.origin() == server.origin())
+            .map(|server| {
+                url.origin() == server.origin() || (is_dayline(url) && is_dayline(&server))
+            })
             .unwrap_or(false)
 }
 
@@ -2034,7 +2045,7 @@ fn ensure_main_caller(
             .map_err(|_| "服务器配置暂时不可用".to_string())?;
         Url::parse(configured_server_url(&state)).map_err(|_| "保存的服务器地址无效".to_string())?
     };
-    if current.origin() != expected.origin() {
+    if !is_kalender_server_url(&current, expected.as_str()) {
         return Err("当前页面不是已配置的 Kalender 服务器".to_string());
     }
     Ok(())
@@ -2240,6 +2251,35 @@ mod tests {
             &Url::parse("http://kalender.example.com:8443/").unwrap(),
             server
         ));
+    }
+
+    #[test]
+    fn dayline_redirects_share_navigation_and_desktop_bridge_access() {
+        let servers = [
+            "https://dayline.qigang.wang/",
+            "https://dayline.ipv6.qigang.wang/",
+        ];
+        for server in servers {
+            for target in [
+                "https://dayline.qigang.wang/today?source=desktop",
+                "https://dayline.ipv6.qigang.wang:443/calendar#event",
+            ] {
+                assert!(is_kalender_server_url(&Url::parse(target).unwrap(), server));
+            }
+            for other in [
+                "http://dayline.qigang.wang/",
+                "http://dayline.ipv6.qigang.wang/",
+                "https://dayline.ipv6.qigang.wang:8443/",
+                "https://dayline.qigang.wang:8443/",
+                "https://other.qigang.wang/",
+                "https://dayline.ipv6.qigang.wang.example.com/",
+                "https://dayline.qigang.wang@evil.example/",
+                "https://example.com/",
+            ] {
+                assert!(!is_kalender_server_url(&Url::parse(other).unwrap(), server));
+                assert!(!is_kalender_server_url(&Url::parse(server).unwrap(), other));
+            }
+        }
     }
 
     #[test]
