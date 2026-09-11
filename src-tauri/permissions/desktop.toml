@@ -22,4 +22,4 @@ commands.allow = ["get_server_config", "save_server_config", "close_server_confi
 [[permission]]
 identifier = "allow-reminder-actions"
 description = "Allow the bundled reminder window to dismiss, open or snooze reminders."
-commands.allow = ["close_reminder", "open_reminder", "snooze_reminder"]
+commands.allow = ["close_reminder", "open_reminder", "snooze_reminder", "resize_reminder"]

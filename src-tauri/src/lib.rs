@@ -361,11 +361,21 @@ fn open_reminder(app: AppHandle, window: WebviewWindow, route: String) -> Result
     if !route.starts_with('/') || route.starts_with("//") {
         return Err("提醒链接无效".to_string());
     }
-    window
-        .hide()
-        .map_err(|error| format!("无法关闭提醒：{error}"))?;
+    // The reminder page advances its queue and hides only after the last item.
     open_route(&app, &route);
     Ok(())
+}
+
+#[tauri::command]
+async fn resize_reminder(window: WebviewWindow, height: f64) -> Result<(), String> {
+    ensure_reminder_caller(&window)?;
+    if !height.is_finite() || !(160.0..=440.0).contains(&height) {
+        return Err("提醒窗口高度无效".into());
+    }
+    window
+        .set_size(LogicalSize::new(420.0, height))
+        .map_err(|error| format!("无法调整提醒窗口：{error}"))?;
+    position_reminder_window(&window)
 }
 
 #[tauri::command]
@@ -544,6 +554,7 @@ pub fn run() {
             close_reminder,
             open_reminder,
             snooze_reminder,
+            resize_reminder,
             get_server_config,
             save_server_config,
             close_server_config,
@@ -933,14 +944,6 @@ fn ensure_windowed_mode(runtime: &State<'_, DesktopRuntime>) -> Result<(), Strin
     } else {
         Ok(())
     }
-}
-
-fn open_windowed_mode(app: &AppHandle, route: Option<&str>) {
-    if let Err(error) = set_desktop_mode(app, false) {
-        show_desktop_mode_error(&error);
-        return;
-    }
-    request_main_window(app, route);
 }
 
 fn show_main_window_from_tray(app: &AppHandle) {
@@ -1566,6 +1569,9 @@ fn reminder_toast(reminder: ReminderInput, show_title: bool) -> ReminderToast {
 }
 
 fn show_reminder_window(app: &AppHandle, reminders: Vec<ReminderToast>) -> Result<(), String> {
+    if reminders.is_empty() {
+        return Ok(());
+    }
     let payload =
         serde_json::to_string(&reminders).map_err(|error| format!("无法生成提醒内容：{error}"))?;
     if let Some(window) = app.get_webview_window(REMINDER_WINDOW_LABEL) {
@@ -1575,9 +1581,11 @@ fn show_reminder_window(app: &AppHandle, reminders: Vec<ReminderToast>) -> Resul
             ))
             .map_err(|error| format!("无法更新提醒窗口：{error}"))?;
         position_reminder_window(&window)?;
-        return window
+        window
             .show()
-            .map_err(|error| format!("无法显示提醒窗口：{error}"));
+            .map_err(|error| format!("无法显示提醒窗口：{error}"))?;
+        play_reminder_sound();
+        return Ok(());
     }
 
     let initialization_script = format!("window.__KALENDER_REMINDERS__ = {payload};");
@@ -1602,7 +1610,22 @@ fn show_reminder_window(app: &AppHandle, reminders: Vec<ReminderToast>) -> Resul
     position_reminder_window(&window)?;
     window
         .show()
-        .map_err(|error| format!("无法显示提醒窗口：{error}"))
+        .map_err(|error| format!("无法显示提醒窗口：{error}"))?;
+    play_reminder_sound();
+    Ok(())
+}
+
+fn play_reminder_sound() {
+    // Use the Windows sound scheme, without WebView autoplay restrictions.
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows::Win32::{
+            System::Diagnostics::Debug::MessageBeep, UI::WindowsAndMessaging::MB_ICONINFORMATION,
+        };
+        if let Err(error) = MessageBeep(MB_ICONINFORMATION) {
+            eprintln!("无法播放提醒提示音：{error}");
+        }
+    }
 }
 
 fn position_reminder_window(window: &WebviewWindow) -> Result<(), String> {
@@ -1719,7 +1742,7 @@ fn show_main_window_unchecked(app: &AppHandle) {
             .map(|state| state.desktop_mode)
             .unwrap_or(false);
         if desktop_mode {
-            let _ = apply_window_mode(&window, true);
+            let _ = show_desktop_window_in_front(&window);
         } else {
             if was_fullscreen {
                 let _ = window.set_fullscreen(true);
@@ -1738,7 +1761,8 @@ fn hide_main_window(app: &AppHandle) {
 }
 
 fn open_route(app: &AppHandle, route: &str) {
-    open_windowed_mode(app, Some(route));
+    // Navigation must preserve the user's window mode, including desktop mode.
+    request_main_window(app, Some(route));
 }
 
 fn create_main_window(app: &AppHandle, server_url: &str, visible: bool) -> Result<(), String> {
@@ -2231,11 +2255,18 @@ mod tests {
                         "get_server_config",
                         "save_server_config",
                         "close_server_config",
-                    ],
+                    ]
+                    .as_slice(),
                 ),
                 (
                     "reminder",
-                    ["close_reminder", "open_reminder", "snooze_reminder"],
+                    [
+                        "close_reminder",
+                        "open_reminder",
+                        "snooze_reminder",
+                        "resize_reminder",
+                    ]
+                    .as_slice(),
                 ),
             ] {
                 for command in commands {

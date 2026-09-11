@@ -8,208 +8,150 @@
       :root {
         color-scheme: light dark;
         font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
-        --surface: rgba(249, 251, 255, .96);
-        --surface-strong: #ffffff;
-        --text: #172033;
-        --muted: #68748a;
-        --line: rgba(38, 61, 96, .13);
-        --accent: #4f82d7;
-        --accent-strong: #376fca;
-        --accent-soft: #e9f1ff;
-        --shadow: 0 18px 48px rgba(25, 44, 75, .23), 0 2px 8px rgba(25, 44, 75, .12);
+        --surface: rgba(249,251,255,.98); --text: #172033; --muted: #68748a;
+        --line: rgba(38,61,96,.16); --accent: #2864bd; --soft: #e9f1ff; --success: #238346;
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --surface: rgba(31, 35, 44, .96);
-          --surface-strong: #292e39;
-          --text: #f3f6fb;
-          --muted: #aab4c5;
-          --line: rgba(255, 255, 255, .11);
-          --accent: #78a9f4;
-          --accent-strong: #91b9f6;
-          --accent-soft: rgba(88, 139, 220, .18);
-          --shadow: 0 18px 48px rgba(0, 0, 0, .45), 0 2px 8px rgba(0, 0, 0, .28);
+          --surface: rgba(31,35,44,.98); --text: #f3f6fb; --muted: #aab4c5;
+          --line: rgba(255,255,255,.16); --accent: #a8ccff; --soft: #293e5c; --success: #66d68c;
         }
       }
       * { box-sizing: border-box; }
-      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
-      body { display: grid; padding: 10px; place-items: stretch; }
-      main {
-        display: flex;
-        min-width: 0;
-        flex-direction: column;
-        padding: 16px;
-        color: var(--text);
-        background: var(--surface);
-        border: 1px solid var(--line);
-        border-radius: 18px;
-        box-shadow: var(--shadow);
-        backdrop-filter: blur(22px) saturate(1.2);
-        opacity: 0;
-        transform: translateY(12px) scale(.985);
-        transition: opacity 180ms ease, transform 220ms cubic-bezier(.2, .8, .2, 1);
-      }
-      main.enter { opacity: 1; transform: none; }
-      header { display: flex; align-items: center; gap: 10px; min-height: 30px; }
-      .logo {
-        display: grid;
-        width: 28px;
-        height: 28px;
-        flex: 0 0 auto;
-        color: #fff;
-        background: linear-gradient(145deg, #77a5e9, #477ccb);
-        border-radius: 8px;
-        box-shadow: inset 0 1px rgba(255,255,255,.32);
-        place-items: center;
-        font-size: 16px;
-      }
-      .brand { font-size: 13px; font-weight: 650; letter-spacing: .01em; }
-      .queue-count { display: none; padding: 3px 7px; color: var(--accent-strong); background: var(--accent-soft); border-radius: 999px; font-size: 11px; }
-      .queue-count.visible { display: inline-flex; }
-      .now { margin-left: auto; color: var(--muted); font-size: 11px; }
-      .close {
-        display: grid;
-        width: 28px;
-        height: 28px;
-        margin-left: 2px;
-        padding: 0;
-        color: var(--muted);
-        background: transparent;
-        border: 0;
-        border-radius: 8px;
-        place-items: center;
-        font: inherit;
-        font-size: 20px;
-        cursor: pointer;
-      }
-      .close:hover { color: var(--text); background: var(--accent-soft); }
-      h1 { margin: 14px 0 6px; overflow: hidden; font-size: 18px; font-weight: 680; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
-      .details { display: flex; min-height: 20px; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
-      .time { color: var(--accent-strong); font-weight: 650; }
-      .separator { width: 3px; height: 3px; background: currentColor; border-radius: 50%; opacity: .6; }
-      .location { display: flex; min-width: 0; align-items: center; gap: 5px; }
-      .location span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 15px; }
-      button.action { height: 34px; padding: 0 13px; border: 1px solid var(--line); border-radius: 9px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
-      button.secondary { color: var(--text); background: var(--surface-strong); }
-      button.primary { color: #fff; background: var(--accent-strong); border-color: transparent; }
-      button.action:hover { filter: brightness(.97); }
-      button.action:focus-visible, .close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-      button[hidden] { display: none; }
-      @media (prefers-reduced-motion: reduce) { main { transition: none; } }
+      [hidden] { display: none !important; }
+      html, body { width: 100%; margin: 0; overflow: hidden; background: transparent; }
+      body { padding: 10px; }
+      main { padding: 16px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 18px; }
+      /* No outer shadow: the native window would clip it into a rectangular halo. */
+      header { display: flex; align-items: center; gap: 9px; height: 28px; }
+      .logo { display: grid; place-items: center; width: 28px; height: 28px; flex: none; border-radius: 8px; background: #5187d4; color: white; }
+      .brand { font-size: 13px; font-weight: 650; }
+      .countdown { margin-left: auto; padding: 4px 8px; border-radius: 20px; background: var(--soft); color: var(--accent); font-size: 11px; font-weight: 650; white-space: nowrap; }
+      button { font: inherit; cursor: pointer; }
+      .close { margin-left: auto; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 22px; }
+      .countdown:not([hidden]) + .close { margin-left: 0; }
+      .close:hover { background: var(--soft); color: var(--text); }
+      h1 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin: 14px 0 10px; font-size: 20px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+      .details { display: grid; gap: 8px; font-size: 13px; color: var(--muted); }
+      .detail-row { display: flex; align-items: center; gap: 9px; min-width: 0; line-height: 20px; }
+      .detail-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      svg { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+      #time { color: var(--text); }
+      .success { display: none; }
+      .test-content { min-width: 0; }
+      .is-test .content { display: flex; align-items: center; gap: 13px; margin-top: 18px; }
+      .is-test .success { display: block; width: 35px; height: 35px; color: var(--success); }
+      .is-test h1 { margin: 0 0 5px; font-size: 18px; }
+      .is-test #time { color: var(--muted); }
+      footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+      .action { min-height: 36px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--line); font-size: 13px; }
+      .secondary { background: transparent; color: var(--text); }
+      .primary { background: #286bc4; color: white; border-color: transparent; }
+      button:hover { filter: brightness(1.08); }
+      button:disabled { cursor: wait; opacity: .6; }
+      button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .queue-count { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; color: var(--muted); font-size: 12px; }
+      .error { margin: 10px 0 0; color: var(--accent); font-size: 12px; overflow-wrap: anywhere; }
     </style>
   </head>
   <body>
     <main id="card" role="alertdialog" aria-labelledby="title" aria-describedby="details">
       <header>
-        <span class="logo" aria-hidden="true">✦</span>
-        <span class="brand">Kalender</span>
-        <span id="queue-count" class="queue-count"></span>
-        <span class="now">现在</span>
-        <button id="close" class="close" type="button" aria-label="关闭提醒">×</button>
+        <span class="logo" aria-hidden="true">✦</span><span class="brand">Kalender</span>
+        <span id="countdown" class="countdown"></span>
+        <button id="close" class="close" type="button" aria-label="关闭当前提醒">×</button>
       </header>
-      <h1 id="title"></h1>
-      <div id="details" class="details">
-        <span id="time" class="time"></span>
-        <span id="separator" class="separator"></span>
-        <span id="location" class="location"><span aria-hidden="true">⌖</span><span id="location-text"></span></span>
+      <div class="content">
+        <svg class="success" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m7 12 3 3 7-7"/></svg>
+        <div class="test-content">
+          <h1 id="title"></h1>
+          <div id="details" class="details">
+            <div class="detail-row"><svg id="clock" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span id="time"></span></div>
+            <div id="location" class="detail-row" hidden><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 10c0 6-8 11-8 11S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg><span id="location-text"></span></div>
+          </div>
+        </div>
       </div>
-      <footer>
-        <button id="snooze" class="action secondary" type="button">稍后 10 分钟</button>
-        <button id="open" class="action primary" type="button">打开日程</button>
-      </footer>
+      <p id="error" class="error" role="status" hidden></p>
+      <footer><button id="snooze" class="action secondary" type="button">稍后 10 分钟</button><button id="open" class="action primary" type="button">打开日程 →</button></footer>
+      <div id="queue-count" class="queue-count" hidden></div>
     </main>
     <script>
       const invoke = window.__TAURI__.core.invoke;
-      const card = document.querySelector("#card");
-      const title = document.querySelector("#title");
-      const time = document.querySelector("#time");
-      const separator = document.querySelector("#separator");
-      const locationRow = document.querySelector("#location");
-      const locationText = document.querySelector("#location-text");
-      const queueCount = document.querySelector("#queue-count");
-      const snooze = document.querySelector("#snooze");
-      let queue = [];
+      const $ = (id) => document.getElementById(id);
+      const card = $("card");
+      const queue = [];
       let current;
-      let dismissTimer;
-
-      function key(item) { return `${item.id}:${item.startAt}`; }
+      let busy = false;
+      const key = (item) => `${item.id}:${item.startAt}`;
+      const isTest = (item) => item.id === "kalender-test-notification";
+      function reportError(error) {
+        $("error").textContent = String(error);
+        $("error").hidden = false;
+      }
       function add(items) {
         const known = new Set([current, ...queue].filter(Boolean).map(key));
         for (const item of Array.isArray(items) ? items : []) {
-          if (item && !known.has(key(item))) {
-            known.add(key(item));
-            queue.push(item);
-          }
+          if (item && !known.has(key(item))) { known.add(key(item)); queue.push(item); }
         }
         if (!current) showNext();
-        updateCount();
+        else updateCount();
       }
       function updateCount() {
-        const count = queue.length + (current ? 1 : 0);
-        queueCount.textContent = `${count} 项`;
-        queueCount.classList.toggle("visible", count > 1);
+        $("queue-count").textContent = `另有 ${queue.length} 项提醒`;
+        $("queue-count").hidden = queue.length === 0;
       }
-      function relativeTime(item) {
-        if (item.allDay) return "全天日程";
-        const minutes = Math.max(0, Math.round((item.startAt - Date.now()) / 60000));
-        if (minutes < 1) return "现在开始";
-        if (minutes < 60) return `${minutes} 分钟后`;
-        const hours = Math.round(minutes / 60);
-        return hours < 24 ? `${hours} 小时后` : `${Math.round(hours / 24)} 天后`;
-      }
-      function clockTime(timestamp) {
-        return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(timestamp);
+      function updateTime() {
+        if (!current || isTest(current)) return;
+        const now = new Date();
+        const start = new Date(current.startAt);
+        const minutes = Math.ceil((start - now) / 60000);
+        $("countdown").textContent = current.allDay ? "全天日程" : minutes <= 0 ? "已到开始时间" : minutes < 60 ? `${minutes} 分钟后开始` : minutes < 1440 ? `${Math.floor(minutes / 60)} 小时后开始` : `${Math.floor(minutes / 1440)} 天后开始`;
+        const date = start.toDateString() === now.toDateString() ? "今天" : new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "numeric", day: "numeric" }).format(start);
+        $("time").textContent = current.allDay ? `${date} · 全天` : `${date} ${new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(start)}`;
       }
       function showNext() {
-        window.clearTimeout(dismissTimer);
         current = queue.shift();
-        if (!current) {
-          card.classList.remove("enter");
-          void invoke("close_reminder");
-          return;
-        }
-        title.textContent = current.title;
-        time.textContent = current.message || `${relativeTime(current)} · ${clockTime(current.startAt)}`;
-        const hasLocation = Boolean(current.location);
-        separator.hidden = !hasLocation;
-        locationRow.hidden = !hasLocation;
-        locationText.textContent = current.location || "";
-        snooze.hidden = !current.canSnooze;
         updateCount();
-        card.classList.remove("enter");
-        requestAnimationFrame(() => requestAnimationFrame(() => card.classList.add("enter")));
-        scheduleDismiss();
+        if (!current) { void invoke("close_reminder").catch(reportError); return; }
+        const test = isTest(current);
+        card.classList.toggle("is-test", test);
+        $("title").textContent = test ? "测试通知已送达" : current.title;
+        $("title").title = $("title").textContent;
+        $("countdown").hidden = test;
+        $("clock").toggleAttribute("hidden", test);
+        $("location").hidden = test || !current.location;
+        $("location-text").textContent = current.location || "";
+        $("location-text").title = current.location || "";
+        $("snooze").hidden = !current.canSnooze;
+        $("open").textContent = test ? "知道了" : "打开日程 →";
+        $("error").hidden = true;
+        if (test) $("time").textContent = current.message || "桌面提醒已正常连接。";
+        else updateTime();
       }
-      function scheduleDismiss() {
-        window.clearTimeout(dismissTimer);
-        dismissTimer = window.setTimeout(showNext, 12000);
-      }
-
-      document.querySelector("#close").addEventListener("click", showNext);
-      document.querySelector("#open").addEventListener("click", () => {
-        if (!current) return;
-        const route = current.route;
-        current = undefined;
-        queue = [];
-        window.clearTimeout(dismissTimer);
-        void invoke("open_reminder", { route });
-      });
-      snooze.addEventListener("click", async () => {
-        if (!current) return;
-        snooze.disabled = true;
+      async function act(action) {
+        if (!current || busy) return;
+        busy = true;
+        const buttons = [...document.querySelectorAll("button")];
+        buttons.forEach((button) => button.disabled = true);
         try {
-          await invoke("snooze_reminder", { id: current.id, startAt: current.startAt });
+          if (action === "snooze") await invoke("snooze_reminder", { id: current.id, startAt: current.startAt });
+          if (action === "open" && !isTest(current)) await invoke("open_reminder", { route: current.route });
           showNext();
-        } catch (error) {
-          time.textContent = String(error);
-          scheduleDismiss();
-        } finally {
-          snooze.disabled = false;
-        }
-      });
-      card.addEventListener("mouseenter", () => window.clearTimeout(dismissTimer));
-      card.addEventListener("mouseleave", scheduleDismiss);
+        } catch (error) { reportError(error); }
+        finally { busy = false; buttons.forEach((button) => button.disabled = false); }
+      }
+      $("close").addEventListener("click", () => void act("close"));
+      $("open").addEventListener("click", () => void act("open"));
+      $("snooze").addEventListener("click", () => void act("snooze"));
+      // Only refresh the displayed time; reminders never expire automatically.
+      window.setInterval(updateTime, 15000);
+      let previousHeight = 0;
+      new ResizeObserver(() => {
+        const height = Math.ceil(card.getBoundingClientRect().height) + 20;
+        if (height === previousHeight) return;
+        previousHeight = height;
+        void invoke("resize_reminder", { height }).catch(reportError);
+      }).observe(card);
       window.addEventListener("kalender:reminders", (event) => add(event.detail));
       add(window.__KALENDER_REMINDERS__ || []);
     </script>
