@@ -174,7 +174,21 @@ npm run tauri build -- \
 
 ## GitHub Actions 原生构建
 
-采用 GitHub Actions 为每个平台使用原生 Runner：
+当前已实现的工作流是 `.github/workflows/desktop-windows.yml`，使用 Windows Runner。触发方式如下：
+
+| 操作 | 执行内容 | 安装包与发布 |
+|---|---|---|
+| 推送 `main` 或提交 Pull Request | TypeScript 类型检查、提醒测试、Rust 格式检查、Clippy 和 Rust 测试 | 不制作安装包 |
+| Actions → Desktop Windows → Run workflow，选择 `main` | 上述检查及 Windows 打包 | 在该次运行的 Artifacts 下载测试安装包，不创建 Release |
+| 推送 `v*` 版本标签 | 签名私钥预检查、版本校验、上述检查及签名打包 | 创建或更新 GitHub Release，上传安装包、签名和 `latest.json` |
+
+Rust 检查和测试统一使用 `--release --features tauri/custom-protocol`，与 Tauri 打包配置保持一致。`Swatinem/rust-cache` 缓存下载的依赖及编译结果，仅在 `main` 保存缓存；发布标签和 Pull Request 可读取默认分支缓存。首次运行、Rust 工具链或依赖变化、缓存被清理时仍可能较慢，提速幅度需要在 GitHub 实际运行后确认。缓存范围遵循 [GitHub 缓存访问规则](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache)。
+
+日常修改先推送 `main`，让检查完成并保存缓存。累积一批需要更新客户端的改动后，再同步修改 `src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 和 `src-tauri/Cargo.lock` 中的客户端版本，提交并推送代码；待 `main` 检查完成后，给该提交创建并推送对应的 `v版本号` 标签。这样普通提交不再重复制作安装包，标签构建也有机会复用已完成的依赖编译。仅修改服务器上的 Web 页面通常只需重新部署服务端。
+
+签名预检查在耗时的 Rust 编译前执行；私钥内容或密码错误会提前失败。手动在版本标签上运行工作流也会执行签名和发布流程。
+
+后续跨平台构建规划如下：
 
 | 平台 | Runner | 输出 |
 |---|---|---|
