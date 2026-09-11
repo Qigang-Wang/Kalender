@@ -52,6 +52,7 @@ use url::Url;
 const TRAY_ID: &str = "kalender-tray";
 const STATE_FILE: &str = "desktop-reminders.json";
 const REMINDER_CHECK_INTERVAL: Duration = Duration::from_secs(10);
+const AUTOMATIC_UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
 const SERVER_CONNECTION_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 const SERVER_CONNECTION_TIMEOUT: Duration = Duration::from_secs(3);
 const DESKTOP_WINDOW_GUARD_INTERVAL: Duration = Duration::from_millis(100);
@@ -651,21 +652,21 @@ pub fn run() {
 }
 
 fn start_automatic_update(app: AppHandle) {
-    tauri::async_runtime::spawn(async move {
+    thread::spawn(move || loop {
         use tauri_plugin_updater::UpdaterExt;
 
-        let result = async {
+        let result = tauri::async_runtime::block_on(async {
             let updater = app.updater()?;
             if let Some(update) = updater.check().await? {
                 update.download_and_install(|_, _| {}, || {}).await?;
                 app.restart();
             }
             Ok::<(), tauri_plugin_updater::Error>(())
-        }
-        .await;
+        });
         if let Err(error) = result {
             eprintln!("自动更新检查失败：{error}");
         }
+        thread::sleep(AUTOMATIC_UPDATE_CHECK_INTERVAL);
     });
 }
 
