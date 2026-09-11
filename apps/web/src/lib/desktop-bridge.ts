@@ -64,7 +64,12 @@ export async function waitForDesktopApp(timeoutMs = 5_000): Promise<boolean> {
 export async function invokeDesktop<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const invoke = window.__TAURI__?.core?.invoke;
   if (!invoke) throw new Error("当前页面未运行在 Kalender 桌面客户端中");
-  return invoke<T>(command, args);
+  try {
+    return await invoke<T>(command, args);
+  } catch (error) {
+    // Tauri commands reject with strings; callers display Error.message.
+    throw error instanceof Error ? error : new Error(String(error));
+  }
 }
 
 export function publishDesktopStatus(status: DesktopStatus): void {

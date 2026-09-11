@@ -38,7 +38,7 @@ export function DesktopReminderSettingsPanel() {
           setStatus(nextStatus);
           publishDesktopStatus(nextStatus);
         })
-        .catch(() => setFeedback("无法读取桌面客户端状态"));
+        .catch((error) => setFeedback(error instanceof Error ? error.message : "无法读取桌面客户端状态"));
     });
     return () => {
       disposed = true;

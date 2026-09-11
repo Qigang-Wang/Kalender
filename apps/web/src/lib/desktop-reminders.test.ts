@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { DEFAULT_DESKTOP_REMINDER_SETTINGS } from "./desktop-bridge";
+import { DEFAULT_DESKTOP_REMINDER_SETTINGS, invokeDesktop } from "./desktop-bridge";
 import { createDesktopReminderSyncPayload, type CalendarReminderEvent } from "./desktop-reminders";
 
 const at = (day: number, hour: number, minute = 0) => new Date(2026, 7, day, hour, minute).toISOString();
@@ -39,4 +39,26 @@ assert.equal(
 assert.equal(payload.reminders.find((reminder) => reminder.id === "custom")?.location, "Meeting room", "location is available to the custom reminder window");
 assert(!payload.reminders.some((reminder) => reminder.id === "silent"), "events set to no reminder stay out of the native queue");
 
-console.log("Desktop calendar reminder tests passed");
+async function testNativeErrors() {
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  let nativeError: unknown = "当前页面不是已配置的 Kalender 服务器";
+  try {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { __TAURI__: { core: { invoke: async () => { throw nativeError; } } } },
+    });
+    await assert.rejects(invokeDesktop("send_test_notification"), {
+      message: "当前页面不是已配置的 Kalender 服务器",
+    }, "native string errors must reach the settings UI instead of a generic failure");
+    nativeError = new Error("无法创建提醒窗口");
+    await assert.rejects(invokeDesktop("send_test_notification"), (error) => error === nativeError);
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+}
+
+void testNativeErrors().then(() => console.log("Desktop calendar reminder tests passed")).catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

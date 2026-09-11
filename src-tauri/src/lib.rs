@@ -326,7 +326,7 @@ fn report_sync_error(
 }
 
 #[tauri::command]
-fn send_test_notification(
+async fn send_test_notification(
     app: AppHandle,
     window: WebviewWindow,
     runtime: State<'_, DesktopRuntime>,
