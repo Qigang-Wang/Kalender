@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::PathBuf,
-    sync::Mutex,
+    sync::{mpsc, Mutex},
     thread,
     time::Duration,
 };
@@ -171,6 +171,7 @@ struct DesktopRuntime {
     state_path: PathBuf,
     server_status_item: Mutex<Option<IconMenuItem<tauri::Wry>>>,
     desktop_monitor_items: Mutex<Vec<CheckMenuItem<tauri::Wry>>>,
+    update_requests: mpsc::SyncSender<()>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -572,11 +573,13 @@ pub fn run() {
             {
                 eprintln!("{error}");
             }
+            let (update_requests, update_receiver) = mpsc::sync_channel(0);
             app.manage(DesktopRuntime {
                 state: Mutex::new(persisted),
                 state_path,
                 server_status_item: Mutex::new(None),
                 desktop_monitor_items: Mutex::new(Vec::new()),
+                update_requests,
             });
             build_tray(app)?;
             update_server_connection_menu(app.handle(), Some(connected));
@@ -588,7 +591,7 @@ pub fn run() {
             start_reminder_scheduler(app.handle().clone());
             start_server_connection_monitor(app.handle().clone());
             start_desktop_window_guard(app.handle().clone());
-            start_automatic_update(app.handle().clone());
+            start_automatic_update(app.handle().clone(), update_receiver);
             if let Ok(state) = app.state::<DesktopRuntime>().state.lock() {
                 update_tray_tooltip(app.handle(), &state);
             }
@@ -651,23 +654,66 @@ pub fn run() {
         .expect("error while running Kalender desktop client");
 }
 
-fn start_automatic_update(app: AppHandle) {
-    thread::spawn(move || loop {
+fn start_automatic_update(app: AppHandle, requests: mpsc::Receiver<()>) {
+    thread::spawn(move || {
         use tauri_plugin_updater::UpdaterExt;
 
-        let result = tauri::async_runtime::block_on(async {
-            let updater = app.updater()?;
-            if let Some(update) = updater.check().await? {
-                update.download_and_install(|_, _| {}, || {}).await?;
-                app.restart();
+        run_update_checks(requests, AUTOMATIC_UPDATE_CHECK_INTERVAL, |manual| {
+            if manual {
+                show_update_notification("正在检查更新…");
             }
-            Ok::<(), tauri_plugin_updater::Error>(())
+            let result = tauri::async_runtime::block_on(async {
+                let updater = app.updater()?;
+                if let Some(update) = updater.check().await? {
+                    if manual {
+                        show_update_notification(&format!(
+                            "发现新版本 {}，正在下载安装，完成后将自动重启。",
+                            update.version
+                        ));
+                    }
+                    update.download_and_install(|_, _| {}, || {}).await?;
+                    app.restart();
+                }
+                Ok::<(), tauri_plugin_updater::Error>(())
+            });
+            match result {
+                Ok(()) if manual => show_update_notification(&format!(
+                    "当前已是最新版本（{}）。",
+                    app.package_info().version
+                )),
+                Err(error) => {
+                    eprintln!("更新检查或安装失败：{error}");
+                    if manual {
+                        show_update_notification("更新检查或安装失败，请检查网络后重试。");
+                    }
+                }
+                _ => {}
+            }
         });
-        if let Err(error) = result {
-            eprintln!("自动更新检查失败：{error}");
-        }
-        thread::sleep(AUTOMATIC_UPDATE_CHECK_INTERVAL);
     });
+}
+
+fn run_update_checks(
+    requests: mpsc::Receiver<()>,
+    interval: Duration,
+    mut check: impl FnMut(bool),
+) {
+    let mut manual = false;
+    loop {
+        check(manual);
+        manual = match requests.recv_timeout(interval) {
+            Ok(()) => true,
+            Err(mpsc::RecvTimeoutError::Timeout) => false,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        };
+    }
+}
+
+fn show_update_notification(message: &str) {
+    let _ = kalender_notification()
+        .summary("Kalender 更新")
+        .body(message)
+        .show();
 }
 
 fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
@@ -734,6 +780,7 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let server_config = MenuItem::with_id(app, "server-config", "服务器地址…", true, None::<&str>)?;
+    let check_update = MenuItem::with_id(app, "check-update", "检查更新…", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(
@@ -746,6 +793,7 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
             &settings,
             &server_status,
             &server_config,
+            &check_update,
             &separator,
             &quit,
         ],
@@ -787,6 +835,19 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 "settings" => open_route(app, "/settings?tab=desktop"),
                 "server-status" => open_server_config(app),
                 "server-config" => open_server_config(app),
+                "check-update" => {
+                    match app.state::<DesktopRuntime>().update_requests.try_send(()) {
+                        Ok(()) => {}
+                        Err(mpsc::TrySendError::Full(())) => {
+                            show_update_notification("正在检查或安装更新，请稍候。");
+                        }
+                        Err(mpsc::TrySendError::Disconnected(())) => {
+                            show_update_notification(
+                                "更新服务暂不可用，请退出并重新打开 Kalender。",
+                            );
+                        }
+                    }
+                }
                 "quit" => app.exit(0),
                 _ => {}
             }
@@ -2396,6 +2457,40 @@ mod tests {
             ..PersistedState::default()
         };
         assert!(tray_tooltip_text(&state, 1).contains("日历同步失败：请先登录"));
+    }
+
+    #[test]
+    fn update_checks_handle_startup_manual_requests_and_timer_without_overlap() {
+        let (requests, receiver) = mpsc::sync_channel(0);
+        let (started, checks) = mpsc::channel();
+        let (finish, completed) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            run_update_checks(receiver, Duration::from_secs(1), |manual| {
+                started.send(manual).unwrap();
+                completed.recv_timeout(Duration::from_secs(5)).unwrap();
+            });
+        });
+        let next_check = || checks.recv_timeout(Duration::from_secs(5)).unwrap();
+
+        assert!(!next_check());
+        assert!(matches!(
+            requests.try_send(()),
+            Err(mpsc::TrySendError::Full(()))
+        ));
+        finish.send(()).unwrap();
+        requests.send(()).unwrap();
+
+        assert!(next_check());
+        assert!(matches!(
+            requests.try_send(()),
+            Err(mpsc::TrySendError::Full(()))
+        ));
+        finish.send(()).unwrap();
+
+        assert!(!next_check());
+        drop(requests);
+        finish.send(()).unwrap();
+        worker.join().unwrap();
     }
 
     fn health_server(status: &'static str, body: &'static str) -> (String, thread::JoinHandle<()>) {
