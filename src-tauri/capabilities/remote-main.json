@@ -3,8 +3,9 @@
   "identifier": "remote-main",
   "description": "Allows the configured Kalender server to call the restricted desktop bridge.",
   "windows": ["main"],
+  "local": false,
   "remote": {
     "urls": ["https://*", "https://*:*", "http://*", "http://*:*"]
   },
-  "permissions": []
+  "permissions": ["allow-desktop-bridge"]
 }

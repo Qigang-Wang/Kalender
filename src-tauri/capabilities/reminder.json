@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "reminder",
+  "description": "Access for the bundled reminder window.",
+  "windows": ["reminder"],
+  "permissions": ["allow-reminder-actions"]
+}

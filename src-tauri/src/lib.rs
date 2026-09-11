@@ -2186,6 +2186,82 @@ mod tests {
     };
 
     #[test]
+    fn desktop_acl_grants_commands_only_to_their_intended_windows() {
+        use tauri::ipc::Origin;
+
+        let mut context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+        let authority = context.runtime_authority_mut();
+        for server in [
+            "https://dayline.qigang.wang/today",
+            "https://dayline.ipv6.qigang.wang/settings?tab=desktop",
+            "http://localhost:3000/calendar",
+        ] {
+            let origin = Origin::Remote {
+                url: Url::parse(server).unwrap(),
+            };
+            for command in [
+                "desktop_status",
+                "update_desktop_settings",
+                "sync_reminders",
+                "report_sync_error",
+                "send_test_notification",
+                "desktop_window_is_maximized",
+                "desktop_window_minimize",
+                "desktop_window_toggle_maximized",
+                "desktop_window_start_dragging",
+                "desktop_window_close",
+            ] {
+                assert!(
+                    authority
+                        .resolve_access(command, "main", "main", &origin)
+                        .is_some(),
+                    "{command} must be allowed from {server}"
+                );
+                assert!(authority
+                    .resolve_access(command, "reminder", "reminder", &origin)
+                    .is_none());
+                assert!(authority
+                    .resolve_access(command, "main", "main", &Origin::Local)
+                    .is_none());
+            }
+            for (window, commands) in [
+                (
+                    "server-config",
+                    [
+                        "get_server_config",
+                        "save_server_config",
+                        "close_server_config",
+                    ],
+                ),
+                (
+                    "reminder",
+                    ["close_reminder", "open_reminder", "snooze_reminder"],
+                ),
+            ] {
+                for command in commands {
+                    assert!(authority
+                        .resolve_access(command, window, window, &Origin::Local)
+                        .is_some());
+                    assert!(authority
+                        .resolve_access(command, "main", "main", &origin)
+                        .is_none());
+                    assert!(authority
+                        .resolve_access(command, window, window, &origin)
+                        .is_none());
+                    let other = if window == "reminder" {
+                        "server-config"
+                    } else {
+                        "reminder"
+                    };
+                    assert!(authority
+                        .resolve_access(command, other, other, &Origin::Local)
+                        .is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
     fn reminder_key_keeps_recurring_instances_distinct() {
         let first = ReminderInput {
             id: "series".into(),

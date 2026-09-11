@@ -1,0 +1,25 @@
+[[permission]]
+identifier = "allow-desktop-bridge"
+description = "Allow the main Kalender page to use the origin-checked desktop commands."
+commands.allow = [
+  "desktop_status",
+  "update_desktop_settings",
+  "sync_reminders",
+  "report_sync_error",
+  "send_test_notification",
+  "desktop_window_is_maximized",
+  "desktop_window_minimize",
+  "desktop_window_toggle_maximized",
+  "desktop_window_start_dragging",
+  "desktop_window_close",
+]
+
+[[permission]]
+identifier = "allow-server-config"
+description = "Allow the bundled server settings window to manage the server address."
+commands.allow = ["get_server_config", "save_server_config", "close_server_config"]
+
+[[permission]]
+identifier = "allow-reminder-actions"
+description = "Allow the bundled reminder window to dismiss, open or snooze reminders."
+commands.allow = ["close_reminder", "open_reminder", "snooze_reminder"]
