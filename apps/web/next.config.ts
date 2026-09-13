@@ -16,6 +16,10 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: workspaceRoot,
   reactStrictMode: true,
   devIndicators: false,
+  experimental: {
+    // Allow a 100 MB file plus multipart form overhead through the auth proxy.
+    proxyClientMaxBodySize: "101mb",
+  },
   allowedDevOrigins: ["127.0.0.1", "localhost", ...configuredDevOrigins],
   serverExternalPackages: ["imapflow", "nodemailer", "pg", "postal-mime"],
 };

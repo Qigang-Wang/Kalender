@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { getDatabase } from "./database";
 
-export const MAX_EDITOR_ASSET_BYTES = 10 * 1024 * 1024;
+export const MAX_EDITOR_ASSET_BYTES = 100 * 1024 * 1024;
 
 const INLINE_MIME_TYPES = new Set([
   "image/gif",
@@ -82,7 +82,7 @@ async function normalizeEditorAsset(file: File): Promise<{
 }> {
   if (!(file instanceof File)) throw new EditorAssetError("上传文件格式无效");
   if (file.size <= 0) throw new EditorAssetError("上传文件不能为空");
-  if (file.size > MAX_EDITOR_ASSET_BYTES) throw new EditorAssetError("编辑器文件不能超过 10 MB", 413);
+  if (file.size > MAX_EDITOR_ASSET_BYTES) throw new EditorAssetError("编辑器文件不能超过 100 MB", 413);
   const filename = file.name.normalize("NFC").replace(/[\u0000-\u001f\u007f]/g, "").trim();
   if (!filename || filename.length > 240) throw new EditorAssetError("文件名称无效或过长");
   const mimeType = file.type.trim().toLocaleLowerCase() || "application/octet-stream";
