@@ -237,9 +237,10 @@ function parseRealtimeEvent(payload) {
 
 async function authenticateSession(session) {
   const result = await authPool.query(
-    `SELECT id, role, session_version, must_change_password
-       FROM app_users
-      WHERE id = $1 AND disabled_at IS NULL
+    `SELECT u.id, u.role, c.session_version, c.must_change_password
+       FROM app_users u
+       JOIN app_login_credentials c ON c.user_id = u.id
+      WHERE u.id = $1 AND u.disabled_at IS NULL
       LIMIT 1`,
     [session.userId],
   );
