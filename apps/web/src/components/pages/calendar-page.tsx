@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { getISOWeek, getISOWeekYear } from "date-fns";
 import {
   AlertCircle, ArrowRight, BellRing, CalendarDays, CalendarClock, Check, ChevronLeft,
   ChevronDown, ChevronRight, Circle, Clock3, Copy, Folder, Link2, ListChecks, LoaderCircle, Mail,
@@ -1142,7 +1143,10 @@ export function CalendarPage({ userId, initialEventId, initialCalendarDate }: { 
             <button className="secondary-button" onClick={() => setAnchorDate(new Date())}>今天</button>
             <button className="secondary-button" aria-label={viewMode === "week" ? "下一周" : "下个月"} onClick={() => setAnchorDate(moveCalendarPeriod(anchorDate, viewMode, 1))}>›</button>
           </div>
-          <strong>{viewMode === "week" ? formatCalendarWeekRange(visibleRange.start, visibleRange.end) : formatCalendarMonth(anchorDate)}</strong>
+          <strong>
+            {viewMode === "week" ? formatCalendarWeekRange(visibleRange.start, visibleRange.end) : formatCalendarMonth(anchorDate)}
+            {viewMode === "week" && <span className="calendar-week-number-label" title={`${getISOWeekYear(visibleRange.start)} 年 · ISO 周次`}>第 {getISOWeek(visibleRange.start)} 周</span>}
+          </strong>
           <div className="calendar-toolbar-actions">
             <div className="calendar-view-switch" role="group" aria-label="日历视图">
               <button className={viewMode === "week" ? "active" : ""} aria-pressed={viewMode === "week"} onClick={() => changeViewMode("week")}>周</button>
@@ -2213,21 +2217,33 @@ function CalendarMonthView({
   const days = Array.from({ length: 42 }, (_, index) => addCalendarDays(rangeStart, index));
   const weeks = Array.from({ length: 6 }, (_, index) => days.slice(index * 7, index * 7 + 7));
   const spanningEvents = events.filter(calendarEventSpansMultipleDays);
+  const currentWeekStart = startOfCalendarWeek(new Date());
 
   return (
     <section className="calendar-month panel" aria-label="月视图" data-testid="calendar-month-view">
       <div className="calendar-month-weekdays">
+        <div className="calendar-month-week-number-heading" title="ISO 周次，周一开始">周次</div>
         {calendarDayNames.map((name, index) => <div className={index >= 5 ? "calendar-weekend" : undefined} key={name}>{name}</div>)}
       </div>
       <div className="calendar-month-grid">
         {weeks.map((week, weekIndex) => {
           const placements = layoutCalendarSpanEvents(spanningEvents, week);
           const laneCount = calendarSpanLaneCount(placements);
+          const weekNumber = getISOWeek(week[0]);
+          const isCurrentWeek = calendarDatesMatch(week[0], currentWeekStart);
           return <div
             className="calendar-month-week"
             style={{ "--calendar-month-span-lanes": laneCount } as CSSProperties}
             key={weekIndex}
           >
+            <div
+              className={`calendar-month-week-number ${isCurrentWeek ? "current-week" : ""}`}
+              aria-label={`${getISOWeekYear(week[0])} 年第 ${weekNumber} 周${isCurrentWeek ? "，本周" : ""}`}
+              aria-current={isCurrentWeek ? "date" : undefined}
+            >
+              <span>{weekNumber}</span>
+              {isCurrentWeek && <small>本周</small>}
+            </div>
             {week.map((day, dayIndex) => {
               const index = weekIndex * 7 + dayIndex;
               const dayKey = toCalendarDateKey(day);
